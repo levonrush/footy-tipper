@@ -1,0 +1,22 @@
+---
+title: "does the crowd effect who wins nrl games?"
+output: html_notebook
+---
+
+```{r}
+library(here)
+i_am("research/crowd-effects.Rmd")
+
+source(paste0(here(),"/R/get-data.R"))
+
+crowd_df <- get_data(year_span = 2012:2022) %>%
+  select(crowd, is_home_team_winner)
+
+skim(crowd_df)
+```
+
+```{r}
+crowd_glm <- glm(is_home_team_winner ~ crowd, data = crowd_df, family = "binomial")
+summary(crowd_glm)
+```
+

@@ -1,0 +1,80 @@
+---
+title: "How to get a footy tipping dataset"
+output:
+  html_document:
+    df_print: paged
+---
+
+https://stackoverflow.com/questions/52641073/how-to-import-nested-xml-into-r-data-frame
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(xml2)
+library(skimr)
+
+fixtures <- read_xml("http://Newcastle:Kn1ght5%@rugbyleague-api.stats.com/api/NRL/competitions/fixtures/111/2021")
+```
+
+```{r, message=FALSE, warning=FALSE}
+game_results_long <- fixtures %>% xml_find_all(".//gameFixture") %>%
+  map_df(~{
+    bind_cols(
+      gameId =  xml_attr(.x, "gameId"),
+      team = xml_find_all(.x, ".//teams/team") %>% xml_attr("team"),
+      teamFinalScore = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamFinalScore"),
+      isHomeTeam = xml_find_all(.x, ".//teams/team") %>% xml_attr("isHomeTeam"),
+      teamPosition = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamPosition")
+      ) 
+  }) 
+
+split_game_results <- game_results_long %>%
+  group_by(isHomeTeam) %>%
+  group_split()
+
+away_game_results <- split_game_results[[1]] %>%
+  select(-isHomeTeam)
+
+home_game_results <- split_game_results[[2]] %>%
+  select(-isHomeTeam)
+
+game_results <- home_game_results %>% 
+  inner_join(away_game_results, by = "gameId", suffix = c('_home', '_away'))
+
+game_results %>%
+  arrange(gameId)
+```
+
+```{r, message=FALSE, warning=FALSE}
+fixture_info <- fixtures %>% xml_find_all(".//roundFixtures") %>%
+  map_df(~{
+    bind_cols(
+      gameId = xml_find_all(.x, ".//gameFixture") %>% xml_attr("gameId"),
+      roundId = xml_attr(.x, "roundId"),
+      roundName = xml_attr(.x, "roundName"),
+      gameNumber = xml_find_all(.x, ".//gameFixture") %>% xml_attr("gameNumber"),
+      venueName = xml_find_all(.x, ".//gameFixture") %>% xml_attr("venueName"),
+      city = xml_find_all(.x, ".//gameFixture") %>% xml_attr("city"),
+      crowd = xml_find_all(.x, ".//gameFixture") %>% xml_attr("crowd"),
+      broadcastChannel1 = xml_find_all(.x, ".//gameFixture") %>% xml_attr("broadcastChannel"),
+      broadcastChannel2 = xml_find_all(.x, ".//gameFixture") %>% xml_attr("broadcastChannel2"),
+      broadcastChannel3 = xml_find_all(.x, ".//gameFixture") %>% xml_attr("broadcastChannel3")
+      ) 
+  }) %>%
+  mutate(broadcastChannel3 = if_else(is.na(broadcastChannel3), "None", broadcastChannel3))
+
+fixture_info
+```
+
+```{r, message=FALSE, warning=FALSE}
+footy_tipper_df <- fixture_info %>% 
+  inner_join(game_results, by = c('gameId')) %>%
+  mutate(is_home_team_winner = if_else(teamFinalScore_home > teamFinalScore_away, T, F)) %>%
+  type_convert() %>% 
+  mutate_if(is.character, as.factor)
+
+footy_tipper_df
+```
+
+```{r, message=FALSE, warning=FALSE}
+skim(footy_tipper_df)
+```
