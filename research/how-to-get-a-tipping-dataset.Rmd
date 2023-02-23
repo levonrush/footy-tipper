@@ -12,7 +12,9 @@ library(tidyverse)
 library(xml2)
 library(skimr)
 
-fixtures <- read_xml("http://Newcastle:Kn1ght5%@rugbyleague-api.stats.com/api/NRL/competitions/fixtures/111/2021")
+password <- rstudioapi::askForPassword("Enter your password")
+
+fixtures <- read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/fixtures/111/2021"))
 ```
 
 ```{r, message=FALSE, warning=FALSE}
