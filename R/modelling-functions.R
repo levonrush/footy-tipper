@@ -5,42 +5,40 @@ library(OptimalCutpoints)
 library(parallel)
 library(doParallel)
 
-cross_validation <- function(x,
-                             y,
-                             algo = "rf", 
-                             k = k, 
-                             sampling = NULL,
-                             metric = "ROC",
-                             tGrid = NULL, 
-                             seed = 69,
-                             ...){
+train_model <- function(data, outcome_var, method = "rf", num_clusters = detectCores(), 
+                        num_folds = 5, metric = "ROC", seed = 69) {
   
   # Set up clusters - this speeds up cv training (4 clusters ~ twice as fast)
-  cl <- makePSOCKcluster(detectCores())
+  cl <- makePSOCKcluster(num_clusters)
   registerDoParallel(cl)
   
   # Set up caret CV options
-  ctrl <- trainControl(method = "repeatedcv", 
-                       number = k,
+  ctrl <- trainControl(method = "repeatedcv",
+                       number = num_folds,
                        classProbs = TRUE,
                        summaryFunction = twoClassSummary,
-                       sampling = sampling, 
+                       sampling = NULL,
                        verboseIter = TRUE)
   set.seed(seed)
   
-  
   # The new big loop
-  cv1 <- train(x = x, y = y, 
-               method = algo,
-               metric = metric, 
-               trControl = ctrl,
-               tuneGrid = tGrid,
-               ...)
+  cv <- train(x = data %>% select(-{{outcome_var}}) %>% as.data.frame(),
+              y = data[[outcome_var]],
+              method = method,
+              metric = metric,
+              trControl = ctrl,
+              tuneGrid = expand.grid(mtry = 1:((ncol(data) - 1))))
   
   # When you are done:
   stopCluster(cl)
   
-  return(cv1)
+  # print results
+  print(cv)
+  
+  # get final model
+  final_model <- cv$finalModel
+  
+  return(final_model)
   
 }
 
