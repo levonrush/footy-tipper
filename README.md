@@ -4,7 +4,7 @@ This is a data science project mainly programmed in R that is currently in the r
 ## Overview
 The aim of this project is to develop a model that can predict NRL game outcomes and provide betting tips for the Seven Seas Hotel's NRL tipping comp. The project currently includes data collection, cleaning, and exploratory data analysis. Various machine learning models will be tested and evaluated before selecting the best-performing model to use in the production pipeline.
 
-##Installation
+## Installation
 To run this project locally, follow these steps:
 
 1. Clone the repository.
