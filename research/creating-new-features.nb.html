@@ -1760,20 +1760,145 @@ display: none;
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShoZXJlKVxuXG5pX2FtKFwicmVzZWFyY2gvY3JlYXRpbmctbmV3LWZlYXR1cmVzLlJtZFwiKVxuYGBgIn0= -->
+<pre class="r"><code>library(here)
+
+i_am(&quot;research/creating-new-features.Rmd&quot;)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoiaGVyZSgpIHN0YXJ0cyBhdCAvVXNlcnMvbGV2b25ydXNoL0RvY3VtZW50cy9HaXRIdWIvZm9vdHktdGlwcGVyXG4ifQ== -->
+<pre><code>here() starts at /Users/levonrush/Documents/GitHub/footy-tipper</code></pre>
+<!-- rnb-output-end -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuc291cmNlKHBhc3RlMChoZXJlKCksXCIvUi9nZXQtZGF0YS5SXCIpKVxuXG5mb290eV90aXBwZXJfZGYgPC0gZ2V0X2RhdGEoeWVhcl9zcGFuID0gMjAxMjoyMDIzKSBcbmBgYCJ9 -->
+<pre class="r"><code>source(paste0(here(),&quot;/R/get-data.R&quot;))
+
+footy_tipper_df &lt;- get_data(year_span = 2012:2023) </code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoiXG7ilIDilIAgQ29sdW1uIHNwZWNpZmljYXRpb24g4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAXG5jb2xzKFxuICBnYW1lSWQgPSBjb2xfZG91YmxlKCksXG4gIHJvdW5kSWQgPSBjb2xfZG91YmxlKCksXG4gIHJvdW5kTmFtZSA9IGNvbF9jaGFyYWN0ZXIoKSxcbiAgZ2FtZU51bWJlciA9IGNvbF9kb3VibGUoKSxcbiAgZ2FtZVN0YXRlTmFtZSA9IGNvbF9jaGFyYWN0ZXIoKSxcbiAgc3RhcnRUaW1lID0gY29sX2RhdGV0aW1lKGZvcm1hdCA9IFwiXCIpLFxuICBzdGFydFRpbWVVVEMgPSBjb2xfZGF0ZXRpbWUoZm9ybWF0ID0gXCJcIiksXG4gIHZlbnVlTmFtZSA9IGNvbF9jaGFyYWN0ZXIoKSxcbiAgY2l0eSA9IGNvbF9jaGFyYWN0ZXIoKSxcbiAgY3Jvd2QgPSBjb2xfZG91YmxlKCksXG4gIGJyb2FkY2FzdENoYW5uZWwxID0gY29sX2NoYXJhY3RlcigpLFxuICBicm9hZGNhc3RDaGFubmVsMiA9IGNvbF9jaGFyYWN0ZXIoKSxcbiAgYnJvYWRjYXN0Q2hhbm5lbDMgPSBjb2xfY2hhcmFjdGVyKCksXG4gIHRlYW1faG9tZSA9IGNvbF9jaGFyYWN0ZXIoKSxcbiAgdGVhbUZpbmFsU2NvcmVfaG9tZSA9IGNvbF9kb3VibGUoKSxcbiAgdGVhbVBvc2l0aW9uX2hvbWUgPSBjb2xfZG91YmxlKCksXG4gIHRlYW1fYXdheSA9IGNvbF9jaGFyYWN0ZXIoKSxcbiAgdGVhbUZpbmFsU2NvcmVfYXdheSA9IGNvbF9kb3VibGUoKSxcbiAgdGVhbVBvc2l0aW9uX2F3YXkgPSBjb2xfZG91YmxlKClcbilcbiJ9 -->
+<pre><code>
+── Column specification ────────────────────────────────────────────────────────────────────────────
+cols(
+  gameId = col_double(),
+  roundId = col_double(),
+  roundName = col_character(),
+  gameNumber = col_double(),
+  gameStateName = col_character(),
+  startTime = col_datetime(format = &quot;&quot;),
+  startTimeUTC = col_datetime(format = &quot;&quot;),
+  venueName = col_character(),
+  city = col_character(),
+  crowd = col_double(),
+  broadcastChannel1 = col_character(),
+  broadcastChannel2 = col_character(),
+  broadcastChannel3 = col_character(),
+  team_home = col_character(),
+  teamFinalScore_home = col_double(),
+  teamPosition_home = col_double(),
+  team_away = col_character(),
+  teamFinalScore_away = col_double(),
+  teamPosition_away = col_double()
+)</code></pre>
+<!-- rnb-output-end -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuaGVhZChmb290eV90aXBwZXJfZGYpXG5gYGAifQ== -->
+<pre class="r"><code>head(footy_tipper_df)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-frame-begin eyJtZXRhZGF0YSI6eyJjbGFzc2VzIjpbInRibF9kZiIsInRibCIsImRhdGEuZnJhbWUiXSwibnJvdyI6NiwibmNvbCI6MjEsInN1bW1hcnkiOnsiQSB0aWJibGUiOlsiNiDDlyAyMSJdfX0sInJkZiI6Ikg0c0lBQUFBQUFBQUErMVl6WE1iTlJSM0VpZU9uU1p4MHFhMHBRd0x3NEhwTkpuVzZTZVgraU9wbXpiK0lFNXg2U1hJYThYZThWcnlhTFUxN29FcC93bC9RR2U0TVZ4Z09od1liaHhhRGd3OWNlTFlNNGVXcDExSjJWVmNKdTBWTXBHZjNwT2U5TlBUMDlQVDdtemNXOC9jeXlRU2lhbEVjZ0orcDZHYW1MNjdlM1AxV2lLUm5BUm1JcEZNcEFYOUVwcVBRMlVGeWdLVW1lTHlEemRPZ3pTZzMwajZpNlF2UW5ybWxLUjVNWENvZCtORlVFOGNsY0s4ODBKUElCdGZZa0JuWFB3QXV4N1VzbERlbDlMNW13NUJybWMxTWU1WkY4Y0pjK09FNjFJNFYyYUl0SzJnU1lwU085UUhrUnByVnJJWERONXN6eG44dXNGZk12akxCbi9GNEs4YS9EV0R2eDZIYTB5Zk0rRG1ETGc1czc4Qk4yZkF6Umx3Y3diYzNOVTRuUFU0ZXluT1hvNnpWK0tzTWRTMU9IdmRjSXRwMjBXZThncnRLL3ZJNXBSQjdhWHBuWG5wZS9sWlNiT1NucEQwMUNIdm5CaGZCSXpKVjNMbVNRVW42a3F6ZFlhdE11cmpzUE9VNmp3VzVsUUFzL0QwNlcrUG9WSjQrdXpjc1pCKzVjYnB3NzlDK3Z1ekFHYmNHdndoSmRpWVp1cnVic2xBb09DbTZyWEcxajJiSzBBQnl3MUEzeWJDQ2FlK0NHbnp5WGo2Mk5LQWt1WlMzeGFEMm9Nem9xUGN5dy9rSGh3Mzl1QzhIR0g1NHZxRkM0M0sxdlptdzJwdzFIYjh2bXc1ZHNtcU93UjdWaDJ4bnBTbEM0WEtWbFF3WDdCdHlnek54WUxyT29nOE5NUnpoZXA5UTVRdEl0SWJZbytiWFl1SXVYUVluU2xiTEZwMTVoQ3o2MG9SdTMwS3Z0TVlVTVk5cTh5RTZ5c2tSZGZIUld6cXZGdEMvVUVMdXk2blE2SVU0MTFPeEx2RVVaY1FhV0hHa0xudUVtS0FzTU1waVNKZkxyVjhHTjRmWU5OUUt5Vk1PRU91VmFMb2tBMnlKZHJ2Qy9zWTh2Um1HOGZHbnl0djFVemRzZ3Q5bW80cmpGaDdjSERJYmhWdlJsV1AzVUVqYXE1aUd6dDJ0NHRZbTBkVjA5dVVjK29pYmR1VEZYdUR3dmx0VzdlcGNKUDRLQXVxTmVZL0t4WFlLV0dlRGVTNEl4TjBCVXpRUjh3MHhPa3E1aDZZaVNQcnR0OXlYSXhOYnlGT3l4RE4xd2JjTnpGbDY0andMbWFtZktsT3dhKzh3Mzd5L3FjK3hzUVRpNFl0OG1HdlJ0YVlIWmxyMkw0THk0bnVTYU5uTG05SnNsYkJGNnVCRTZJTTN2QUpIS0tCMGY4a2lMMHVuTUN4M3JIU0dMVUpIbGtsNXRnOUFCNXorN25kUXg0eDE5eXFHcUxwbWpER2tjS3RpaXdub1p5VjBlVWRZYUFnTk1Vank0Zksxd3B0N0NLbmpUWHYyNzJJLzh3V0VlLzZ6T09hWjQ3WFFrVDFUeGRoUVFqT1dVZEJLaUdIRVU5MVY0ZFE4cGtTR01uRis1U3BDZVpqcDB0NWZLa0wwM0FiWnJhN3VpUGQzL2VzVzRpMXFNL1ViQnVJRFIyaWJMWGh0MXBVSVN1N3FPMXhxcUZteXRSdHg2WkpsYWtYZ1RKN0MvVWRDQ1ZxdUprS3NudG9wTWFyWUZmTXJNZWJxZmp0RHRaY0ZRMGNySENscTNob0IwdlZWd0ltek9GcU1kTjF6RFNUM3NGdDIzWDI5MVhudVIxcTk3b1EyZzZ3TE1UOVRFMGErcGZDdjR2NlF4b1pkNWZTSWFYOWxyYitMb1JKN3dFRUhEMVRFM1U2eUFwK1ZhY214Tk13UG1vSmhSQkZPdkIvRkQ4TXM1UDg4Ni96NHU3TS8xeDZGTkFmdjBzRTlLZnZRLzdYUDBMNlorMUowQ0Q5VndqSEZjTi9wOVF0ZkxOMlQxYVRkd3FmMTFTOXVsWGRmS05Ea3hwZllwT20xT2pYcTdYbVlRQXpVTjNkM0I0REo3Mjk5ZG1tVlM4MEdqRjhxaDRrT0crQU5UbSt4TEFtLzkxQVl4QzlLUXJ4R0JNSm5jaldoR3hPREd1Z1dOSjVnUXdiVnBGUmlLTXFQaHhjMGpzaUNERWxmdy9rSExPV3owYXJJcFo3d1FWZmhBRGVwaDNWNlV3SnhnSVJXbTM0SWtnR04wQUQ3c1NlRGo4YjFCM0FxVkg4MGtFSXNIWWRqblREbVFvaTdtaTFHYVlHcUdzMU1MSTJVY2ZGcXNlaVB2NFFvQ25UR1FnY2RPcytSc0hjZ1RyVmkxalNRY0M2UTV4T2w2dUdVMVZ4U3EzWXZUVnMwWkdlQys0b2h2cUl3Mlc2S1Y2STZtWU1ZNGlsYmtoOUIxRll2eVh2bWgzVWFqbWNkbFhyMlFaZnM4cVlzZzYydHNCWVF6RzJ0Y0VRbkdjOW9kS2wxT01IQXg5clF0TG5nYVU2UW5iMG8zOCtQTkRxNFpGZmwxVEsxVi8ra3E2R2VoOUorWnFrSDhmMThoY2tQYWZVdEM4dUpzSUVXanlCcGhMNlJQL3ZpLzk1WDFTK2xKUDBtcVJYRFBrbmhpK2VsWExscStveExSL1ordkdkMVhyU0YxUFB4NWUzZW53bnQ2bW5MRERWaEVUbkNBdVBQNThKUE5iVng0UVZsWXgwUUxqbjZMd255RW9QK0V6SUMwMlZKZ1FLeE8rM2RJYXpHSWc4amppTzlzeUFoUEU5N21qSndvRmt6K2UyNnZjQUV6K21tYlFkcmpLWmFadlJvWUt6M0dJVXRZWHo3dGxkUkFoMkw3NjJKZmZhRnZYOUpzMHg2dTkxcVo1M0pSRHNpNDhjZXg1aytEamF1QncwRHFqbmNJZVNhRXM0RG5qdzZMWGpSQnFOY1NJdFdadjJCNWlIOGhGR3lyNVpNZGRlb01hdzU3dmMyTmcwV0doTmJhNXdyY2xIOFBQcTFhdS9YK01qbVRhOHpkYjJXZkR4NXBDZnBPaEFJSURCSnNXbjA1U2hQQ0Y4S3lPZE5SR3BUeGdkRjMwaVFMVlhJWGNudmRWMVEyMWUxbWNpOVpVUXlyU1paYzFnMG5GMHRwMkNXRUVnSGlvV0Z1NmhqbXFkZHVFTm9oN0JDMkNhd0RKckEvRXA0c0NyaDk0YXAxdy9sak0yZFpVa0RCa3Yvd0hvY010QVp4WUFBQT09In0= -->
+<div data-pagedtable="false">
+<script data-pagedtable-source type="application/json">
+{"columns":[{"label":["game_id"],"name":[1],"type":["dbl"],"align":["right"]},{"label":["round_id"],"name":[2],"type":["dbl"],"align":["right"]},{"label":["round_name"],"name":[3],"type":["fctr"],"align":["left"]},{"label":["game_number"],"name":[4],"type":["dbl"],"align":["right"]},{"label":["game_state_name"],"name":[5],"type":["fctr"],"align":["left"]},{"label":["start_time"],"name":[6],"type":["S3: POSIXct"],"align":["right"]},{"label":["start_time_utc"],"name":[7],"type":["S3: POSIXct"],"align":["right"]},{"label":["venue_name"],"name":[8],"type":["fctr"],"align":["left"]},{"label":["city"],"name":[9],"type":["fctr"],"align":["left"]},{"label":["crowd"],"name":[10],"type":["dbl"],"align":["right"]},{"label":["broadcast_channel1"],"name":[11],"type":["fctr"],"align":["left"]},{"label":["broadcast_channel2"],"name":[12],"type":["fctr"],"align":["left"]},{"label":["broadcast_channel3"],"name":[13],"type":["fctr"],"align":["left"]},{"label":["team_home"],"name":[14],"type":["fctr"],"align":["left"]},{"label":["team_final_score_home"],"name":[15],"type":["dbl"],"align":["right"]},{"label":["team_position_home"],"name":[16],"type":["dbl"],"align":["right"]},{"label":["team_away"],"name":[17],"type":["fctr"],"align":["left"]},{"label":["team_final_score_away"],"name":[18],"type":["dbl"],"align":["right"]},{"label":["team_position_away"],"name":[19],"type":["dbl"],"align":["right"]},{"label":["competition_year"],"name":[20],"type":["int"],"align":["right"]},{"label":["home_team_result"],"name":[21],"type":["fctr"],"align":["left"]}],"data":[{"1":"20121110110","2":"1","3":"Round 1","4":"1","5":"Final","6":"2012-03-01 11:00:00","7":"2012-03-01","8":"McDonald Jones Stadium","9":"Newcastle","10":"29189","11":"NA","12":"None","13":"None","14":"Newcastle Knights","15":"14","16":"10","17":"St. George Illawarra Dragons","18":"15","19":"7","20":"2012","21":"Loss"},{"1":"20121110120","2":"1","3":"Round 1","4":"2","5":"Final","6":"2012-03-02 11:00:00","7":"2012-03-02","8":"Bankwest Stadium","9":"Sydney","10":"11399","11":"NA","12":"None","13":"None","14":"Parramatta Eels","15":"6","16":"15","17":"Brisbane Broncos","18":"18","19":"2","20":"2012","21":"Loss"},{"1":"20121110130","2":"1","3":"Round 1","4":"3","5":"Final","6":"2012-03-03 11:00:00","7":"2012-03-03","8":"Canberra Stadium","9":"Canberra","10":"7862","11":"NA","12":"None","13":"None","14":"Canberra Raiders","15":"19","16":"12","17":"Melbourne Storm","18":"24","19":"5","20":"2012","21":"Loss"},{"1":"20121110140","2":"1","3":"Round 1","4":"4","5":"Final","6":"2012-03-03 11:00:00","7":"2012-03-03","8":"Panthers Stadium","9":"Penrith","10":"9585","11":"NA","12":"None","13":"None","14":"Penrith Panthers","15":"14","16":"14","17":"Canterbury-Bankstown Bulldogs","18":"22","19":"3","20":"2012","21":"Loss"},{"1":"20121110150","2":"1","3":"Round 1","4":"5","5":"Final","6":"2012-03-03 10:00:00","7":"2012-03-03","8":"1300SMILES Stadium","9":"Townsville","10":"16311","11":"NA","12":"None","13":"None","14":"North Queensland Cowboys","15":"0","16":"16","17":"Gold Coast Titans","18":"18","19":"1","20":"2012","21":"Loss"},{"1":"20121110160","2":"1","3":"Round 1","4":"6","5":"Final","6":"2012-03-04 13:00:00","7":"2012-03-04","8":"Eden Park","9":"Auckland","10":"37502","11":"NA","12":"None","13":"None","14":"New Zealand Warriors","15":"20","16":"13","17":"Manly-Warringah Sea Eagles","18":"26","19":"4","20":"2012","21":"Loss"}],"options":{"columns":{"min":{},"max":[10],"total":[21]},"rows":{"min":[10],"max":[10],"total":[6]},"pages":{}}}
+  </script>
+</div>
+<!-- rnb-frame-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
-<p>Add a new chunk by clicking the <em>Insert Chunk</em> button on the
-toolbar or by pressing <em>Cmd+Option+I</em>.</p>
-<p>When you save the notebook, an HTML file containing the code and
-output will be saved alongside it (click the <em>Preview</em> button or
-press <em>Cmd+Shift+K</em> to preview the HTML file).</p>
-<p>The preview shows you a rendered HTML copy of the contents of the
-editor. Consequently, unlike <em>Knit</em>, <em>Preview</em> does not
-run any R code chunks. Instead, the output of the chunk when it was last
-run in the editor is displayed.</p>
+<div id="corona-season" class="section level1">
+<h1>corona season</h1>
+<p>an easy one aimed at reducing bias from a weird season</p>
 <!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuZm9vdHlfdGlwcGVyX2RmIDwtIGZvb3R5X3RpcHBlcl9kZiAlPiVcbiAgbXV0YXRlKGNvcm9uYV9zZWFzb24gPSBpZmVsc2UoY29tcGV0aXRpb25feWVhciA9PSAyMDIwLCAxLCAwKSlcbmBgYCJ9 -->
+<pre class="r"><code>footy_tipper_df &lt;- footy_tipper_df %&gt;%
+  mutate(corona_season = ifelse(competition_year == 2020, 1, 0))</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="seasonality-variables" class="section level1">
+<h1>Seasonality Variables</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShsdWJyaWRhdGUpXG5gYGAifQ== -->
+<pre class="r"><code>library(lubridate)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoiXG5BdHRhY2hpbmcgcGFja2FnZTog4oCYbHVicmlkYXRl4oCZXG5cblRoZSBmb2xsb3dpbmcgb2JqZWN0cyBhcmUgbWFza2VkIGZyb20g4oCYcGFja2FnZTpiYXNl4oCZOlxuXG4gICAgZGF0ZSwgaW50ZXJzZWN0LCBzZXRkaWZmLCB1bmlvblxuIn0= -->
+<pre><code>
+Attaching package: ‘lubridate’
 
-<div id="rmd-source-code">LS0tCnRpdGxlOiAiQ3JlYXRpbmcgbmV3IGZlYXR1cmVzIgpvdXRwdXQ6IGh0bWxfbm90ZWJvb2sKLS0tCgpgYGB7cn0KCmBgYAoKQWRkIGEgbmV3IGNodW5rIGJ5IGNsaWNraW5nIHRoZSAqSW5zZXJ0IENodW5rKiBidXR0b24gb24gdGhlIHRvb2xiYXIgb3IgYnkgcHJlc3NpbmcgKkNtZCtPcHRpb24rSSouCgpXaGVuIHlvdSBzYXZlIHRoZSBub3RlYm9vaywgYW4gSFRNTCBmaWxlIGNvbnRhaW5pbmcgdGhlIGNvZGUgYW5kIG91dHB1dCB3aWxsIGJlIHNhdmVkIGFsb25nc2lkZSBpdCAoY2xpY2sgdGhlICpQcmV2aWV3KiBidXR0b24gb3IgcHJlc3MgKkNtZCtTaGlmdCtLKiB0byBwcmV2aWV3IHRoZSBIVE1MIGZpbGUpLiAKClRoZSBwcmV2aWV3IHNob3dzIHlvdSBhIHJlbmRlcmVkIEhUTUwgY29weSBvZiB0aGUgY29udGVudHMgb2YgdGhlIGVkaXRvci4gQ29uc2VxdWVudGx5LCB1bmxpa2UgKktuaXQqLCAqUHJldmlldyogZG9lcyBub3QgcnVuIGFueSBSIGNvZGUgY2h1bmtzLiBJbnN0ZWFkLCB0aGUgb3V0cHV0IG9mIHRoZSBjaHVuayB3aGVuIGl0IHdhcyBsYXN0IHJ1biBpbiB0aGUgZWRpdG9yIGlzIGRpc3BsYXllZC4KCg==</div>
+The following objects are masked from ‘package:base’:
+
+    date, intersect, setdiff, union</code></pre>
+<!-- rnb-output-end -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuZm9vdHlfdGlwcGVyX2RmIDwtIGZvb3R5X3RpcHBlcl9kZiAlPiVcbiAgbXV0YXRlKHN0YXJ0X2hvdXIgPSBob3VyKHN0YXJ0X3RpbWUpKVxuYGBgIn0= -->
+<pre class="r"><code>footy_tipper_df &lt;- footy_tipper_df %&gt;%
+  mutate(start_hour = hour(start_time))</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="form-variables" class="section level1">
+<h1>Form variables</h1>
+<div id="seasonal-vars" class="section level2">
+<h2>seasonal vars</h2>
+<ul>
+<li>home record (as a number)</li>
+<li>away record (as a number)</li>
+<li>season record (as a number)</li>
+<li>points for</li>
+<li>points against</li>
+<li>point diff</li>
+</ul>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuaG9tZV9nYW1lcyA8LSBmb290eV90aXBwZXJfZGYgJT4lXG4gIGFycmFuZ2Uoc3RhcnRfdGltZV91dGMpICU+JVxuICAjIGhvbWUgY29tcGV0aXRpb24gc3RhdHNcbiAgZ3JvdXBfYnkodGVhbV9ob21lLCBjb21wZXRpdGlvbl95ZWFyKSAlPiVcbiAgbXV0YXRlKGhvbWVfcmVjb3JkID0gXG4gICAgICAgICAgIGN1bXN1bShjYXNlX3doZW4oXG4gICAgICAgICAgICAgaG9tZV90ZWFtX3Jlc3VsdCA9PSAnV2luJyAgfiAxLCBcbiAgICAgICAgICAgICBob21lX3RlYW1fcmVzdWx0ID09ICdMb3NzJyB+IC0xLFxuICAgICAgICAgICAgIFRSVUUgICAgICAgICAgICAgICAgICAgICAgIH4gMCkpLFxuICAgICAgICAgaG9tZV9wb2ludHNfZm9yID0gY3Vtc3VtKHRlYW1fZmluYWxfc2NvcmVfaG9tZSksXG4gICAgICAgICBob21lX3BvaW50c19hZ2FpbnN0ID0gY3Vtc3VtKHRlYW1fZmluYWxfc2NvcmVfYXdheSksXG4gICAgICAgICBob21lX2RpZmYgPSBob21lX3BvaW50c19mb3IgLSBob21lX3BvaW50c19hZ2FpbnN0LFxuICAgICAgICAgaG9tZV9hdmVyYWdlX2RpZmYgPSBob21lX2RpZmYvcm91bmRfaWQpICU+JVxuICAjIGF3YXkgY29tcGV0aXRpb24gc3RhdHNcbiAgZ3JvdXBfYnkodGVhbV9hd2F5LCBjb21wZXRpdGlvbl95ZWFyKSAlPiVcbiAgbXV0YXRlKGF3YXlfcmVjb3JkID0gXG4gICAgICAgICAgIGN1bXN1bShjYXNlX3doZW4oXG4gICAgICAgICAgICAgaG9tZV90ZWFtX3Jlc3VsdCA9PSAnTG9zcycgfiAxLCBcbiAgICAgICAgICAgICBob21lX3RlYW1fcmVzdWx0ID09ICdXaW4nICB+IC0xLFxuICAgICAgICAgICAgIFRSVUUgICAgICAgICAgICAgICAgICAgICAgIH4gMCkpLFxuICAgICAgICAgYXdheV9wb2ludHNfZm9yID0gY3Vtc3VtKHRlYW1fZmluYWxfc2NvcmVfYXdheSksXG4gICAgICAgICBhd2F5X3BvaW50c19hZ2FpbnN0ID0gY3Vtc3VtKHRlYW1fZmluYWxfc2NvcmVfaG9tZSksXG4gICAgICAgICBhd2F5X2RpZmYgPSBhd2F5X3BvaW50c19mb3IgLSBhd2F5X3BvaW50c19hZ2FpbnN0LFxuICAgICAgICAgYXdheV9hdmVyYWdlX2RpZmYgPSBhd2F5X2RpZmYvcm91bmRfaWQpXG4gIFxuICBcbmBgYCJ9 -->
+<pre class="r"><code>home_games &lt;- footy_tipper_df %&gt;%
+  arrange(start_time_utc) %&gt;%
+  # home competition stats
+  group_by(team_home, competition_year) %&gt;%
+  mutate(home_record = 
+           cumsum(case_when(
+             home_team_result == &#39;Win&#39;  ~ 1, 
+             home_team_result == &#39;Loss&#39; ~ -1,
+             TRUE                       ~ 0)),
+         home_points_for = cumsum(team_final_score_home),
+         home_points_against = cumsum(team_final_score_away),
+         home_diff = home_points_for - home_points_against,
+         home_average_diff = home_diff/round_id) %&gt;%
+  # away competition stats
+  group_by(team_away, competition_year) %&gt;%
+  mutate(away_record = 
+           cumsum(case_when(
+             home_team_result == &#39;Loss&#39; ~ 1, 
+             home_team_result == &#39;Win&#39;  ~ -1,
+             TRUE                       ~ 0)),
+         away_points_for = cumsum(team_final_score_away),
+         away_points_against = cumsum(team_final_score_home),
+         away_diff = away_points_for - away_points_against,
+         away_average_diff = away_diff/round_id)
+  
+  </code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="recency-vars" class="section level2">
+<h2>recency vars</h2>
+</div>
+<div id="opponent-vars" class="section level2">
+<h2>opponent vars</h2>
+<!-- rnb-text-end -->
+</div>
+</div>
+
+<div id="rmd-source-code">LS0tCnRpdGxlOiAiQ3JlYXRpbmcgbmV3IGZlYXR1cmVzIgpvdXRwdXQ6IGh0bWxfbm90ZWJvb2sKLS0tCgpgYGB7ciwgd2FybmluZz1GQUxTRSwgbWVzc2FnZT1UUlVFfQpsaWJyYXJ5KGhlcmUpCmxpYnJhcnkobHVicmlkYXRlKQoKaV9hbSgicmVzZWFyY2gvY3JlYXRpbmctbmV3LWZlYXR1cmVzLlJtZCIpCgpzb3VyY2UocGFzdGUwKGhlcmUoKSwiL1IvZ2V0LWRhdGEuUiIpKQoKZm9vdHlfdGlwcGVyX2RmIDwtIGdldF9kYXRhKHllYXJfc3BhbiA9IDIwMTI6MjAyMykgCiAKaGVhZChmb290eV90aXBwZXJfZGYpCmBgYAojIGNvcm9uYSBzZWFzb24KCmFuIGVhc3kgb25lIGFpbWVkIGF0IHJlZHVjaW5nIGJpYXMgZnJvbSBhIHdlaXJkIHNlYXNvbgoKYGBge3J9CmZvb3R5X3RpcHBlcl9kZiA8LSBmb290eV90aXBwZXJfZGYgJT4lCiAgbXV0YXRlKGNvcm9uYV9zZWFzb24gPSBpZmVsc2UoY29tcGV0aXRpb25feWVhciA9PSAyMDIwLCAxLCAwKSkKYGBgCgojIFNlYXNvbmFsaXR5IFZhcmlhYmxlcwoKYGBge3J9CmZvb3R5X3RpcHBlcl9kZiA8LSBmb290eV90aXBwZXJfZGYgJT4lCiAgbXV0YXRlKHN0YXJ0X2hvdXIgPSBob3VyKHN0YXJ0X3RpbWUpKQpgYGAKCiMgRm9ybSB2YXJpYWJsZXMKCiMjIHNlYXNvbmFsIHZhcnMKKiBob21lIHJlY29yZCAoYXMgYSBudW1iZXIpCiogYXdheSByZWNvcmQgKGFzIGEgbnVtYmVyKQoqIHNlYXNvbiByZWNvcmQgKGFzIGEgbnVtYmVyKQoqIHBvaW50cyBmb3IKKiBwb2ludHMgYWdhaW5zdAoqIHBvaW50IGRpZmYKCmBgYHtyfQpob21lX2dhbWVzIDwtIGZvb3R5X3RpcHBlcl9kZiAlPiUKICBhcnJhbmdlKHN0YXJ0X3RpbWVfdXRjKSAlPiUKICAjIGhvbWUgY29tcGV0aXRpb24gc3RhdHMKICBncm91cF9ieSh0ZWFtX2hvbWUsIGNvbXBldGl0aW9uX3llYXIpICU+JQogIG11dGF0ZShob21lX3JlY29yZCA9IAogICAgICAgICAgIGN1bXN1bShjYXNlX3doZW4oCiAgICAgICAgICAgICBob21lX3RlYW1fcmVzdWx0ID09ICdXaW4nICB+IDEsIAogICAgICAgICAgICAgaG9tZV90ZWFtX3Jlc3VsdCA9PSAnTG9zcycgfiAtMSwKICAgICAgICAgICAgIFRSVUUgICAgICAgICAgICAgICAgICAgICAgIH4gMCkpLAogICAgICAgICAKICAjIyB0aGVzZSB2YXJzIG5lZWQgcmVuYW1pbmcKICAgICAgICAgaG9tZV9wb2ludHNfZm9yID0gY3Vtc3VtKHRlYW1fZmluYWxfc2NvcmVfaG9tZSksCiAgICAgICAgIGhvbWVfcG9pbnRzX2FnYWluc3QgPSBjdW1zdW0odGVhbV9maW5hbF9zY29yZV9hd2F5KSwKICAgICAgICAgaG9tZV9kaWZmID0gaG9tZV9wb2ludHNfZm9yIC0gaG9tZV9wb2ludHNfYWdhaW5zdCwKICAgICAgICAgaG9tZV9hdmVyYWdlX2RpZmYgPSBob21lX2RpZmYvcm91bmRfaWQpICU+JQogICMgYXdheSBjb21wZXRpdGlvbiBzdGF0cwogIGdyb3VwX2J5KHRlYW1fYXdheSwgY29tcGV0aXRpb25feWVhcikgJT4lCiAgbXV0YXRlKGF3YXlfcmVjb3JkID0gCiAgICAgICAgICAgY3Vtc3VtKGNhc2Vfd2hlbigKICAgICAgICAgICAgIGhvbWVfdGVhbV9yZXN1bHQgPT0gJ0xvc3MnIH4gMSwgCiAgICAgICAgICAgICBob21lX3RlYW1fcmVzdWx0ID09ICdXaW4nICB+IC0xLAogICAgICAgICAgICAgVFJVRSAgICAgICAgICAgICAgICAgICAgICAgfiAwKSksCiAgICAgICAgIGF3YXlfcG9pbnRzX2ZvciA9IGN1bXN1bSh0ZWFtX2ZpbmFsX3Njb3JlX2F3YXkpLAogICAgICAgICBhd2F5X3BvaW50c19hZ2FpbnN0ID0gY3Vtc3VtKHRlYW1fZmluYWxfc2NvcmVfaG9tZSksCiAgICAgICAgIGF3YXlfZGlmZiA9IGF3YXlfcG9pbnRzX2ZvciAtIGF3YXlfcG9pbnRzX2FnYWluc3QsCiAgICAgICAgIGF3YXlfYXZlcmFnZV9kaWZmID0gYXdheV9kaWZmL3JvdW5kX2lkKQogIAogIApgYGAKCiMjIHJlY2VuY3kgdmFycwoKCiMjIG9wcG9uZW50IHZhcnMKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCg==</div>
 
 
 

@@ -3,13 +3,116 @@ title: "Creating new features"
 output: html_notebook
 ---
 
-```{r}
+```{r, warning=FALSE, message=TRUE}
+library(here)
+library(lubridate)
 
+i_am("research/creating-new-features.Rmd")
+
+source(paste0(here(),"/R/get-data.R"))
+
+footy_tipper_df <- get_data(year_span = 2012:2023) 
+ 
+head(footy_tipper_df)
+```
+# corona season
+
+an easy one aimed at reducing bias from a weird season
+
+```{r}
+footy_tipper_df <- footy_tipper_df %>%
+  mutate(corona_season = ifelse(competition_year == 2020, 1, 0))
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+# Seasonality Variables
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+```{r}
+footy_tipper_df <- footy_tipper_df %>%
+  mutate(start_hour = hour(start_time))
+```
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+# Form variables
+
+## seasonal vars
+* home record (as a number)
+* away record (as a number)
+* season record (as a number)
+* points for
+* points against
+* point diff
+
+```{r}
+home_games <- footy_tipper_df %>%
+  arrange(start_time_utc) %>%
+  # home competition stats
+  group_by(team_home, competition_year) %>%
+  mutate(home_record = 
+           cumsum(case_when(
+             home_team_result == 'Win'  ~ 1, 
+             home_team_result == 'Loss' ~ -1,
+             TRUE                       ~ 0)),
+         
+  ## these vars need renaming
+         home_points_for = cumsum(team_final_score_home),
+         home_points_against = cumsum(team_final_score_away),
+         home_diff = home_points_for - home_points_against,
+         home_average_diff = home_diff/round_id) %>%
+  # away competition stats
+  group_by(team_away, competition_year) %>%
+  mutate(away_record = 
+           cumsum(case_when(
+             home_team_result == 'Loss' ~ 1, 
+             home_team_result == 'Win'  ~ -1,
+             TRUE                       ~ 0)),
+         away_points_for = cumsum(team_final_score_away),
+         away_points_against = cumsum(team_final_score_home),
+         away_diff = away_points_for - away_points_against,
+         away_average_diff = away_diff/round_id)
+  
+  
+```
+
+## recency vars
+
+
+## opponent vars
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
