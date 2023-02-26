@@ -19,4 +19,4 @@ The data used in this project is sourced from publicly available NRL statistics 
 Contributions to this project are welcome. If you find a bug or have suggestions for new features, please open an issue or submit a pull request.
 
 ## Acknowledgements
-Special thanks to Seven Seas Hotel for providing the motivation for this project.
+Special thanks to Seven Seas Hotel for providing the motivation for this project and ChatGPT for writing this readme.
