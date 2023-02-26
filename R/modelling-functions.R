@@ -5,8 +5,11 @@ library(OptimalCutpoints)
 library(parallel)
 library(doParallel)
 
-train_model <- function(data, outcome_var, method = "rf", num_clusters = detectCores(), 
+train_model <- function(data, predictors, outcome_var, method = "rf", num_clusters = detectCores(), 
                         num_folds = 5, metric = "ROC", seed = 69) {
+  
+  data <- data %>% 
+    select(all_of(c(predictors, outcome_var)))
   
   # Set up clusters - this speeds up cv training (4 clusters ~ twice as fast)
   cl <- makePSOCKcluster(num_clusters)
@@ -59,6 +62,7 @@ rf_cutoff_select <- function(rf_model, cut_method = "MaxKappa"){
   
   rf_model$forest$cutoff <- cutoff
   
-  return(rf_model)
+  return(list(rf_model = rf_model,
+              cutoff = cutoff))
   
 }
