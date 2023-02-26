@@ -13,7 +13,7 @@ source(paste0(here(),"/R/get-data.R"))
 
 footy_tipper_df <- get_data(year_span = 2012:2023) 
  
-head(footy_tipper_df)
+footy_tipper_df
 ```
 # corona season
 
@@ -42,35 +42,57 @@ footy_tipper_df <- footy_tipper_df %>%
 * point diff
 
 ```{r}
-home_games <- footy_tipper_df %>%
-  arrange(start_time_utc) %>%
-  # home competition stats
-  group_by(team_home, competition_year) %>%
-  mutate(home_record = 
+home_record <- footy_tipper_df %>%
+  select(game_id, competition_year, team_home, team_final_score_home, team_final_score_away, home_team_result) %>%
+  rename(team = team_home, points_for = team_final_score_home, points_against = team_final_score_away) %>%
+  arrange(game_id) %>%
+  group_by(team, competition_year) %>%
+  mutate(home_record =
            cumsum(case_when(
              home_team_result == 'Win'  ~ 1, 
              home_team_result == 'Loss' ~ -1,
              TRUE                       ~ 0)),
-         
-  ## these vars need renaming
-         home_points_for = cumsum(team_final_score_home),
-         home_points_against = cumsum(team_final_score_away),
-         home_diff = home_points_for - home_points_against,
-         home_average_diff = home_diff/round_id) %>%
-  # away competition stats
-  group_by(team_away, competition_year) %>%
-  mutate(away_record = 
+         points_for = cumsum(points_for),
+         points_against = cumsum(points_against),
+         points_diff = points_for - points_against) %>%
+  mutate_at(vars(home_record, points_for, points_against, points_diff), lag) %>%
+  replace(is.na(.), 0) %>%
+  ungroup() %>%
+  select(-c(competition_year, home_team_result))
+
+
+
+away_record <- footy_tipper_df %>%
+  select(game_id, competition_year, team_away, team_final_score_home, team_final_score_away, home_team_result) %>%
+  rename(team = team_away, points_for = team_final_score_away, points_against = team_final_score_home) %>%
+  arrange(game_id) %>%
+  group_by(team, competition_year) %>%
+  mutate(away_record =
            cumsum(case_when(
-             home_team_result == 'Loss' ~ 1, 
-             home_team_result == 'Win'  ~ -1,
+             home_team_result == 'Win'  ~ -1, 
+             home_team_result == 'Loss' ~ 1,
              TRUE                       ~ 0)),
-         away_points_for = cumsum(team_final_score_away),
-         away_points_against = cumsum(team_final_score_home),
-         away_diff = away_points_for - away_points_against,
-         away_average_diff = away_diff/round_id)
-  
-  
+         points_for = cumsum(points_for),
+         points_against = cumsum(points_against),
+         points_diff = points_for - points_against) %>%
+  mutate_at(vars(away_record, points_for, points_against, points_diff), lag) %>%
+  replace(is.na(.), 0) %>%
+  ungroup() %>%
+  select(-c(competition_year, home_team_result))
+
+season_record <- home_record %>%
+  left_join(away_record, by = "game_id", suffix = c("_home", "_away")) %>%
+  mutate(season_record = home_record + away_record,
+         points_for_season = points_for_home + points_for_away,
+         points_against_season = points_against_home + points_against_away,
+         points_diff_season = points_for_season - points_against_season)
+
+footy_tipper_df <- footy_tipper_df %>%
+  left_join(season_record)
+
+footy_tipper_df
 ```
+
 
 ## recency vars
 
