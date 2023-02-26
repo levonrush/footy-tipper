@@ -4,6 +4,7 @@ library(caret)
 library(OptimalCutpoints)
 library(parallel)
 library(doParallel)
+library(ggplot2)
 
 train_model <- function(data, predictors, outcome_var, method = "rf", num_clusters = detectCores(), 
                         num_folds = 5, metric = "ROC", seed = 69) {
@@ -66,3 +67,68 @@ rf_cutoff_select <- function(rf_model, cut_method = "MaxKappa"){
               cutoff = cutoff))
   
 }
+
+perform_rfe <- function(data, k, metric, maximise, steps = NULL, outcome_var, predictors) {
+  
+  data <- data %>% 
+    select(all_of(c(predictors, outcome_var)))
+  
+  # Set up clusters - this speeds up cv training (4 clusters ~ twice as fast)
+  cl <- makePSOCKcluster(detectCores())
+  registerDoParallel(cl)
+  
+  # Set up caret CV options
+  rfFuncs$summary <- twoClassSummary
+  
+  control <- rfeControl(functions = rfFuncs,
+                        method = "cv",
+                        number = k,
+                        verbose = TRUE,
+                        rerank = FALSE)
+  
+  trainctrl <- trainControl(classProbs= TRUE,
+                            summaryFunction = twoClassSummary)
+  
+  if (is.null(steps)) {
+    steps <- seq(1, (ncol(data) - 1), 1)
+  }
+  
+  x <- data %>% select(-{{outcome_var}}) %>% as.data.frame()
+  y <- data[[outcome_var]]
+  
+  rfe.train <- rfe(x, y,
+                   predictors,
+                   metric = ifelse(is.factor(y), metric, "RMSE"), # was "Kappa" for factors
+                   maximise = ifelse(is.factor(y), maximise, FALSE),
+                   rfeControl = control,
+                   trControl = trainctrl)
+  
+  # When you are done:
+  stopCluster(cl)
+  
+  # Spit out the results
+  print(rfe.train)
+  print(plot(rfe.train, type = c("g", "o"), cex = 1.0, col = 1:(ncol(data) - 1)))
+  Predictors <- predictors(rfe.train) # call the predictors something
+  
+  # Try and make some silly graphs
+  rfe.imp <- subset(as.data.frame(rfe.train$variables), Variables == (ncol(data) - 1)) # was 20 
+  rfe.imp$var <- as.factor(rfe.imp$var)
+  rfe.imp$var <- reorder(rfe.imp$var, rfe.imp$Overall, mean)
+  
+  rfe.plot <- ggplot(rfe.imp, aes(x = var, y = Overall)) +
+    ggtitle("Variable importance measures from cross validation runs") +
+    xlab("") +
+    ylab("Importance") +
+    geom_violin() +
+    theme_bw() +
+    stat_summary(fun.y = mean, geom = "point", size = 1, color = "blue") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1), plot.title = element_text(hjust = 0.5))
+  
+  print(rfe.plot)
+  
+  # Define the optimal set of data from variable selection along with the response variable at the end
+  data <- data %>% select(Predictors, tail(colnames(data), n = 1))
+  return(data)
+}
+
