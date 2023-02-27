@@ -168,100 +168,55 @@ footy_tipper_df <- footy_tipper_df %>%
   left_join(season_form[[2]] %>% select(-is_home_team), by = "game_id", suffix = c("_away", "_home"))
 ```
 
-
+## opponent vars
 
 ```{r}
-home_games <- footy_tipper_df %>%
-  select(game_id, competition_year, team_home, team_final_score_home, team_final_score_away, home_team_result) %>%
-  rename(team = team_home, points_for = team_final_score_home, points_against = team_final_score_away) %>%
-  arrange(game_id) 
+matchups <- footy_tipper_df %>%
+  filter(game_state_name == "Final") %>%
+  with(table(team_home, team_away, home_team_result, game_id)) %>% as.data.frame() %>%
+  mutate(form = Freq*case_when(
+    home_team_result == 'Win'  ~ 1,
+    home_team_result == 'Loss' ~ -1,
+    TRUE                       ~ 0
+  ),
+  game_id = as.numeric(as.character(game_id))) %>%
+  select(game_id, team_home, team_away, form)
 
-home_form <- home_games %>%
-  group_by(team, competition_year) %>%
-  mutate(home_form = ifelse(seq(n()) < 5,
-                            cumsum(case_when(
-                              home_team_result == 'Win'  ~ 1, 
-                              home_team_result == 'Loss' ~ -1,
-                              TRUE                       ~ 0)),
-                            rollsum(x = case_when(
-                              home_team_result == 'Win'  ~ 1,
-                              home_team_result == 'Loss' ~ -1,
-                              TRUE                       ~ 0), 5, align = "right", fill = 0)),
-           form_points_for = ifelse(seq(n()) < 5,
-                                    cumsum(points_for),
-                                    rollapply(points_for, 5, mean, align = 'right', fill = 0)),
-           form_points_against = ifelse(seq(n()) < 5,
-                                        cumsum(points_for),
-                                        rollapply(points_for, 5, mean, align = 'right', fill = 0)),
-           form_diff = ifelse(seq(n()) < 5,
-                              cumsum(points_for - points_against),
-                              rollapply(points_for, 5, mean, align = 'right', fill = 0))) %>%
-  mutate_at(vars(home_form, form_points_for, form_points_against, form_diff), lag) %>%
-  replace(is.na(.), 0) %>%
-  ungroup() %>%
-  select(-c(competition_year, home_team_result))
-
-away_form <- footy_tipper_df %>%
-  select(game_id, competition_year, team_away, team_final_score_home, team_final_score_away, home_team_result) %>%
-  rename(team = team_away, points_for = team_final_score_away, points_against = team_final_score_home) %>%
-  arrange(game_id) %>%
-  group_by(team, competition_year) %>%
-  mutate(away_form = ifelse(seq(n()) < 5,
-                            cumsum(case_when(
-                              home_team_result == 'Win'  ~ -1, 
-                              home_team_result == 'Loss' ~ 1,
-                              TRUE                       ~ 0)),
-                            rollsum(x = case_when(
-                              home_team_result == 'Win'  ~ -1,
-                              home_team_result == 'Loss' ~ 1,
-                              TRUE                       ~ 0), 5, align = "right", fill = 0)),
-           form_points_for = ifelse(seq(n()) < 5,
-                                    cumsum(points_for),
-                                    rollapply(points_for, 5, mean, align = 'right', fill = 0)),
-           form_points_against = ifelse(seq(n()) < 5,
-                                        cumsum(points_for),
-                                        rollapply(points_for, 5, mean, align = 'right', fill = 0)),
-           form_diff = ifelse(seq(n()) < 5,
-                              cumsum(points_for - points_against),
-                              rollapply(points_for, 5, mean, align = 'right', fill = 0))) %>%
-  mutate_at(vars(away_form, form_points_for, form_points_against, form_diff), lag) %>%
-  replace(is.na(.), 0) %>%
-  ungroup() %>%
-  select(-c(competition_year, home_team_result))
-
-season_form <- home_form %>%
-  left_join(away_form, by = "game_id", suffix = c("_home", "_away")) %>%
-  mutate(season_form = ifelse(seq(n()) < 5,
-                              home_form + away_form,
-                              rollsum(home_form + away_form, 5, align = "right", fill = 0)))
-         
-         
-         
-         
-         ,
-         form_points_for_season = ifelse(seq(n()) < 5,
-                                    cumsum(form_points_for_home + form_points_for_away),
-                                    rollapply(form_points_for_home + form_points_for_away, mean, 5, align = "right", fill = 0)),
-         form_points_against_season = ifelse(seq(n()) < 5,
-                                        cumsum(form_points_against_home + form_points_against_away),
-                                        rollapply(form_points_against_home + form_points_against_away, mean, 5, align = "right", fill = 0)),
-         form_points_diff_season = ifelse(seq(n()) < 5,
-                                         form_points_for_season - form_points_against_season,
-                                         rollapply(points_against_home + points_against_away, mean, 5, align = "right", fill = 0)))
-         
-         
-
-         form_diff_season = ifelse(seq(n()) < 5,
-                                   points_against_home + points_against_away,
-                                   rollsum(points_against_home + points_against_away, 5, align = "right", fill = 0)))
+thing <- footy_tipper_df %>% 
+  left_join(matchups, by = c("game_id", "team_home", "team_away"))
 ```
 
 
+```{r}
+matchups <- footy_tipper_df %>%
+  filter(game_state_name == "Final") %>%
+  with(table(team_home, team_away, home_team_result, competition_year, round_id)) %>% as.data.frame() %>%
+  mutate(form = Freq*case_when(
+    home_team_result == 'Win'  ~ 1,
+    home_team_result == 'Loss' ~ -1,
+    TRUE                       ~ 0
+  )) %>%
+  select(-c(home_team_result, Freq)) %>%
+  pivot_wider(names_from = team_home, values_from = form, values_fn = sum) %>%
+  pivot_longer(cols = -c(competition_year, round_id), names_to = "team_home", values_to = "form")
 
-## opponent vars
+matchups
+```
 
+```{r}
+footy_tipper_df <- footy_tipper_df %>%
+  group_by(team_home, team_away) %>%
+  mutate(form = case_when(
+    home_team_result == 'Win'  ~ 1,
+    home_team_result == 'Loss' ~ -1,
+    TRUE                       ~ 0
+  ),
+  matchup_form = ifelse(seq(n()) < 5,
+                   cumsum(form),
+                   rollsum(form, 5, align = "right", fill = 0)) %>% lag() %>% replace_na(0))
 
-
+footy_tipper_df
+```
 
 
 

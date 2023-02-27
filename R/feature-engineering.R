@@ -119,15 +119,35 @@ form_stats <- function(data, form_period){
   
 }
 
+matchup_form <- function(data, form_period){
+  
+  data <- data %>%
+    group_by(team_home, team_away) %>%
+    mutate(
+      form = case_when(
+        home_team_result == 'Win'  ~ 1,
+        home_team_result == 'Loss' ~ -1,
+        TRUE                       ~ 0
+        ),
+      matchup_form = ifelse(seq(n()) < 5,
+                            cumsum(form),
+                            rollsum(form, 5, align = "right", fill = 0)) %>% lag() %>% replace_na(0)) %>%
+    select(-form)
+  
+  return(data)
+  
+}
 
+matchup_form
 
-feature_engineering <- function(data){
+feature_engineering <- function(data, form_period){
  
   data <- data %>%
     corona_season() %>%
     timing_vars() %>%
     season_stats() %>%
-    form_stats(form_period = 5)
+    form_stats(form_period = form_period)  %>%
+    matchup_form(form_period = form_period)
 
   return(data)
 
