@@ -27,40 +27,10 @@ season_stats <- function(data){
     rename(team = team_home, points_for = team_final_score_home, points_against = team_final_score_away) %>%
     arrange(game_id) 
   
-  home_record <- home_games %>%
-    group_by(team, competition_year) %>%
-    mutate(home_record =
-             cumsum(case_when(
-               home_team_result == 'Win'  ~ 1, 
-               home_team_result == 'Loss' ~ -1,
-               TRUE                       ~ 0)),
-           home_points_for = cumsum(points_for),
-           home_points_against = cumsum(points_against),
-           home_points_diff = points_for - points_against) %>%
-    mutate_at(vars(home_record, home_points_for, home_points_against, home_points_diff), lag) %>%
-    replace(is.na(.), 0) %>%
-    ungroup() %>%
-    select(-c(competition_year, home_team_result, points_for, points_against, team))
-  
   away_games <- data %>%
     select(game_id, competition_year, team_away, team_final_score_home, team_final_score_away, home_team_result) %>%
     rename(team = team_away, points_for = team_final_score_away, points_against = team_final_score_home) %>%
     arrange(game_id) 
-  
-  away_record <- away_games %>%
-    group_by(team, competition_year) %>%
-    mutate(away_record =
-             cumsum(case_when(
-               home_team_result == 'Win'  ~ -1, 
-               home_team_result == 'Loss' ~ 1,
-               TRUE                       ~ 0)),
-           away_points_for = cumsum(points_for),
-           away_points_against = cumsum(points_against),
-           away_points_diff = points_for - points_against) %>%
-    mutate_at(vars(away_record, away_points_for, away_points_against, away_points_diff), lag) %>%
-    replace(is.na(.), 0) %>%
-    ungroup() %>%
-    select(-c(game_id,home_team_result, points_for, points_against))
   
   season_record <- bind_rows(
     home_games %>% mutate(is_home_team = T), 
