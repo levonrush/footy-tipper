@@ -99,7 +99,10 @@ get_data <- function(password = rstudioapi::askForPassword, year_span){
     
   # and create a response variable
   footy_tipper_df <- footy_tipper_df %>%
-    mutate(home_team_result = if_else(team_final_score_home > team_final_score_away, "Win", "Loss") %>% as.factor()) %>%
+    mutate(home_team_result = case_when(
+      team_final_score_home > team_final_score_away ~ "Win",
+      team_final_score_home < team_final_score_away ~ "Loss",
+      TRUE                                          ~ "Draw") %>% as.factor())
 
   # return it to the env
   return(footy_tipper_df)
