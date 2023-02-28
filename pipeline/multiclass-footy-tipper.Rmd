@@ -35,25 +35,25 @@ skim(train_df)
 # Train the model
 
 ```{r, warning=FALSE, message=FALSE}
-predictors <- c("round_id", "round_name", "game_number", "venue_name", "team_home", "team_position_home", "team_away", "team_position_away", "competition_year", "corona_season", "start_hour", "season_record_away", "season_points_for_away", "season_points_against_away", "season_points_diff_away", "season_record_home",  "season_points_for_home", "season_points_against_home","season_points_diff_home", "season_form_away", "season_points_for_form_away", "season_points_against_form_away", "season_diff_form_away", "season_form_home", "season_points_for_form_home", "season_points_against_form_home", "season_diff_form_home", "matchup_form", "position_diff")
+predictors <- c("round_id", "round_name", "game_number", "venue_name", "team_home", "team_position_home", "team_away", "team_position_away", "competition_year", "corona_season", "start_hour", "season_record_away", "season_points_for_away", "season_points_against_away", "season_points_diff_away", "season_record_home",  "season_points_for_home", "season_points_against_home","season_points_diff_home", "season_form_away", "season_points_for_form_away", "season_points_against_form_away", "season_diff_form_away", "season_form_home", "season_points_for_form_home", "season_points_against_form_home", "season_diff_form_home", "matchup_form")
 
-model <- train_model(data = train_df, 
+model <- train_multiclass_model(data = train_df, 
                      predictors = predictors,
                      outcome_var = "home_team_result")
 
-cut_optimised_model <- rf_cutoff_select(model)
-model <- cut_optimised_model$rf_model
+# cut_optimised_model <- rf_cutoff_select(model)
+# model <- cut_optimised_model$rf_model
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-roc(train_df$home_team_result, model$votes[,"Win"]) %>% 
-  plot(main = 'Model ROC curve')
+# roc(train_df$home_team_result, model$votes[,"Win"]) %>% 
+#   plot(main = 'Model ROC curve')
 ```
 
 ```{r, warning=FALSE, message=FALSE}
 # new vals
 train_df <- train_df %>%
-  mutate(prediction = as.factor(ifelse(model$votes[,"Win"] > cut_optimised_model$cutoff[2], "Win", "Loss")))
+  mutate(prediction = as.factor(ifelse(rf_model$votes[,"Win"] > cut_optimised_model$cutoff[2], "Win", "Loss")))
 
 # print confusion matrix statistics
 cm <- train_df %>% 

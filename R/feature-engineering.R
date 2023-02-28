@@ -1,6 +1,15 @@
 library(tidyverse)
 library(lubridate)
 
+easy_pickings <- function(data){
+  
+  data <- data %>%
+    mutate(position_diff = team_position_home - team_position_away)
+  
+  return(data)
+  
+}
+
 corona_season <- function(data){
   
   data <- data %>%
@@ -143,6 +152,7 @@ matchup_form
 feature_engineering <- function(data, form_period){
  
   data <- data %>%
+    easy_pickings() %>%
     corona_season() %>%
     timing_vars() %>%
     season_stats() %>%

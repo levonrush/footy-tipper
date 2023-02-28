@@ -11,7 +11,7 @@
 
 
 
-<title>R Notebook</title>
+<title>Footy Tipper Pipeline</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -1752,7 +1752,7 @@ display: none;
 
 
 
-<h1 class="title toc-ignore">R Notebook</h1>
+<h1 class="title toc-ignore">Footy Tipper Pipeline</h1>
 
 </div>
 
@@ -1760,26 +1760,91 @@ display: none;
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuIyBUaGUgbmV3IGJpZyBsb29wXG5jdiA8LSB0cmFpbih4ID0gdHJhaW5fZGYgJT4lIHNlbGVjdCgtaG9tZV90ZWFtX3Jlc3VsdCkgJT4lIGFzLmRhdGEuZnJhbWUoKSxcbiAgICAgICAgICAgIHkgPSB0cmFpbl9kZltbXCJob21lX3RlYW1fcmVzdWx0XCJdXSxcbiAgICAgICAgICAgIG1ldGhvZCA9IFwicmZcIixcbiAgICAgICAgICAgIG1ldHJpYyA9IFwiS2FwcGFcIixcbiAgICAgICAgICAgIHRyQ29udHJvbCA9IGN0cmwsXG4gICAgICAgICAgICB0dW5lR3JpZCA9IGV4cGFuZC5ncmlkKG10cnkgPSAxOigobmNvbCh0cmFpbl9kZikgLSAxKSkpLFxuICAgICAgICAgICAgd2VpZ2h0cyA9IGNsYXNzX3dlaWdodHMpXG5cbmBgYCJ9 -->
-<pre class="r"><code># The new big loop
-cv &lt;- train(x = train_df %&gt;% select(-home_team_result) %&gt;% as.data.frame(),
-            y = train_df[[&quot;home_team_result&quot;]],
-            method = &quot;rf&quot;,
-            metric = &quot;Kappa&quot;,
-            trControl = ctrl,
-            tuneGrid = expand.grid(mtry = 1:((ncol(train_df) - 1))),
-            weights = class_weights)
-</code></pre>
-<!-- rnb-source-end -->
-<!-- rnb-output-begin eyJkYXRhIjoiRXJyb3IgaW4gYCQ8LS5kYXRhLmZyYW1lYChgKnRtcCpgLCBcIndlaWdodHNcIiwgdmFsdWUgPSBjKExvc3MgPSAyLjMwMDk1MDM2OTU4ODE3LCAgOiBcbiAgcmVwbGFjZW1lbnQgaGFzIDMgcm93cywgZGF0YSBoYXMgMTBcbiJ9 -->
-<pre><code>Error in `$&lt;-.data.frame`(`*tmp*`, &quot;weights&quot;, value = c(Loss = 2.30095036958817,  : 
-  replacement has 3 rows, data has 10</code></pre>
-<!-- rnb-output-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<div id="get-and-split-the-dataset" class="section level1">
+<h1>Get and split the dataset</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="train-the-model" class="section level1">
+<h1>Train the model</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuIyByb2ModHJhaW5fZGYkaG9tZV90ZWFtX3Jlc3VsdCwgbW9kZWwkdm90ZXNbLFwiV2luXCJdKSAlPiUgXG4jICAgcGxvdChtYWluID0gJ01vZGVsIFJPQyBjdXJ2ZScpXG5gYGAifQ== -->
+<pre class="r"><code># roc(train_df$home_team_result, model$votes[,&quot;Win&quot;]) %&gt;% 
+#   plot(main = &#39;Model ROC curve&#39;)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuIyBuZXcgdmFsc1xudHJhaW5fZGYgPC0gdHJhaW5fZGYgJT4lXG4gIG11dGF0ZShwcmVkaWN0aW9uID0gYXMuZmFjdG9yKGlmZWxzZShyZl9tb2RlbCR2b3Rlc1ssXCJXaW5cIl0gPiBjdXRfb3B0aW1pc2VkX21vZGVsJGN1dG9mZlsyXSwgXCJXaW5cIiwgXCJMb3NzXCIpKSlcblxuIyBwcmludCBjb25mdXNpb24gbWF0cml4IHN0YXRpc3RpY3NcbmNtIDwtIHRyYWluX2RmICU+JSBcbiAgd2l0aCh0YWJsZSh0cmFpbl9kZiRob21lX3RlYW1fcmVzdWx0LCB0cmFpbl9kZiRwcmVkaWN0aW9uKSlcblxuY29uZnVzaW9uTWF0cml4KGNtLCBwb3NpdGl2ZSA9IFwiV2luXCIpXG5gYGAifQ== -->
+<pre class="r"><code># new vals
+train_df &lt;- train_df %&gt;%
+  mutate(prediction = as.factor(ifelse(rf_model$votes[,&quot;Win&quot;] &gt; cut_optimised_model$cutoff[2], &quot;Win&quot;, &quot;Loss&quot;)))
 
-<div id="rmd-source-code">LS0tCnRpdGxlOiAiUiBOb3RlYm9vayIKb3V0cHV0OiBodG1sX25vdGVib29rCi0tLQoKCgpgYGB7cn0KY3RybCA8LSB0cmFpbkNvbnRyb2wobWV0aG9kID0gInJlcGVhdGVkY3YiLAogICAgICAgICAgICAgICAgICAgICBudW1iZXIgPSA1LAogICAgICAgICAgICAgICAgICAgICBjbGFzc1Byb2JzID0gVFJVRSwKICAgICAgICAgICAgICAgICAgICAgc3VtbWFyeUZ1bmN0aW9uID0gbXVsdGlDbGFzc1N1bW1hcnksCiAgICAgICAgICAgICAgICAgICAgIHNhbXBsaW5nID0gTlVMTCwKICAgICAgICAgICAgICAgICAgICAgdmVyYm9zZUl0ZXIgPSBUUlVFKQoKIyBDYWxjdWxhdGUgY2xhc3Mgd2VpZ2h0cyBmb3IgdXNlIGluIHRoZSBtb2RlbApjbGFzc193ZWlnaHRzIDwtIHRhYmxlKHRyYWluX2RmW1siaG9tZV90ZWFtX3Jlc3VsdCJdXSkgJT4lIHByb3AudGFibGUoKSAlPiUgYXMuZGF0YS5mcmFtZSgpICU+JSAKICAgIHNldE5hbWVzKGMoImNsYXNzIiwgIndlaWdodCIpKSAlPiUKICAgIG11dGF0ZSh3ZWlnaHQgPSAxL3dlaWdodCkgJT4lIAogICAgZGVmcmFtZSgpCgojIFRoZSBuZXcgYmlnIGxvb3AKY3YgPC0gdHJhaW4oeCA9IHRyYWluX2RmICU+JSBzZWxlY3QoLWhvbWVfdGVhbV9yZXN1bHQpICU+JSBhcy5kYXRhLmZyYW1lKCksCiAgICAgICAgICAgIHkgPSB0cmFpbl9kZltbImhvbWVfdGVhbV9yZXN1bHQiXV0sCiAgICAgICAgICAgIG1ldGhvZCA9ICJyZiIsCiAgICAgICAgICAgIG1ldHJpYyA9ICJLYXBwYSIsCiAgICAgICAgICAgIHRyQ29udHJvbCA9IGN0cmwsCiAgICAgICAgICAgIHR1bmVHcmlkID0gZXhwYW5kLmdyaWQobXRyeSA9IDE6KChuY29sKHRyYWluX2RmKSAtIDEpKSksCiAgICAgICAgICAgIHdlaWdodHMgPSBjbGFzc193ZWlnaHRzKQpgYGAKCgoK</div>
+# print confusion matrix statistics
+cm &lt;- train_df %&gt;% 
+  with(table(train_df$home_team_result, train_df$prediction))
+
+confusionMatrix(cm, positive = &quot;Win&quot;)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuaW1wb3J0YW5jZShtb2RlbCkgJT4lIHQoKSAlPiUgLlsxLF0gJT4lIFxuICBhcy50aWJibGUocm93bmFtZXMgPSBcInZhcmlhYmxlXCIpICU+JVxuICBhcnJhbmdlKGRlc2ModmFsdWUpKSAlPiVcbiAgZ2dwbG90KGFlcyh4ID0gdmFyaWFibGUsIHkgPSB2YWx1ZSwgZmlsbCA9IHZhcmlhYmxlKSkgK1xuICBnZW9tX2JhcihzdGF0ID0gXCJpZGVudGl0eVwiKSArXG4gICAgY29vcmRfZmxpcCgpICtcbiAgdGhlbWVfbWluaW1hbCgpICtcbiAgdGhlbWUobGVnZW5kLnBvc2l0aW9uID0gXCJub25lXCIpICtcbiAgbGFicyh0aXRsZSA9IFwiSW1wb3J0YW5jZSBvZiB2YXJpYWJsZXNcIixcbiAgICAgICB4ID0gTlVMTCwgeSA9IFwiSW1wb3J0YW5jZVwiKVxuYGBgIn0= -->
+<pre class="r"><code>importance(model) %&gt;% t() %&gt;% .[1,] %&gt;% 
+  as.tibble(rownames = &quot;variable&quot;) %&gt;%
+  arrange(desc(value)) %&gt;%
+  ggplot(aes(x = variable, y = value, fill = variable)) +
+  geom_bar(stat = &quot;identity&quot;) +
+    coord_flip() +
+  theme_minimal() +
+  theme(legend.position = &quot;none&quot;) +
+  labs(title = &quot;Importance of variables&quot;,
+       x = NULL, y = &quot;Importance&quot;)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="predict-the-results-for-the-round" class="section level1">
+<h1>Predict the results for the round</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxucHJlZGljdGlvbnMgPC0gZGF0YS5mcmFtZShcbiAgZ2FtZV9pZCA9IGluZmVyZW5jZV9kZiRnYW1lX2lkLFxuICB0ZWFtX2hvbWUgPSBpbmZlcmVuY2VfZGYkdGVhbV9ob21lLFxuICB0ZWFtX2F3YXkgPSBpbmZlcmVuY2VfZGYkdGVhbV9hd2F5LFxuICBob21lX3RlYW1fcmVzdWx0ID0gcHJlZGljdChtb2RlbCwgaW5mZXJlbmNlX2RmICU+JSBzZWxlY3QoYWxsX29mKGMocHJlZGljdG9ycywgXCJob21lX3RlYW1fcmVzdWx0XCIpKSkpXG4pXG5cbnByZWRpY3Rpb25zXG5gYGAifQ== -->
+<pre class="r"><code>predictions &lt;- data.frame(
+  game_id = inference_df$game_id,
+  team_home = inference_df$team_home,
+  team_away = inference_df$team_away,
+  home_team_result = predict(model, inference_df %&gt;% select(all_of(c(predictors, &quot;home_team_result&quot;))))
+)
+
+predictions</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="save-them-to-the-drive" class="section level1">
+<h1>Save them to the drive</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxud3JpdGVfY3N2KHByZWRpY3Rpb25zLCBwYXN0ZTAoaGVyZSgpLCBcIi9kYXRhL3ByZWRpY3Rpb25zL3JvdW5kXCIsIHVuaXF1ZShpbmZlcmVuY2VfZGYkcm91bmRfaWQpLCBcIl9cIiwgdW5pcXVlKGluZmVyZW5jZV9kZiRjb21wZXRpdGlvbl95ZWFyKSwgXCIuY3N2XCIpKVxuYGBgIn0= -->
+<pre class="r"><code>write_csv(predictions, paste0(here(), &quot;/data/predictions/round&quot;, unique(inference_df$round_id), &quot;_&quot;, unique(inference_df$competition_year), &quot;.csv&quot;))</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<!-- rnb-text-end -->
+</div>
+
+<div id="rmd-source-code">LS0tCnRpdGxlOiAiRm9vdHkgVGlwcGVyIFBpcGVsaW5lIgpvdXRwdXQ6IGh0bWxfbm90ZWJvb2sKLS0tCgpgYGB7ciwgd2FybmluZz1GQUxTRSwgbWVzc2FnZT1GQUxTRX0KbGlicmFyeShoZXJlKQpsaWJyYXJ5KHNraW1yKQpsaWJyYXJ5KEVwaSkKbGlicmFyeShwUk9DKQoKaV9hbSgicGlwZWxpbmUvZm9vdHktdGlwcGVyLlJtZCIpCgpzb3VyY2UocGFzdGUwKGhlcmUoKSwiL1IvZ2V0LWRhdGEuUiIpKQpzb3VyY2UocGFzdGUwKGhlcmUoKSwiL1IvZmVhdHVyZS1lbmdpbmVlcmluZy5SIikpCnNvdXJjZShwYXN0ZTAoaGVyZSgpLCIvUi9tb2RlbGxpbmctZnVuY3Rpb25zLlIiKSkKYGBgCgojIEdldCBhbmQgc3BsaXQgdGhlIGRhdGFzZXQKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpmb290eV90aXBwaW5nX2RhdGEgPC0gZ2V0X2RhdGEoeWVhcl9zcGFuID0gMjAxMjoyMDIzKSAlPiUKICBmZWF0dXJlX2VuZ2luZWVyaW5nKGZvcm1fcGVyaW9kID0gNSkgJT4lCiAgZ3JvdXBfYnkoZ2FtZV9zdGF0ZV9uYW1lKSAlPiUKICBncm91cF9zcGxpdCgpCgp0cmFpbl9kZiA8LSBmb290eV90aXBwaW5nX2RhdGFbWzFdXQoKaW5mZXJlbmNlX2RmIDwtIGZvb3R5X3RpcHBpbmdfZGF0YVtbMl1dICU+JQogIGZpbHRlcihyb3VuZF9pZCA9PSBtaW4ocm91bmRfaWQpKQoKc2tpbSh0cmFpbl9kZikKYGBgCgojIFRyYWluIHRoZSBtb2RlbAoKYGBge3IsIHdhcm5pbmc9RkFMU0UsIG1lc3NhZ2U9RkFMU0V9CnByZWRpY3RvcnMgPC0gYygicm91bmRfaWQiLCAicm91bmRfbmFtZSIsICJnYW1lX251bWJlciIsICJ2ZW51ZV9uYW1lIiwgInRlYW1faG9tZSIsICJ0ZWFtX3Bvc2l0aW9uX2hvbWUiLCAidGVhbV9hd2F5IiwgInRlYW1fcG9zaXRpb25fYXdheSIsICJjb21wZXRpdGlvbl95ZWFyIiwgImNvcm9uYV9zZWFzb24iLCAic3RhcnRfaG91ciIsICJzZWFzb25fcmVjb3JkX2F3YXkiLCAic2Vhc29uX3BvaW50c19mb3JfYXdheSIsICJzZWFzb25fcG9pbnRzX2FnYWluc3RfYXdheSIsICJzZWFzb25fcG9pbnRzX2RpZmZfYXdheSIsICJzZWFzb25fcmVjb3JkX2hvbWUiLCAgInNlYXNvbl9wb2ludHNfZm9yX2hvbWUiLCAic2Vhc29uX3BvaW50c19hZ2FpbnN0X2hvbWUiLCJzZWFzb25fcG9pbnRzX2RpZmZfaG9tZSIsICJzZWFzb25fZm9ybV9hd2F5IiwgInNlYXNvbl9wb2ludHNfZm9yX2Zvcm1fYXdheSIsICJzZWFzb25fcG9pbnRzX2FnYWluc3RfZm9ybV9hd2F5IiwgInNlYXNvbl9kaWZmX2Zvcm1fYXdheSIsICJzZWFzb25fZm9ybV9ob21lIiwgInNlYXNvbl9wb2ludHNfZm9yX2Zvcm1faG9tZSIsICJzZWFzb25fcG9pbnRzX2FnYWluc3RfZm9ybV9ob21lIiwgInNlYXNvbl9kaWZmX2Zvcm1faG9tZSIsICJtYXRjaHVwX2Zvcm0iKQoKbW9kZWwgPC0gdHJhaW5fbXVsdGljbGFzc19tb2RlbChkYXRhID0gdHJhaW5fZGYsIAogICAgICAgICAgICAgICAgICAgICBwcmVkaWN0b3JzID0gcHJlZGljdG9ycywKICAgICAgICAgICAgICAgICAgICAgb3V0Y29tZV92YXIgPSAiaG9tZV90ZWFtX3Jlc3VsdCIpCgojIGN1dF9vcHRpbWlzZWRfbW9kZWwgPC0gcmZfY3V0b2ZmX3NlbGVjdChtb2RlbCkKIyBtb2RlbCA8LSBjdXRfb3B0aW1pc2VkX21vZGVsJHJmX21vZGVsCmBgYAoKYGBge3IsIHdhcm5pbmc9RkFMU0UsIG1lc3NhZ2U9RkFMU0V9CiMgcm9jKHRyYWluX2RmJGhvbWVfdGVhbV9yZXN1bHQsIG1vZGVsJHZvdGVzWywiV2luIl0pICU+JSAKIyAgIHBsb3QobWFpbiA9ICdNb2RlbCBST0MgY3VydmUnKQpgYGAKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQojIG5ldyB2YWxzCnRyYWluX2RmIDwtIHRyYWluX2RmICU+JQogIG11dGF0ZShwcmVkaWN0aW9uID0gYXMuZmFjdG9yKGlmZWxzZShyZl9tb2RlbCR2b3Rlc1ssIldpbiJdID4gY3V0X29wdGltaXNlZF9tb2RlbCRjdXRvZmZbMl0sICJXaW4iLCAiTG9zcyIpKSkKCiMgcHJpbnQgY29uZnVzaW9uIG1hdHJpeCBzdGF0aXN0aWNzCmNtIDwtIHRyYWluX2RmICU+JSAKICB3aXRoKHRhYmxlKHRyYWluX2RmJGhvbWVfdGVhbV9yZXN1bHQsIHRyYWluX2RmJHByZWRpY3Rpb24pKQoKY29uZnVzaW9uTWF0cml4KGNtLCBwb3NpdGl2ZSA9ICJXaW4iKQpgYGAKCgpgYGB7ciwgd2FybmluZz1GQUxTRSwgbWVzc2FnZT1GQUxTRX0KaW1wb3J0YW5jZShtb2RlbCkgJT4lIHQoKSAlPiUgLlsxLF0gJT4lIAogIGFzLnRpYmJsZShyb3duYW1lcyA9ICJ2YXJpYWJsZSIpICU+JQogIGFycmFuZ2UoZGVzYyh2YWx1ZSkpICU+JQogIGdncGxvdChhZXMoeCA9IHZhcmlhYmxlLCB5ID0gdmFsdWUsIGZpbGwgPSB2YXJpYWJsZSkpICsKICBnZW9tX2JhcihzdGF0ID0gImlkZW50aXR5IikgKwogICAgY29vcmRfZmxpcCgpICsKICB0aGVtZV9taW5pbWFsKCkgKwogIHRoZW1lKGxlZ2VuZC5wb3NpdGlvbiA9ICJub25lIikgKwogIGxhYnModGl0bGUgPSAiSW1wb3J0YW5jZSBvZiB2YXJpYWJsZXMiLAogICAgICAgeCA9IE5VTEwsIHkgPSAiSW1wb3J0YW5jZSIpCmBgYAoKIyBQcmVkaWN0IHRoZSByZXN1bHRzIGZvciB0aGUgcm91bmQKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpwcmVkaWN0aW9ucyA8LSBkYXRhLmZyYW1lKAogIGdhbWVfaWQgPSBpbmZlcmVuY2VfZGYkZ2FtZV9pZCwKICB0ZWFtX2hvbWUgPSBpbmZlcmVuY2VfZGYkdGVhbV9ob21lLAogIHRlYW1fYXdheSA9IGluZmVyZW5jZV9kZiR0ZWFtX2F3YXksCiAgaG9tZV90ZWFtX3Jlc3VsdCA9IHByZWRpY3QobW9kZWwsIGluZmVyZW5jZV9kZiAlPiUgc2VsZWN0KGFsbF9vZihjKHByZWRpY3RvcnMsICJob21lX3RlYW1fcmVzdWx0IikpKSkKKQoKcHJlZGljdGlvbnMKYGBgCgojIFNhdmUgdGhlbSB0byB0aGUgZHJpdmUKCmBgYHtyfQp3cml0ZV9jc3YocHJlZGljdGlvbnMsIHBhc3RlMChoZXJlKCksICIvZGF0YS9wcmVkaWN0aW9ucy9yb3VuZCIsIHVuaXF1ZShpbmZlcmVuY2VfZGYkcm91bmRfaWQpLCAiXyIsIHVuaXF1ZShpbmZlcmVuY2VfZGYkY29tcGV0aXRpb25feWVhciksICIuY3N2IikpCmBgYAoKCgo=</div>
 
 
 
@@ -1826,7 +1891,7 @@ $(document).ready(function () {
 <!-- code folding -->
 <script>
 $(document).ready(function () {
-  window.initializeSourceEmbed("updating-to-multiclass-model.Rmd");
+  window.initializeSourceEmbed("multiclass-footy-tipper.Rmd");
   window.initializeCodeFolding("show" === "show");
 });
 </script>
