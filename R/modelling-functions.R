@@ -46,6 +46,53 @@ train_model <- function(data, predictors, outcome_var, method = "rf", num_cluste
   
 }
 
+train_multiclass_model <- function(data, predictors, outcome_var, method = "rf", num_clusters = detectCores(), 
+                                   num_folds = 5, metric = "ROC", seed = 69) {
+  
+  data <- data %>% 
+    select(all_of(c(predictors, outcome_var)))
+  
+  # Set up clusters - this speeds up cv training (4 clusters ~ twice as fast)
+  cl <- makePSOCKcluster(num_clusters)
+  registerDoParallel(cl)
+  
+  # Set up caret CV options
+  ctrl <- trainControl(method = "repeatedcv",
+                       number = num_folds,
+                       classProbs = TRUE,
+                       summaryFunction = multiClassSummary,
+                       sampling = NULL, # account for class imbalance
+                       verboseIter = TRUE)
+  set.seed(seed)
+  
+  # Calculate class weights for use in the model
+  class_weights <- table(data[[outcome_var]]) %>% prop.table() %>% as.data.frame() %>% 
+    setNames(c("class", "weight")) %>%
+    mutate(weight = (1/weight)/3) %>% 
+    right_join(train_df, by = c("class" = outcome_var)) %>% .[["weight"]]
+  
+  # The new big loop
+  cv <- train(x = data %>% select(-{{outcome_var}}) %>% as.data.frame(),
+              y = data[[outcome_var]],
+              method = method,
+              metric = metric,
+              trControl = ctrl,
+              tuneGrid = expand.grid(mtry = 1:((ncol(data) - 1))),
+              weights = class_weights)
+  
+  # When you are done:
+  stopCluster(cl)
+  
+  # print results
+  print(cv)
+  
+  # get final model
+  final_model <- cv$finalModel
+  
+  return(final_model)
+  
+}
+
 rf_cutoff_select <- function(rf_model, cut_method = "MaxKappa"){
   
   # Use out-of-bag probabilities from final model in CV training to pick optimal cutoff

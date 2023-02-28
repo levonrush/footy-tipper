@@ -20,7 +20,7 @@ source(paste0(here(),"/R/modelling-functions.R"))
 
 ```{r, warning=FALSE, message=FALSE}
 footy_tipping_data <- get_data(year_span = 2012:2023) %>%
-  feature_engineering(form_period = 5) %>%
+  feature_engineering(form_period = 5, pipeline = 'binomial') %>%
   group_by(game_state_name) %>%
   group_split()
 
