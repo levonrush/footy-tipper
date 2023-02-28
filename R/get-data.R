@@ -1,6 +1,7 @@
 library(tidyverse)
 library(xml2)
 library(janitor)
+library(zoo)
 
 get_game_results <- function(fixtures_xml){
   
