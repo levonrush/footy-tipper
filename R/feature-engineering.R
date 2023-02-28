@@ -1,6 +1,31 @@
 library(tidyverse)
 library(lubridate)
 
+
+home_team_result <- function(data, pipeline){
+  
+  if (pipeline == 'binomial'){
+    
+    data <- data %>%
+      mutate(home_team_result = ifelse(team_final_score_home > team_final_score_away,
+                                       "Win", "Loss") %>% as.factor())
+    
+    
+  } else if (pipeline == 'multiclass') {
+    
+
+    data <- data %>%
+      mutate(home_team_result = ifelse(
+        team_final_score_home > team_final_score_away ~ "Win",
+        team_final_score_home < team_final_score_away ~ "Loss",
+        TRUE                                          ~ "Draw") %>% as.factor())
+    
+  }
+  
+  return(data)
+
+}
+
 easy_pickings <- function(data){
   
   data <- data %>%
@@ -149,9 +174,10 @@ matchup_form <- function(data, form_period){
 
 matchup_form
 
-feature_engineering <- function(data, form_period){
+feature_engineering <- function(data, form_period, pipeline){
  
   data <- data %>%
+    home_team_result(pipeline = pipeline)
     easy_pickings() %>%
     corona_season() %>%
     timing_vars() %>%
