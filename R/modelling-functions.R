@@ -61,16 +61,15 @@ train_multiclass_model <- function(data, predictors, outcome_var, method = "rf",
                        number = num_folds,
                        classProbs = TRUE,
                        summaryFunction = multiClassSummary,
-                       sampling = "weighted", # account for class imbalance
+                       sampling = NULL, # account for class imbalance
                        verboseIter = TRUE)
   set.seed(seed)
   
   # Calculate class weights for use in the model
   class_weights <- table(data[[outcome_var]]) %>% prop.table() %>% as.data.frame() %>% 
-    setNames(c("class", "weight")) %>% 
-    rownames_to_column(var = "class") %>% 
-    mutate(weight = 1/weight) %>% 
-    deframe()
+    setNames(c("class", "weight")) %>%
+    mutate(weight = (1/weight)/3) %>% 
+    right_join(train_df, by = c("class" = outcome_var)) %>% .[["weight"]]
   
   # The new big loop
   cv <- train(x = data %>% select(-{{outcome_var}}) %>% as.data.frame(),
