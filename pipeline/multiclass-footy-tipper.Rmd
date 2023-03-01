@@ -1,5 +1,5 @@
 ---
-title: "Footy Tipper Pipeline"
+title: "Multiclass Footy Tipper Pipeline"
 output: html_notebook
 ---
 
@@ -9,11 +9,12 @@ library(skimr)
 library(Epi)
 library(pROC)
 
-i_am("pipeline/footy-tipper.Rmd")
+i_am("pipeline/multiclass-footy-tipper.Rmd")
 
 source(paste0(here(),"/R/get-data.R"))
 source(paste0(here(),"/R/feature-engineering.R"))
 source(paste0(here(),"/R/modelling-functions.R"))
+source(paste0(here(),"/R/config.R"))
 ```
 
 # Get and split the dataset
@@ -21,6 +22,8 @@ source(paste0(here(),"/R/modelling-functions.R"))
 ```{r, warning=FALSE, message=FALSE}
 footy_tipping_data <- get_data(year_span = 2012:2023) %>%
   feature_engineering(form_period = 5, pipeline = 'multiclass') %>%
+  elo_variables() %>%
+  filter(competition_year != min(competition_year)) %>%
   group_by(game_state_name) %>%
   group_split()
 
@@ -32,59 +35,20 @@ inference_df <- footy_tipping_data[[2]] %>%
 skim(train_df)
 ```
 
-```{r}
-predictors <- c(
-  "round_id", 
-  "round_name", 
-  "game_number", 
-  "venue_name", 
-  "team_home", 
-  "team_position_home", 
-  "team_away", 
-  "team_position_away", 
-  "competition_year", 
-  "corona_season", 
-  "start_hour", 
-  "season_record_away", 
-  "season_points_for_away", 
-  "season_points_against_away", 
-  "season_points_diff_away", 
-  "season_record_home",  
-  "season_points_for_home", "season_points_against_home","season_points_diff_home", "season_form_away", "season_points_for_form_away", "season_points_against_form_away", "season_diff_form_away", "season_form_home", "season_points_for_form_home", "season_points_against_form_home", "season_diff_form_home", "matchup_form", "position_diff")
-```
-
-
 # Train the model
 
 ```{r, warning=FALSE, message=FALSE}
-
-
-model <- train_multiclass_model(data = train_df, 
+cv <- train_multiclass_model(data = train_df, 
                      predictors = predictors,
                      outcome_var = "home_team_result",
                      metric = "Kappa")
 
-# cut_optimised_model <- rf_cutoff_select(model)
-# model <- cut_optimised_model$rf_model
+model <- cv$finalModel
 ```
 
-```{r, warning=FALSE, message=FALSE}
-# roc(train_df$home_team_result, model$votes[,"Win"]) %>% 
-#   plot(main = 'Model ROC curve')
+```{r}
+model$confusion[-1,2:3] %>% confusionMatrix(positive = "Win")
 ```
-
-```{r, warning=FALSE, message=FALSE}
-# # new vals
-# train_df <- train_df %>%
-#   mutate(prediction = as.factor(ifelse(rf_model$votes[,"Win"] > cut_optimised_model$cutoff[2], "Win", "Loss")))
-# 
-# # print confusion matrix statistics
-# cm <- train_df %>% 
-#   with(table(train_df$home_team_result, train_df$prediction))
-# 
-# confusionMatrix(cm, positive = "Win")
-```
-
 
 ```{r, warning=FALSE, message=FALSE}
 importance(model) %>% t() %>% .[1,] %>% 
@@ -106,7 +70,9 @@ predictions <- data.frame(
   game_id = inference_df$game_id,
   team_home = inference_df$team_home,
   team_away = inference_df$team_away,
-  home_team_result = predict(model, inference_df %>% select(all_of(c(predictors, "home_team_result"))))
+  home_team_result = predict(model, inference_df %>% select(all_of(c(predictors, "home_team_result")))),
+  home_elo = inference_df$home_elo,
+  away_elo = inference_df$away_elo
 )
 
 predictions

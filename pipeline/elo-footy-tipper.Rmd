@@ -1,0 +1,85 @@
+---
+title: "ELO Footy Tipper Pipeline"
+output: html_notebook
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(here)
+library(skimr)
+library(Epi)
+library(pROC)
+
+i_am("pipeline/elo-footy-tipper.Rmd")
+
+source(paste0(here(),"/R/get-data.R"))
+source(paste0(here(),"/R/feature-engineering.R"))
+source(paste0(here(),"/R/modelling-functions.R"))
+```
+
+# Get and split the dataset
+
+```{r, warning=FALSE, message=FALSE}
+footy_tipping_data <- get_data(year_span = 2012:2023) %>%
+  feature_engineering(form_period = 5, pipeline = 'elo') %>%
+  group_by(game_state_name) %>%
+  group_split()
+
+train_df <- footy_tipping_data[[1]]
+
+inference_df <- footy_tipping_data[[2]] %>%
+  filter(round_id == min(round_id))
+
+skim(train_df)
+```
+
+
+```{r}
+library(elo)
+library(MLmetrics)
+
+elo_model <- elo.run(formula = home_result ~ team_home + team_away + k(3 + 3*margin),
+                     data = train_df)
+
+elo_results <- elo_model %>%
+  as.data.frame()
+
+elo_results %>% tail(n = 10)
+```
+
+```{r}
+final_elos <- final.elos(elo_model)
+final_elos %>% sort(decreasing = TRUE)
+```
+
+```{r}
+draw_rates <- data.frame(win_prob = elo_model$elos[,3],
+                         win_loss_draw = elo_model$elos[,4]) %>%
+  mutate(prob_bucket = abs(round((win_prob)*20)) / 20) %>%   # Round the predicted win probabilities to the nearest 0.05
+  group_by(prob_bucket) %>%
+  summarise(draw_prob = sum(ifelse(win_loss_draw == 0.5, 1, 0)) / n())   # Calculate the rate their was a draw for this win prob - elo package codes a draw as a 0.5
+
+draw_rates %>% head(n=20)
+```
+
+```{r}
+data_with_probabilities <- train_df %>% 
+  #select(round_id, date_GMT, home_team_name, away_team_name, home_result, away_result) %>%   # Remove some redundant columns
+  mutate(home_elo = elo_results$elo.A - elo_results$update.A,    # Add in home team's elo rating (need to subtract the points update to obtain pre-match rating)
+         away_elo = elo_results$elo.B - elo_results$update.B,    # Add in away team's elo rating (need to subtract the points update to obtain pre-match rating)
+         home_prob = elo_results$p.A,                            # Add in home team's win/loss probability
+         away_prob = 1 - home_prob) %>%                          # Add in away team's win/loss probability
+  mutate(prob_bucket = round(20*home_prob)/20) %>%               # Bucket the home team's win/loss probability into a rounded increment of 0.05
+  left_join(draw_rates, by = "prob_bucket") %>%                  # Join in our historic draw rates using the probability buckets
+  select(-prob_bucket)
+```
+
+```{r}
+data_with_probabilities <- data_with_probabilities %>% 
+  mutate(home_prob = home_prob - home_prob * draw_prob,          # Redistribute home team's probabilities proportionally to create win/draw/loss probabilities
+         away_prob = away_prob - away_prob * draw_prob)          # Redistribute away team's probabilities proportionally to create win/draw/loss probabilities
+
+data_with_probabilities %>% 
+  #select(home_team_name, away_team_name, home_prob, draw_prob, away_prob) %>% 
+  tail(n=10)
+```
+

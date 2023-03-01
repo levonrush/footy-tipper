@@ -1,8 +1,8 @@
 library(tidyverse)
 library(lubridate)
+library(elo)
 
-
-home_team_result <- function(data, pipeline){
+fixture_result <- function(data, pipeline){
   
   if (pipeline == 'binomial'){
     
@@ -11,14 +11,30 @@ home_team_result <- function(data, pipeline){
                                        "Win", "Loss") %>% as.factor())
     
     
-  } else if (pipeline == 'multiclass') {
+  } else if (pipeline == 'multiclass'){
     
-
     data <- data %>%
-      mutate(home_team_result = ifelse(
+      mutate(home_team_result = case_when(
         team_final_score_home > team_final_score_away ~ "Win",
         team_final_score_home < team_final_score_away ~ "Loss",
         TRUE                                          ~ "Draw") %>% as.factor())
+    
+  } else if (pipeline == 'elo'){
+    
+    data <- data %>%
+      mutate(home_team_result = case_when(
+        team_final_score_home > team_final_score_away ~ "Win",
+        team_final_score_home < team_final_score_away ~ "Loss",
+        TRUE                                          ~ "Draw") %>% as.factor())
+    
+    data <- data %>% 
+      mutate(home_result = case_when(team_final_score_home > team_final_score_away ~ 1,
+                                     team_final_score_home < team_final_score_away ~ 0,
+                                     team_final_score_home == team_final_score_away ~ 0.5),
+             away_result = case_when(team_final_score_home < team_final_score_away ~ 1,
+                                     team_final_score_home > team_final_score_away ~ 0,
+                                     team_final_score_home == team_final_score_away ~ 0.5),
+             margin = abs(team_final_score_home - team_final_score_away))
     
   }
   
@@ -166,7 +182,8 @@ matchup_form <- function(data, form_period){
       matchup_form = ifelse(seq(n()) < 5,
                             cumsum(form),
                             rollsum(form, 5, align = "right", fill = 0)) %>% lag() %>% replace_na(0)) %>%
-    select(-form)
+    select(-form) %>%
+    ungroup()
   
   return(data)
   
@@ -177,7 +194,7 @@ matchup_form
 feature_engineering <- function(data, form_period, pipeline){
  
   data <- data %>%
-    home_team_result(pipeline = pipeline)
+    fixture_result(pipeline = pipeline) %>%
     easy_pickings() %>%
     corona_season() %>%
     timing_vars() %>%
@@ -187,4 +204,44 @@ feature_engineering <- function(data, form_period, pipeline){
 
   return(data)
 
+}
+
+elo_variables <- function(data){
+  
+  data <- data %>% 
+    mutate(home_result = case_when(team_final_score_home > team_final_score_away ~ 1,
+                                   team_final_score_home < team_final_score_away ~ 0,
+                                   team_final_score_home == team_final_score_away ~ 0.5),
+           away_result = case_when(team_final_score_home < team_final_score_away ~ 1,
+                                   team_final_score_home > team_final_score_away ~ 0,
+                                   team_final_score_home == team_final_score_away ~ 0.5),
+           margin = abs(team_final_score_home - team_final_score_away))
+  
+  
+  elo_model <- elo.run(formula = home_result ~ team_home + team_away + k(3 + 3*margin),
+                       data = data)
+  
+  elo_results <- elo_model %>% as.data.frame()
+  
+  draw_rates <- data.frame(win_prob = elo_model$elos[,3],
+                           win_loss_draw = elo_model$elos[,4]) %>%
+    mutate(prob_bucket = abs(round((win_prob)*20)) / 20) %>%
+    group_by(prob_bucket) %>%
+    summarise(draw_prob = sum(ifelse(win_loss_draw == 0.5, 1, 0)) / n())
+  
+  data <- data %>%
+    mutate(home_elo = elo_results$elo.A - elo_results$update.A,
+           away_elo = elo_results$elo.B - elo_results$update.B,
+           home_prob = elo_results$p.A,
+           away_prob = 1 - home_prob) %>%
+    mutate(prob_bucket = round(20*home_prob)/20) %>%
+    left_join(draw_rates, by = "prob_bucket") %>%
+    select(-prob_bucket)
+  
+    data <- data %>% 
+      mutate(home_prob = home_prob - home_prob * draw_prob,
+             away_prob = away_prob - away_prob * draw_prob)
+  
+  return(data)
+  
 }

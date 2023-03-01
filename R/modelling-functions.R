@@ -63,6 +63,7 @@ train_multiclass_model <- function(data, predictors, outcome_var, method = "rf",
                        summaryFunction = multiClassSummary,
                        sampling = NULL, # account for class imbalance
                        verboseIter = TRUE)
+  
   set.seed(seed)
   
   # Calculate class weights for use in the model
@@ -86,10 +87,7 @@ train_multiclass_model <- function(data, predictors, outcome_var, method = "rf",
   # print results
   print(cv)
   
-  # get final model
-  final_model <- cv$finalModel
-  
-  return(final_model)
+  return(cv)
   
 }
 
@@ -147,34 +145,34 @@ perform_rfe <- function(data, k, metric, maximise, steps = NULL, outcome_var, pr
                    maximise = ifelse(is.factor(y), maximise, FALSE),
                    rfeControl = control,
                    trControl = trainctrl)
-  # 
-  # # When you are done:
-  # stopCluster(cl)
-  # 
-  # # Spit out the results
-  # print(rfe.train)
-  # print(plot(rfe.train, type = c("g", "o"), cex = 1.0, col = 1:(ncol(data) - 1)))
-  # opt_predictors <- predictors(rfe.train) # call the predictors something
-  # 
-  # # Try and make some silly graphs
-  # rfe.imp <- subset(as.data.frame(rfe.train$variables), Variables == (ncol(data) - 1)) # was 20 
-  # rfe.imp$var <- as.factor(rfe.imp$var)
-  # rfe.imp$var <- reorder(rfe.imp$var, rfe.imp$Overall, mean)
-  # 
-  # rfe.plot <- ggplot(rfe.imp, aes(x = var, y = Overall)) +
-  #   ggtitle("Variable importance measures from cross validation runs") +
-  #   xlab("") +
-  #   ylab("Importance") +
-  #   geom_violin() +
-  #   theme_bw() +
-  #   stat_summary(fun.y = mean, geom = "point", size = 1, color = "blue") +
-  #   theme(axis.text.x = element_text(angle = 90, hjust = 1), plot.title = element_text(hjust = 0.5))
-  # 
-  # print(rfe.plot)
-  # 
-  # # Define the optimal set of data from variable selection along with the response variable at the end
-  # data <- data %>% select(all_of(c(opt_predictors, outcome_var)))
-  # return(data)
+
+  # When you are done:
+  stopCluster(cl)
+
+  # Spit out the results
+  print(rfe.train)
+  print(plot(rfe.train, type = c("g", "o"), cex = 1.0, col = 1:(ncol(data) - 1)))
+  opt_predictors <- predictors(rfe.train) # call the predictors something
+
+  # Try and make some silly graphs
+  rfe.imp <- subset(as.data.frame(rfe.train$variables), Variables == (ncol(data) - 1)) # was 20
+  rfe.imp$var <- as.factor(rfe.imp$var)
+  rfe.imp$var <- reorder(rfe.imp$var, rfe.imp$Overall, mean)
+
+  rfe.plot <- ggplot(rfe.imp, aes(x = var, y = Overall)) +
+    ggtitle("Variable importance measures from cross validation runs") +
+    xlab("") +
+    ylab("Importance") +
+    geom_violin() +
+    theme_bw() +
+    stat_summary(fun.y = mean, geom = "point", size = 1, color = "blue") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1), plot.title = element_text(hjust = 0.5))
+
+  print(rfe.plot)
+
+  # Define the optimal set of data from variable selection along with the response variable at the end
+  data <- data %>% select(all_of(c(opt_predictors, outcome_var)))
+  return(data)
   
 }
 
