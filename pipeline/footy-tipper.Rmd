@@ -1,5 +1,5 @@
 ---
-title: "Footy Tipper Pipeline"
+title: "Binomial Footy Tipper Pipeline"
 output: html_notebook
 ---
 
@@ -14,6 +14,7 @@ i_am("pipeline/footy-tipper.Rmd")
 source(paste0(here(),"/R/get-data.R"))
 source(paste0(here(),"/R/feature-engineering.R"))
 source(paste0(here(),"/R/modelling-functions.R"))
+source(paste0(here(),"/R/config.R"))
 ```
 
 # Get and split the dataset
@@ -21,6 +22,7 @@ source(paste0(here(),"/R/modelling-functions.R"))
 ```{r, warning=FALSE, message=FALSE}
 footy_tipping_data <- get_data(year_span = 2012:2023) %>%
   feature_engineering(form_period = 5, pipeline = 'binomial') %>%
+  elo_variables() %>%
   group_by(game_state_name) %>%
   group_split()
 
@@ -35,8 +37,6 @@ skim(train_df)
 # Train the model
 
 ```{r, warning=FALSE, message=FALSE}
-predictors <- c("round_id", "round_name", "game_number", "venue_name", "team_home", "team_position_home", "team_away", "team_position_away", "competition_year", "corona_season", "start_hour", "season_record_away", "season_points_for_away", "season_points_against_away", "season_points_diff_away", "season_record_home",  "season_points_for_home", "season_points_against_home","season_points_diff_home", "season_form_away", "season_points_for_form_away", "season_points_against_form_away", "season_diff_form_away", "season_form_home", "season_points_for_form_home", "season_points_against_form_home", "season_diff_form_home", "matchup_form", "position_diff")
-
 model <- train_model(data = train_df, 
                      predictors = predictors,
                      outcome_var = "home_team_result")
