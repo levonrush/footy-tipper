@@ -1,8 +1,8 @@
 # Footy-Tipper
-This is a data science project mainly programmed in R that is currently in the research phase, with the intention of creating a production pipeline for a model that selects tips for use in the Seven Seas Hotel's NRL tipping comp.
+The Footy-Tipper is a data science project programmed in R that aims to create a production pipeline for a footy tipping model to be used in the Seven Seas Hotel's NRL tipping comp.
 
 ## Overview
-The aim of this project is to develop a model that can predict NRL game outcomes and provide betting tips for the Seven Seas Hotel's NRL tipping comp. The project currently includes data collection, cleaning, and exploratory data analysis. Various machine learning models will be tested and evaluated before selecting the best-performing model to use in the production pipeline.
+The goal of this project is to develop a machine learning model that can accurately predict NRL game outcomes and provide betting tips for the Seven Seas Hotel's NRL tipping competition. The project includes various stages such as data collection, cleaning, exploratory data analysis, model selection, and evaluation.
 
 ## Installation
 To run this project locally, follow these steps:
