@@ -1,0 +1,8 @@
+"","game_id","team_home","team_away","home_team_result","home_team_win_prob","home_team_draw_prob","home_team_lose_prob","home_elo","away_elo"
+"1",20231110120,"New Zealand Warriors","Newcastle Knights","Win",0.57,0,0.43,1260.24590783218,1256.65867047044
+"2",20231110130,"Penrith Panthers","Brisbane Broncos","Win",0.802,0,0.198,1879.7288094182,1393.55099276729
+"3",20231110140,"Manly-Warringah Sea Eagles","Canterbury-Bankstown Bulldogs","Win",0.56,0,0.44,1384.88654182346,1236.37800584811
+"4",20231110150,"North Queensland Cowboys","Canberra Raiders","Win",0.814,0,0.186,1668.15216170546,1553.49497955271
+"5",20231110160,"Cronulla-Sutherland Sharks","South Sydney Rabbitohs","Win",0.534,0,0.466,1622.46640163352,1764.85177410042
+"6",20231110170,"Dolphins","Sydney Roosters","Loss",0.44,0.002,0.558,1500,1696.64340840712
+"7",20231110180,"Wests Tigers","Gold Coast Titans","Loss",0.436,0,0.564,1153.7348984713,1300.19165056712

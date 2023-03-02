@@ -8,8 +8,12 @@ library(here)
 library(skimr)
 library(Epi)
 library(pROC)
+library(googledrive)
+library(googlesheets4)
 
 i_am("pipeline/multiclass-footy-tipper.Rmd")
+
+drive_auth()
 
 source(paste0(here(),"/R/get-data.R"))
 source(paste0(here(),"/R/clean-data.R"))
@@ -83,11 +87,31 @@ predictions <- data.frame(
 predictions
 ```
 
-
 # Save them to the drive
 
 ```{r}
-write_csv(predictions, paste0(here(), "/data/predictions/round", unique(inference_df$round_id), "_", unique(inference_df$competition_year), ".csv"))
+gs4_auth()
+```
+
+
+```{r}
+# Create an empty spreadsheet. It is stored as an object with a sheet_id and drive_id 
+ss <- gs4_create(name = paste0("r", unique(inference_df$round_id), "_", unique(inference_df$competition_year), ".csv"), sheets = "Sheet 1")
+
+# Put the data.frame in the spreadsheet and provide the sheet_id so it can be found
+sheet_write(data = predictions, ss = ss, sheet ="Sheet 1")
+
+# Move your spreadsheet to the desired location
+drive_mv(file = ss, path = "footy-tipping-predictions/", overwrite = T)
+```
+
+
+```{r}
+file_name = paste0("round", unique(inference_df$round_id), "_", unique(inference_df$competition_year), ".csv")
+
+write.csv(x = predictions, file = file_name)
+
+drive_upload(media = file_name, path = "footy-tipping-predictions/", overwrite = T)
 ```
 
 
