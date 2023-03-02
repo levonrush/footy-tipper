@@ -12,6 +12,7 @@ library(pROC)
 i_am("pipeline/multiclass-footy-tipper.Rmd")
 
 source(paste0(here(),"/R/get-data.R"))
+source(paste0(here(),"/R/clean-data.R"))
 source(paste0(here(),"/R/feature-engineering.R"))
 source(paste0(here(),"/R/modelling-functions.R"))
 source(paste0(here(),"/R/config.R"))
@@ -21,6 +22,7 @@ source(paste0(here(),"/R/config.R"))
 
 ```{r, warning=FALSE, message=FALSE}
 footy_tipping_data <- get_data(year_span = 2012:2023) %>%
+  clean_data() %>%
   feature_engineering(form_period = 5, pipeline = 'multiclass') %>%
   elo_variables() %>%
   filter(competition_year != min(competition_year)) %>%
@@ -71,12 +73,16 @@ predictions <- data.frame(
   team_home = inference_df$team_home,
   team_away = inference_df$team_away,
   home_team_result = predict(model, inference_df %>% select(all_of(c(predictors, "home_team_result")))),
+  home_team_win_prob = predict(model, inference_df %>% select(all_of(c(predictors, "home_team_result"))), type = "prob")[,"Win"],
+  home_team_draw_prob = predict(model, inference_df %>% select(all_of(c(predictors, "home_team_result"))), type = "prob")[,"Draw"],
+  home_team_lose_prob = predict(model, inference_df %>% select(all_of(c(predictors, "home_team_result"))), type = "prob")[,"Loss"],
   home_elo = inference_df$home_elo,
   away_elo = inference_df$away_elo
 )
 
 predictions
 ```
+
 
 # Save them to the drive
 
