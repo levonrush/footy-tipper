@@ -3,6 +3,23 @@ library(xml2)
 library(janitor)
 library(zoo)
 
+get_ladder_by_round <- function(ladder_xml){
+  
+ ladder_by_round <- ladder_xml %>% xml_find_all(".//gameFixture") %>%
+   map_df(~{
+     bind_cols(
+       gameId =  xml_attr(.x, "gameId"),
+       team = xml_find_all(.x, ".//teams/team") %>% xml_attr("team"),
+       teamFinalScore = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamFinalScore"),
+       isHomeTeam = xml_find_all(.x, ".//teams/team") %>% xml_attr("isHomeTeam"),
+       teamPosition = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamPosition")
+     ) 
+   }) 
+ 
+ 
+ 
+}
+
 get_game_results <- function(fixtures_xml){
   
   game_results_long <- fixtures_xml %>% xml_find_all(".//gameFixture") %>%
@@ -83,20 +100,7 @@ get_data <- function(password = rstudioapi::askForPassword, year_span){
   }
   
   # bind each of the years together and do some cleaning
-  footy_tipper_df <- bind_rows(footy_tipper_dfs) %>% type_convert() 
-  
-  # do some cleaning
-  footy_tipper_df <- footy_tipper_df %>%
-    mutate(broadcastChannel2 = if_else(is.na(broadcastChannel2), "None", broadcastChannel2),
-           broadcastChannel3 = if_else(is.na(broadcastChannel3), "None", broadcastChannel3),
-           venueName = fct_lump(venueName, 42)) %>%
-    mutate_if(is.character, as.factor) %>%
-    clean_names()
-  
-  # introduce the Dolphins as a factor level for R1 2023
-  footy_tipper_df <- footy_tipper_df %>%
-    mutate(team_home = fct_expand(team_home, "Dolphins"),
-           team_away = fct_expand(team_away, "Dolphins"))
+  footy_tipper_df <- bind_rows(footy_tipper_dfs) %>% type_convert()
 
   # return it to the env
   return(footy_tipper_df)

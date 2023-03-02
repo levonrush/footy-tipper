@@ -64,7 +64,8 @@ corona_season <- function(data){
 timing_vars <- function(data){
   
   data <- data %>%
-    mutate(start_hour = hour(start_time))
+    mutate(start_hour = hour(start_time),
+           game_day = weekdays(as.Date(start_time)) %>% as.factor())
   
   return(data)
 
