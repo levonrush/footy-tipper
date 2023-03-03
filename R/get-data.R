@@ -3,20 +3,46 @@ library(xml2)
 library(janitor)
 library(zoo)
 
-get_ladder_by_round <- function(ladder_xml){
+get_ladder_by_round <- function(ladder_xml, year, round){
   
- ladder_by_round <- ladder_xml %>% xml_find_all(".//gameFixture") %>%
+ ladder_by_round <- ladder_xml %>% xml_find_all(".//ladderposition") %>%
    map_df(~{
      bind_cols(
-       gameId =  xml_attr(.x, "gameId"),
-       team = xml_find_all(.x, ".//teams/team") %>% xml_attr("team"),
-       teamFinalScore = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamFinalScore"),
-       isHomeTeam = xml_find_all(.x, ".//teams/team") %>% xml_attr("isHomeTeam"),
-       teamPosition = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamPosition")
+       position = xml_attr(.x, "position"),
+       team = xml_attr(.x, "teamName"),
+       wins = xml_attr(.x, "wins"),
+       draws = xml_attr(.x, "draws"),
+       losses = xml_attr(.x, "losses"),
+       byes = xml_attr(.x, "byes"),
+       competition_points = xml_attr(.x, "competitionPoints"),
+       pointsFor = xml_attr(.x, "pointsFor"),
+       pointsAgainst = xml_attr(.x, "pointsAgainst"),
+       pointsDifference = xml_attr(.x, "pointsDifference"),
+       homeWins = xml_attr(.x, "homeWins"),
+       homeDraws = xml_attr(.x, "homeDraws"),
+       homeLosses = xml_attr(.x, "homeLosses"),
+       awayWins = xml_attr(.x, "awayWins"),
+       awayDraws = xml_attr(.x, "awayDraws"),
+       awayLosses = xml_attr(.x, "awayLosses"),
+       recentForm = xml_attr(.x, "recentForm"),
+       seasonForm = xml_attr(.x, "seasonForm"),
+       triesFor = xml_attr(.x, "triesFor"),
+       triesConceded = xml_attr(.x, "triesConceded"),
+       goalsFor = xml_attr(.x, "goalsFor"),
+       goalsConceded = xml_attr(.x, "goalsConceded"),
+       fieldGoalsFor = xml_attr(.x, "fieldGoalsFor"),
+       fieldGoalsConceded = xml_attr(.x, "fieldGoalsConceded"),
+       playersUsed = xml_attr(.x, "playersUsed"),
+       averageWinningMargin = xml_attr(.x, "averageWinningMargin"),
+       averageLosingMargin = xml_attr(.x, "averageLosingMargin"),
+       closeGames = xml_attr(.x, "closeGames"),
+       dayRecord = xml_attr(.x, "dayRecord"),
+       nightRecord = xml_attr(.x, "nightRecord"),
+       currentStreak = xml_attr(.x, "currentStreak")
      ) 
-   }) 
- 
- 
+   }) %>%
+   mutate(round_id = round,
+          competition_year = year)
  
 }
 

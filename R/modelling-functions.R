@@ -91,14 +91,14 @@ train_multiclass_model <- function(data, predictors, outcome_var, method = "rf",
   
 }
 
-rf_cutoff_select <- function(rf_model, cut_method = "MaxKappa"){
+rf_cutoff_select <- function(rf_model, cut_method = "MaxKappa", CFN, CFP){
   
   # Use out-of-bag probabilities from final model in CV training to pick optimal cutoff
   prob <- rf_model$votes %>% as.data.frame %>% mutate(response = rf_model$y)
   
   cut <- optimal.cutpoints(X = names(prob)[1], status = "response", 
-                           tag.healthy = names(prob)[2], methods = cut_method, 
-                           data = prob)
+                           tag.healthy = names(prob)[2], methods = cut_method,
+                           CFN = CFN, CFP = CFP, data = prob)
   
   cut <- cut$MaxKappa$Global$optimal.cutoff$cutoff
   
