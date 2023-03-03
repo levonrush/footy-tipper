@@ -4,20 +4,7 @@ output: html_notebook
 ---
 
 ```{r, warning=FALSE, message=FALSE}
-library(here)
-library(skimr)
-library(Epi)
-library(pROC)
-library(googledrive)
-
-i_am("pipeline/multiclass-footy-tipper.Rmd")
-
-drive_auth()
-
-helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
-                               full.names = TRUE, ignore.case = TRUE)
-
-sapply(helper_functions, source, .GlobalEnv)
+setup_env()
 ```
 
 # Get and split the dataset
