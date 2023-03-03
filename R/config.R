@@ -45,6 +45,7 @@ predictors <- c("round_id"
 
 # outcome variable
 outcome_var = "home_team_result"
+positive = "Win"
 
 # training params
 opt_metric = "Kappa"
