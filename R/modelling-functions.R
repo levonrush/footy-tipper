@@ -7,7 +7,7 @@ library(doParallel)
 library(ggplot2)
 
 train_model <- function(data, predictors, outcome_var, method = "rf", num_clusters = detectCores(), 
-                        num_folds = 5, metric = "ROC", seed = 69) {
+                        num_folds = 5, opt_metric = "ROC", seed = 69) {
   
   data <- data %>% 
     select(all_of(c(predictors, outcome_var)))
@@ -29,7 +29,7 @@ train_model <- function(data, predictors, outcome_var, method = "rf", num_cluste
   cv <- train(x = data %>% select(-{{outcome_var}}) %>% as.data.frame(),
               y = data[[outcome_var]],
               method = method,
-              metric = metric,
+              opt_metric = opt_metric,
               trControl = ctrl,
               tuneGrid = expand.grid(mtry = 1:((ncol(data) - 1))))
   
@@ -47,7 +47,7 @@ train_model <- function(data, predictors, outcome_var, method = "rf", num_cluste
 }
 
 train_multiclass_model <- function(data, predictors, outcome_var, method = "rf", num_clusters = detectCores(), 
-                                   num_folds = 5, metric = "ROC", seed = 69) {
+                                   num_folds = 5, opt_metric = "ROC", seed = 69) {
   
   data <- data %>% 
     select(all_of(c(predictors, outcome_var)))
@@ -76,7 +76,7 @@ train_multiclass_model <- function(data, predictors, outcome_var, method = "rf",
   cv <- train(x = data %>% select(-{{outcome_var}}) %>% as.data.frame(),
               y = data[[outcome_var]],
               method = method,
-              metric = metric,
+              opt_metric = opt_metric,
               trControl = ctrl,
               tuneGrid = expand.grid(mtry = 1:((ncol(data) - 1))),
               weights = class_weights)
@@ -113,7 +113,7 @@ rf_cutoff_select <- function(rf_model, cut_method = "MaxKappa", CFN, CFP){
   
 }
 
-perform_rfe <- function(data, k, metric, maximise, steps = NULL, outcome_var, predictors) {
+perform_rfe <- function(data, k, opt_metric, maximise, steps = NULL, outcome_var, predictors) {
   
   data <- data %>% select(all_of(c(predictors, outcome_var)))
   
@@ -141,7 +141,7 @@ perform_rfe <- function(data, k, metric, maximise, steps = NULL, outcome_var, pr
 
   rfe.train <- rfe(x, y,
                    steps,
-                   metric = ifelse(is.factor(y), metric, "RMSE"), # was "Kappa" for factors
+                   opt_metric = ifelse(is.factor(y), opt_metric, "RMSE"), # was "Kappa" for factors
                    maximise = ifelse(is.factor(y), maximise, FALSE),
                    rfeControl = control,
                    trControl = trainctrl)

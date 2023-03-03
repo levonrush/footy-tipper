@@ -1,3 +1,9 @@
+# data params
+year_span = 2012:2023
+pipeline = 'multiclass'
+form_period <- 5
+
+# predictors
 predictors <- c("round_id"
                 , "round_name"
                 , "game_number"
@@ -36,3 +42,9 @@ predictors <- c("round_id"
                 , "draw_prob"
                 , "away_prob"
                 )
+
+# outcome variable
+outcome_var = "home_team_result"
+
+# training params
+opt_metric = "Kappa"

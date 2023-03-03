@@ -14,8 +14,8 @@ i_am("pipeline/multiclass-footy-tipper.Rmd")
 
 drive_auth()
 
-helper_functions <- list.files(paste0(here(), "/R"), pattern="*.R$", 
-                               full.names=TRUE, ignore.case=TRUE)
+helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
+                               full.names = TRUE, ignore.case = TRUE)
 
 sapply(helper_functions, source, .GlobalEnv)
 ```
@@ -23,9 +23,9 @@ sapply(helper_functions, source, .GlobalEnv)
 # Get and split the dataset
 
 ```{r, warning=FALSE, message=FALSE}
-footy_tipping_data <- get_data(year_span = 2012:2023) %>%
+footy_tipping_data <- get_data(year_span) %>%
   clean_data() %>%
-  feature_engineering(form_period = 5, pipeline = 'multiclass') %>%
+  feature_engineering(form_period, pipeline) %>%
   elo_variables() %>%
   filter(competition_year != min(competition_year)) %>%
   group_by(game_state_name) %>%
@@ -42,16 +42,13 @@ skim(train_df)
 # Train the model
 
 ```{r, warning=FALSE, message=FALSE}
-cv <- train_multiclass_model(data = train_df, 
-                     predictors = predictors,
-                     outcome_var = "home_team_result",
-                     metric = "Kappa")
+cv <- train_multiclass_model(data = train_df, predictors, outcome_var, opt_metric)
 
 model <- cv$finalModel
 ```
 
 ```{r}
-model$confusion[-1,2:3] %>% confusionMatrix(positive = "Win")
+model$confusion[-1,2:3] %>% confusionMatrix(positive = positive)
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -70,7 +67,7 @@ importance(model) %>% t() %>% .[1,] %>%
 # Predict the results for the round
 
 ```{r, warning=FALSE, message=FALSE}
-predictions <- make_predicitons(inference_df, model, predictors, outcome_var = "home_team_result")
+predictions <- make_predicitons(inference_df, model, predictors, outcome_var)
 
 predictions
 ```
