@@ -80,3 +80,47 @@ footy_tipper_df
 ```{r, message=FALSE, warning=FALSE}
 skim(footy_tipper_df)
 ```
+
+# ladder stuff
+
+```{r}
+year = 2021
+round = 15
+
+every_ladder <- vector(mode = "list")
+
+for (year in 2021:2022){
+  
+  error = F
+  round = 1
+  
+  year_ladder <- vector(mode = "list")
+  
+  while(error == F){
+    
+    ladder_xml <- tryCatch(
+      read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/roundLadder/111/", year, "/", round)),
+      error = T)
+    
+    ladder[[r]] <- get_ladder_by_round(ladder_xml, year, round)
+    
+    
+    round = round + 1
+    
+  }
+  
+  
+    
+
+  
+  
+  
+}
+
+
+
+ladder_df <- get_ladder_by_round(ladder_xml, year, round)
+ladder_df
+```
+
+
