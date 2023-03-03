@@ -1,5 +1,5 @@
 ---
-title: "Multiclass Footy Tipper Pipeline"
+title: "Footy Tipper Pipeline"
 output: html_notebook
 ---
 
