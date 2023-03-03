@@ -1,9 +1,0 @@
-game_id,team_home,team_away,home_team_result,home_team_win_prob,home_team_draw_prob,home_team_lose_prob,home_elo,away_elo
-20231110110,Parramatta Eels,Melbourne Storm,Win,0.508,0,0.492,1662.8879026595257,1779.390946979295
-20231110120,New Zealand Warriors,Newcastle Knights,Win,0.616,0,0.384,1260.2459078321779,1256.6586704704396
-20231110130,Penrith Panthers,Brisbane Broncos,Win,0.802,0,0.198,1879.7288094181995,1393.5509927672877
-20231110140,Manly-Warringah Sea Eagles,Canterbury-Bankstown Bulldogs,Win,0.53,0.002,0.468,1384.8865418234625,1236.3780058481145
-20231110150,North Queensland Cowboys,Canberra Raiders,Win,0.804,0,0.196,1668.152161705455,1553.4949795527111
-20231110160,Cronulla-Sutherland Sharks,South Sydney Rabbitohs,Win,0.588,0.002,0.41,1622.466401633519,1764.8517741004216
-20231110170,Dolphins,Sydney Roosters,Loss,0.47,0,0.53,1500,1696.6434084071172
-20231110180,Wests Tigers,Gold Coast Titans,Loss,0.458,0,0.542,1153.7348984713021,1300.1916505671184
