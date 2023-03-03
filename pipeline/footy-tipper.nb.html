@@ -1801,24 +1801,15 @@ model &lt;- cv$finalModel</code></pre>
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubW9kZWwkY29uZnVzaW9uWy0xLDI6M10gJT4lIGNvbmZ1c2lvbk1hdHJpeChwb3NpdGl2ZSA9IHBvc2l0aXZlKVxuYGBgIn0= -->
-<pre class="r"><code>model$confusion[-1,2:3] %&gt;% confusionMatrix(positive = positive)</code></pre>
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubW9kZWxfcHJvcGVydGllcygpJGNvbmZ1c2lvbl9tYXRyaXhcbmBgYCJ9 -->
+<pre class="r"><code>model_properties()$confusion_matrix</code></pre>
 <!-- rnb-source-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuaW1wb3J0YW5jZShtb2RlbCkgJT4lIHQoKSAlPiUgLlsxLF0gJT4lIFxuICBhcy50aWJibGUocm93bmFtZXMgPSBcInZhcmlhYmxlXCIpICU+JVxuICBhcnJhbmdlKGRlc2ModmFsdWUpKSAlPiVcbiAgZ2dwbG90KGFlcyh4ID0gdmFyaWFibGUsIHkgPSB2YWx1ZSwgZmlsbCA9IHZhcmlhYmxlKSkgK1xuICBnZW9tX2JhcihzdGF0ID0gXCJpZGVudGl0eVwiKSArXG4gICAgY29vcmRfZmxpcCgpICtcbiAgdGhlbWVfbWluaW1hbCgpICtcbiAgdGhlbWUobGVnZW5kLnBvc2l0aW9uID0gXCJub25lXCIpICtcbiAgbGFicyh0aXRsZSA9IFwiSW1wb3J0YW5jZSBvZiB2YXJpYWJsZXNcIixcbiAgICAgICB4ID0gTlVMTCwgeSA9IFwiSW1wb3J0YW5jZVwiKVxuYGBgIn0= -->
-<pre class="r"><code>importance(model) %&gt;% t() %&gt;% .[1,] %&gt;% 
-  as.tibble(rownames = &quot;variable&quot;) %&gt;%
-  arrange(desc(value)) %&gt;%
-  ggplot(aes(x = variable, y = value, fill = variable)) +
-  geom_bar(stat = &quot;identity&quot;) +
-    coord_flip() +
-  theme_minimal() +
-  theme(legend.position = &quot;none&quot;) +
-  labs(title = &quot;Importance of variables&quot;,
-       x = NULL, y = &quot;Importance&quot;)</code></pre>
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubW9kZWxfcHJvcGVydGllcygpJGltcG9ydGFuY2VfcGxvdFxuYGBgIn0= -->
+<pre class="r"><code>model_properties()$importance_plot</code></pre>
 <!-- rnb-source-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
@@ -1845,7 +1836,7 @@ predictions</code></pre>
 <!-- rnb-chunk-end -->
 </div>
 
-<div id="rmd-source-code">LS0tCnRpdGxlOiAiRm9vdHkgVGlwcGVyIFBpcGVsaW5lIgpvdXRwdXQ6IGh0bWxfbm90ZWJvb2sKLS0tCgpgYGB7ciwgd2FybmluZz1GQUxTRSwgbWVzc2FnZT1GQUxTRX0Kc2V0dXBfZW52KCkKYGBgCgojIEdldCBhbmQgc3BsaXQgdGhlIGRhdGFzZXQKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpmb290eV90aXBwaW5nX2RhdGEgPC0gZ2V0X2RhdGEoeWVhcl9zcGFuKSAlPiUKICBjbGVhbl9kYXRhKCkgJT4lCiAgZmVhdHVyZV9lbmdpbmVlcmluZyhmb3JtX3BlcmlvZCwgcGlwZWxpbmUpICU+JQogIGVsb192YXJpYWJsZXMoKSAlPiUKICBmaWx0ZXIoY29tcGV0aXRpb25feWVhciAhPSBtaW4oY29tcGV0aXRpb25feWVhcikpICU+JQogIGdyb3VwX2J5KGdhbWVfc3RhdGVfbmFtZSkgJT4lCiAgZ3JvdXBfc3BsaXQoKQoKdHJhaW5fZGYgPC0gZm9vdHlfdGlwcGluZ19kYXRhW1sxXV0KCmluZmVyZW5jZV9kZiA8LSBmb290eV90aXBwaW5nX2RhdGFbWzJdXSAlPiUKICBmaWx0ZXIocm91bmRfaWQgPT0gbWluKHJvdW5kX2lkKSkKCnNraW0odHJhaW5fZGYpCmBgYAoKIyBUcmFpbiB0aGUgbW9kZWwKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpjdiA8LSB0cmFpbl9tdWx0aWNsYXNzX21vZGVsKGRhdGEgPSB0cmFpbl9kZiwgcHJlZGljdG9ycywgb3V0Y29tZV92YXIsIG9wdF9tZXRyaWMpCgptb2RlbCA8LSBjdiRmaW5hbE1vZGVsCmBgYAoKYGBge3J9Cm1vZGVsJGNvbmZ1c2lvblstMSwyOjNdICU+JSBjb25mdXNpb25NYXRyaXgocG9zaXRpdmUgPSBwb3NpdGl2ZSkKYGBgCgpgYGB7ciwgd2FybmluZz1GQUxTRSwgbWVzc2FnZT1GQUxTRX0KaW1wb3J0YW5jZShtb2RlbCkgJT4lIHQoKSAlPiUgLlsxLF0gJT4lIAogIGFzLnRpYmJsZShyb3duYW1lcyA9ICJ2YXJpYWJsZSIpICU+JQogIGFycmFuZ2UoZGVzYyh2YWx1ZSkpICU+JQogIGdncGxvdChhZXMoeCA9IHZhcmlhYmxlLCB5ID0gdmFsdWUsIGZpbGwgPSB2YXJpYWJsZSkpICsKICBnZW9tX2JhcihzdGF0ID0gImlkZW50aXR5IikgKwogICAgY29vcmRfZmxpcCgpICsKICB0aGVtZV9taW5pbWFsKCkgKwogIHRoZW1lKGxlZ2VuZC5wb3NpdGlvbiA9ICJub25lIikgKwogIGxhYnModGl0bGUgPSAiSW1wb3J0YW5jZSBvZiB2YXJpYWJsZXMiLAogICAgICAgeCA9IE5VTEwsIHkgPSAiSW1wb3J0YW5jZSIpCmBgYAoKIyBQcmVkaWN0IHRoZSByZXN1bHRzIGZvciB0aGUgcm91bmQKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpwcmVkaWN0aW9ucyA8LSBtYWtlX3ByZWRpY2l0b25zKGluZmVyZW5jZV9kZiwgbW9kZWwsIHByZWRpY3RvcnMsIG91dGNvbWVfdmFyKQoKcHJlZGljdGlvbnMKYGBgCgojIFNhdmUgdGhlbSB0byB0aGUgZHJpdmUKCmBgYHtyfQpzYXZlX3ByZWRpY3Rpb25zKGluZmVyZW5jZV9kZiwgcHJlZGljdGlvbnMpCmBgYAo=</div>
+<div id="rmd-source-code">LS0tCnRpdGxlOiAiRm9vdHkgVGlwcGVyIFBpcGVsaW5lIgpvdXRwdXQ6IGh0bWxfbm90ZWJvb2sKLS0tCgpgYGB7ciwgd2FybmluZz1GQUxTRSwgbWVzc2FnZT1GQUxTRX0Kc2V0dXBfZW52KCkKYGBgCgojIEdldCBhbmQgc3BsaXQgdGhlIGRhdGFzZXQKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpmb290eV90aXBwaW5nX2RhdGEgPC0gZ2V0X2RhdGEoeWVhcl9zcGFuKSAlPiUKICBjbGVhbl9kYXRhKCkgJT4lCiAgZmVhdHVyZV9lbmdpbmVlcmluZyhmb3JtX3BlcmlvZCwgcGlwZWxpbmUpICU+JQogIGVsb192YXJpYWJsZXMoKSAlPiUKICBmaWx0ZXIoY29tcGV0aXRpb25feWVhciAhPSBtaW4oY29tcGV0aXRpb25feWVhcikpICU+JQogIGdyb3VwX2J5KGdhbWVfc3RhdGVfbmFtZSkgJT4lCiAgZ3JvdXBfc3BsaXQoKQoKdHJhaW5fZGYgPC0gZm9vdHlfdGlwcGluZ19kYXRhW1sxXV0KCmluZmVyZW5jZV9kZiA8LSBmb290eV90aXBwaW5nX2RhdGFbWzJdXSAlPiUKICBmaWx0ZXIocm91bmRfaWQgPT0gbWluKHJvdW5kX2lkKSkKCnNraW0odHJhaW5fZGYpCmBgYAoKIyBUcmFpbiB0aGUgbW9kZWwKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpjdiA8LSB0cmFpbl9tdWx0aWNsYXNzX21vZGVsKGRhdGEgPSB0cmFpbl9kZiwgcHJlZGljdG9ycywgb3V0Y29tZV92YXIsIG9wdF9tZXRyaWMpCgptb2RlbCA8LSBjdiRmaW5hbE1vZGVsCmBgYAoKYGBge3J9Cm1vZGVsX3Byb3BlcnRpZXMoKSRjb25mdXNpb25fbWF0cml4CmBgYAoKYGBge3IsIHdhcm5pbmc9RkFMU0UsIG1lc3NhZ2U9RkFMU0V9Cm1vZGVsX3Byb3BlcnRpZXMoKSRpbXBvcnRhbmNlX3Bsb3QKYGBgCgojIFByZWRpY3QgdGhlIHJlc3VsdHMgZm9yIHRoZSByb3VuZAoKYGBge3IsIHdhcm5pbmc9RkFMU0UsIG1lc3NhZ2U9RkFMU0V9CnByZWRpY3Rpb25zIDwtIG1ha2VfcHJlZGljaXRvbnMoaW5mZXJlbmNlX2RmLCBtb2RlbCwgcHJlZGljdG9ycywgb3V0Y29tZV92YXIpCgpwcmVkaWN0aW9ucwpgYGAKCiMgU2F2ZSB0aGVtIHRvIHRoZSBkcml2ZQoKYGBge3J9CnNhdmVfcHJlZGljdGlvbnMoaW5mZXJlbmNlX2RmLCBwcmVkaWN0aW9ucykKYGBgCg==</div>
 
 
 

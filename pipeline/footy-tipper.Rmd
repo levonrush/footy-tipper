@@ -35,20 +35,11 @@ model <- cv$finalModel
 ```
 
 ```{r}
-model$confusion[-1,2:3] %>% confusionMatrix(positive = positive)
+model_properties()$confusion_matrix
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-importance(model) %>% t() %>% .[1,] %>% 
-  as.tibble(rownames = "variable") %>%
-  arrange(desc(value)) %>%
-  ggplot(aes(x = variable, y = value, fill = variable)) +
-  geom_bar(stat = "identity") +
-    coord_flip() +
-  theme_minimal() +
-  theme(legend.position = "none") +
-  labs(title = "Importance of variables",
-       x = NULL, y = "Importance")
+model_properties()$importance_plot
 ```
 
 # Predict the results for the round
