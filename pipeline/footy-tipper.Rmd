@@ -32,21 +32,21 @@ skim(train_df)
 cv <- train_multiclass_model(data = train_df, predictors, outcome_var, opt_metric)
 
 model <- cv$finalModel
+outputs <- model_properties(model)
 ```
 
 ```{r}
-model_properties()$confusion_matrix
+output$confusion_matrix
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-model_properties()$importance_plot
+output$importance_plot
 ```
 
 # Predict the results for the round
 
 ```{r, warning=FALSE, message=FALSE}
 predictions <- make_predicitons(inference_df, model, predictors, outcome_var)
-
 predictions
 ```
 
