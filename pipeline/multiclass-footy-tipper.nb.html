@@ -11,7 +11,7 @@
 
 
 
-<title>lets make a punter</title>
+<title>Multiclass Footy Tipper Pipeline</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -1752,7 +1752,7 @@ display: none;
 
 
 
-<h1 class="title toc-ignore">lets make a punter</h1>
+<h1 class="title toc-ignore">Multiclass Footy Tipper Pipeline</h1>
 
 </div>
 
@@ -1760,29 +1760,155 @@ display: none;
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxucHJvYiA8LSBtb2RlbCR2b3RlcyAlPiUgYXMuZGF0YS5mcmFtZSAlPiUgbXV0YXRlKHJlc3BvbnNlID0gbW9kZWwkeSlcblxuYmV0X3NwYW4gPC0gc2VxKDEuMDUsIDIsIDAuMDUpXG5cbmZvciAobSBpbiBsZW5ndGgoYmV0X3NwYW4pKXtcbiAgXG4gIHdpbl9jdXQgPC0gb3B0aW1hbC5jdXRwb2ludHMoWCA9IFwiV2luXCIsIHN0YXR1cyA9IFwicmVzcG9uc2VcIiwgXG4gICAgICAgICAgICAgICAgICAgIHRhZy5oZWFsdGh5ID0gXCJMb3NzXCIsIG1ldGhvZHMgPSBcIk1heEthcHBhXCIsXG4gICAgICAgICAgICAgICAgICAgIENGTiA9IDMsIENGUCA9IGJldF9zcGFuWzEwXSAtIDEsIGRhdGEgPSBwcm9iKSRNYXhLYXBwYSRHbG9iYWwkb3B0aW1hbC5jdXRvZmYkY3V0b2ZmXG4gIFxufVxuXG5vcHRpbWFsLmN1dHBvaW50cyhYID0gXCJXaW5cIiwgc3RhdHVzID0gXCJyZXNwb25zZVwiLCBcbiAgICAgICAgICAgICAgICAgIHRhZy5oZWFsdGh5ID0gXCJMb3NzXCIsIG1ldGhvZHMgPSBcIk1heEthcHBhXCIsIFxuICAgICAgICAgICAgICAgICAgY29udHJvbCA9IGNvbnRyb2wuY3V0cG9pbnRzKENGTiA9IDEsIENGUCA9IDIpLCBkYXRhID0gcHJvYilcblxuXG5gYGAifQ== -->
-<pre class="r"><code>prob &lt;- model$votes %&gt;% as.data.frame %&gt;% mutate(response = model$y)
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShoZXJlKVxubGlicmFyeShza2ltcilcbmxpYnJhcnkoRXBpKVxubGlicmFyeShwUk9DKVxubGlicmFyeShnb29nbGVkcml2ZSlcbmxpYnJhcnkoZ29vZ2xlc2hlZXRzNClcblxuaV9hbShcInBpcGVsaW5lL211bHRpY2xhc3MtZm9vdHktdGlwcGVyLlJtZFwiKVxuXG5kcml2ZV9hdXRoKClcblxuc291cmNlKHBhc3RlMChoZXJlKCksXCIvUi9nZXQtZGF0YS5SXCIpKVxuc291cmNlKHBhc3RlMChoZXJlKCksXCIvUi9jbGVhbi1kYXRhLlJcIikpXG5zb3VyY2UocGFzdGUwKGhlcmUoKSxcIi9SL2ZlYXR1cmUtZW5naW5lZXJpbmcuUlwiKSlcbnNvdXJjZShwYXN0ZTAoaGVyZSgpLFwiL1IvbW9kZWxsaW5nLWZ1bmN0aW9ucy5SXCIpKVxuc291cmNlKHBhc3RlMChoZXJlKCksXCIvUi9jb25maWcuUlwiKSlcbmBgYCJ9 -->
+<pre class="r"><code>library(here)
+library(skimr)
+library(Epi)
+library(pROC)
+library(googledrive)
+library(googlesheets4)
 
-bet_span &lt;- seq(1.05, 2, 0.05)
+i_am(&quot;pipeline/multiclass-footy-tipper.Rmd&quot;)
 
-for (m in length(bet_span)){
-  
-  win_cut &lt;- optimal.cutpoints(X = &quot;Win&quot;, status = &quot;response&quot;, 
-                    tag.healthy = &quot;Loss&quot;, methods = &quot;MaxKappa&quot;,
-                    CFN = 3, CFP = bet_span[10] - 1, data = prob)$MaxKappa$Global$optimal.cutoff$cutoff
-  
-}
+drive_auth()
 
-optimal.cutpoints(X = &quot;Win&quot;, status = &quot;response&quot;, 
-                  tag.healthy = &quot;Loss&quot;, methods = &quot;MaxKappa&quot;, 
-                  control = control.cutpoints(CFN = 1, CFP = 2), data = prob)
-</code></pre>
+source(paste0(here(),&quot;/R/get-data.R&quot;))
+source(paste0(here(),&quot;/R/clean-data.R&quot;))
+source(paste0(here(),&quot;/R/feature-engineering.R&quot;))
+source(paste0(here(),&quot;/R/modelling-functions.R&quot;))
+source(paste0(here(),&quot;/R/config.R&quot;))</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<div id="get-and-split-the-dataset" class="section level1">
+<h1>Get and split the dataset</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuZm9vdHlfdGlwcGluZ19kYXRhIDwtIGdldF9kYXRhKHllYXJfc3BhbiA9IDIwMTI6MjAyMykgJT4lXG4gIGNsZWFuX2RhdGEoKSAlPiVcbiAgZmVhdHVyZV9lbmdpbmVlcmluZyhmb3JtX3BlcmlvZCA9IDUsIHBpcGVsaW5lID0gJ211bHRpY2xhc3MnKSAlPiVcbiAgZWxvX3ZhcmlhYmxlcygpICU+JVxuICBmaWx0ZXIoY29tcGV0aXRpb25feWVhciAhPSBtaW4oY29tcGV0aXRpb25feWVhcikpICU+JVxuICBncm91cF9ieShnYW1lX3N0YXRlX25hbWUpICU+JVxuICBncm91cF9zcGxpdCgpXG5cbnRyYWluX2RmIDwtIGZvb3R5X3RpcHBpbmdfZGF0YVtbMV1dXG5cbmluZmVyZW5jZV9kZiA8LSBmb290eV90aXBwaW5nX2RhdGFbWzJdXSAlPiVcbiAgZmlsdGVyKHJvdW5kX2lkID09IG1pbihyb3VuZF9pZCkpXG5cbnNraW0odHJhaW5fZGYpXG5gYGAifQ== -->
+<pre class="r"><code>footy_tipping_data &lt;- get_data(year_span = 2012:2023) %&gt;%
+  clean_data() %&gt;%
+  feature_engineering(form_period = 5, pipeline = &#39;multiclass&#39;) %&gt;%
+  elo_variables() %&gt;%
+  filter(competition_year != min(competition_year)) %&gt;%
+  group_by(game_state_name) %&gt;%
+  group_split()
+
+train_df &lt;- footy_tipping_data[[1]]
+
+inference_df &lt;- footy_tipping_data[[2]] %&gt;%
+  filter(round_id == min(round_id))
+
+skim(train_df)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="train-the-model" class="section level1">
+<h1>Train the model</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuY3YgPC0gdHJhaW5fbXVsdGljbGFzc19tb2RlbChkYXRhID0gdHJhaW5fZGYsIFxuICAgICAgICAgICAgICAgICAgICAgcHJlZGljdG9ycyA9IHByZWRpY3RvcnMsXG4gICAgICAgICAgICAgICAgICAgICBvdXRjb21lX3ZhciA9IFwiaG9tZV90ZWFtX3Jlc3VsdFwiLFxuICAgICAgICAgICAgICAgICAgICAgbWV0cmljID0gXCJLYXBwYVwiKVxuXG5tb2RlbCA8LSBjdiRmaW5hbE1vZGVsXG5gYGAifQ== -->
+<pre class="r"><code>cv &lt;- train_multiclass_model(data = train_df, 
+                     predictors = predictors,
+                     outcome_var = &quot;home_team_result&quot;,
+                     metric = &quot;Kappa&quot;)
+
+model &lt;- cv$finalModel</code></pre>
 <!-- rnb-source-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubW9kZWwkY29uZnVzaW9uWy0xLDI6M10gJT4lIGNvbmZ1c2lvbk1hdHJpeChwb3NpdGl2ZSA9IFwiV2luXCIpXG5gYGAifQ== -->
+<pre class="r"><code>model$confusion[-1,2:3] %&gt;% confusionMatrix(positive = &quot;Win&quot;)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuaW1wb3J0YW5jZShtb2RlbCkgJT4lIHQoKSAlPiUgLlsxLF0gJT4lIFxuICBhcy50aWJibGUocm93bmFtZXMgPSBcInZhcmlhYmxlXCIpICU+JVxuICBhcnJhbmdlKGRlc2ModmFsdWUpKSAlPiVcbiAgZ2dwbG90KGFlcyh4ID0gdmFyaWFibGUsIHkgPSB2YWx1ZSwgZmlsbCA9IHZhcmlhYmxlKSkgK1xuICBnZW9tX2JhcihzdGF0ID0gXCJpZGVudGl0eVwiKSArXG4gICAgY29vcmRfZmxpcCgpICtcbiAgdGhlbWVfbWluaW1hbCgpICtcbiAgdGhlbWUobGVnZW5kLnBvc2l0aW9uID0gXCJub25lXCIpICtcbiAgbGFicyh0aXRsZSA9IFwiSW1wb3J0YW5jZSBvZiB2YXJpYWJsZXNcIixcbiAgICAgICB4ID0gTlVMTCwgeSA9IFwiSW1wb3J0YW5jZVwiKVxuYGBgIn0= -->
+<pre class="r"><code>importance(model) %&gt;% t() %&gt;% .[1,] %&gt;% 
+  as.tibble(rownames = &quot;variable&quot;) %&gt;%
+  arrange(desc(value)) %&gt;%
+  ggplot(aes(x = variable, y = value, fill = variable)) +
+  geom_bar(stat = &quot;identity&quot;) +
+    coord_flip() +
+  theme_minimal() +
+  theme(legend.position = &quot;none&quot;) +
+  labs(title = &quot;Importance of variables&quot;,
+       x = NULL, y = &quot;Importance&quot;)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="predict-the-results-for-the-round" class="section level1">
+<h1>Predict the results for the round</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-frame-begin eyJtZXRhZGF0YSI6eyJjbGFzc2VzIjpbImRhdGEuZnJhbWUiXSwibnJvdyI6OCwibmNvbCI6OSwic3VtbWFyeSI6eyJEZXNjcmlwdGlvbiI6WyJkZiBbOCDDlyA5XSJdfX0sInJkZiI6Ikg0c0lBQUFBQUFBQUErMVdYV3dVVlJRZTlxZjdRMHUzdENHRVNETFJGdzNaVFNnL3hSQXk0KzdXUnJCWTJEYXRqYUhjMmJuTWpKMjlkM1BucnRzbERRL1dSQWt4VmxZaTBHZ1VIckErS0U4K0dCN1VHQlNORVhrQk5SWFFHSU5HZ3hyRlVJT2VtWjI3M1cyeXhtZmpKbWZQT2Q4NTk5eHp6ejMzN083TmptMktqOFVsU1FwS29RQjhoMEdVd2lQRER5YTNTUjRpclpCQ1VzemxVMkR1QnNGVlZnRkYwNnN2VDkwQzFPT3YrUHhEbjkrczhUL1crbHoxdWVueldYZWpZSWNiQjZqZGordnFFYUNWUUNFM0U2Q3VaWW0wMmZnSmJEc2dKVHhyRFUya21lVm9pR0E1elNqSlUwZmdHVVEwekJpUzl5Skx4MHpnNndIbm1Ha2xWa21tRVpsME9DMFRPVjJ5YlowYXdtbGRCbUlCaEpLNUVqY3hzeEhSNVp5SjJLVHdpR2FwWFRRdEl2U3VBV3JyY29ZaWg4dkRGa2QxdzdwQlJPeEtjaFF4WmhFRG1YSU9JN2tmR1RZV0hwMkQyTlpvaWNFUmNweXlnZy8zN01abGVSd2piMjl2T2EwZm9ndHNlZGpLeHZJdVloa21GNGExdXluanByeW5oREZ4dkpVWld0Wm9wYjdYRUFSQ0JjUTVKT0VXMHkvV0VDYk1nb1ZEVUJ4enFWaHJjaFRPTCtjcU9zRVZLS1NtV1p5YXducFhqcWZrQVV5WmdlV0hvRmhsTjdhY1pjaWc5ZU4zaXJXVU9ud3BjUHNvZHJnRGxUSmNyUG1ldzNrYk9lS2E2NWQvQU9XaE9DRGRhV2dmbCtLZWw5dklraFR3VzlSZDJWWUxHL2pyLzRiNWJ6Wk1VTnpzUC9kSXNBVUZhdFRVSTBFL1VnaHlLZ3Y1WWVxSUxJS2pGdmszbTlmbXBITHRnY045dTg2L3BuenpWditySDcwem85eVlYL3pPUHBKVnJ2MzIzbk9QM2Z1N2N1UHRmVnVVNlorVXJ5OSt1eDljbGE5NkRsNGZlS05IV1hqazZuWjlmTDJJSTdYNEtQdTF3VXMvei8vWlNtLzQxUEs1T3Yzajh5WTdxMXlwOG5PUEg3cXRYQmhMd0lwZmxJVmYzUVRmVlM2c2VYcERvSDJuOHNXTzR1bkw4UjMxUEsvWC9FUWM5Y1RpczF2SEwzMmdWczh1ZnBySjNxTyt0Ty83d1pCOFRqMTIrc2huTDg5dlYwOG01aTRPOUQ2am5uaDA0WGorNDA3MXhhS1hoSHEwN2ViaCsyY1AxZVBNZlRJN2JMeStRYTJlT25Wd0p2eVVldXo4NWo3MjVvaGEzVFBUZmFzRHE4ZjdiMy81dy9TSU9sYzErNll5cytySko0OStmbWJuZmVvTFErK3JLNi9jdlh4dUVGVEFZbTdFZkRCaUFEaGg2YjRhNHhnVkpreGF3RTBBZEdKRmRMWnJuUEJRaHAyU3pYMTg5UkpldHNoRWtWSE50M1F2V1hSb214WW1tenE0MFJUMVROaW1RbmR6OFBUbVU4VVlMYWNhVHhZVnY4c2JoZEFyaEUxQzJDeUVMVUxZS29RK0lXeHIwY2h4SFhHVU9nQ1BIdGVhdVNtZENDMXl5MzJ0VXNEOVR4Qlp0bmlGK3dERVJKYVd5WTJPaVJKeEQ2VW44MmFKVENZMzlqYjR1dFRoODJpREhLdmxFaElaUjhUVHc4U3dpTGpSQ0V3VkFwTlRxRkE1QnhuQ0dyYVJobTFmV1FXMTlVcWJLc0tzRlRjZEI5UkpjY3FSOEl2bnFTMlEydnUrOHpkbkt5NTRRUWtBQUE9PSJ9 -->
+<div data-pagedtable="false">
+<script data-pagedtable-source type="application/json">
+{"columns":[{"label":[""],"name":["_rn_"],"type":[""],"align":["left"]},{"label":["game_id"],"name":[1],"type":["dbl"],"align":["right"]},{"label":["team_home"],"name":[2],"type":["fctr"],"align":["left"]},{"label":["team_away"],"name":[3],"type":["fctr"],"align":["left"]},{"label":["home_team_result"],"name":[4],"type":["fctr"],"align":["left"]},{"label":["home_team_win_prob"],"name":[5],"type":["dbl"],"align":["right"]},{"label":["home_team_draw_prob"],"name":[6],"type":["dbl"],"align":["right"]},{"label":["home_team_lose_prob"],"name":[7],"type":["dbl"],"align":["right"]},{"label":["home_elo"],"name":[8],"type":["dbl"],"align":["right"]},{"label":["away_elo"],"name":[9],"type":["dbl"],"align":["right"]}],"data":[{"1":"20231110110","2":"Parramatta Eels","3":"Melbourne Storm","4":"Win","5":"0.508","6":"0.000","7":"0.492","8":"1662.888","9":"1779.391","_rn_":"1"},{"1":"20231110120","2":"New Zealand Warriors","3":"Newcastle Knights","4":"Win","5":"0.616","6":"0.000","7":"0.384","8":"1260.246","9":"1256.659","_rn_":"2"},{"1":"20231110130","2":"Penrith Panthers","3":"Brisbane Broncos","4":"Win","5":"0.802","6":"0.000","7":"0.198","8":"1879.729","9":"1393.551","_rn_":"3"},{"1":"20231110140","2":"Manly-Warringah Sea Eagles","3":"Canterbury-Bankstown Bulldogs","4":"Win","5":"0.530","6":"0.002","7":"0.468","8":"1384.887","9":"1236.378","_rn_":"4"},{"1":"20231110150","2":"North Queensland Cowboys","3":"Canberra Raiders","4":"Win","5":"0.804","6":"0.000","7":"0.196","8":"1668.152","9":"1553.495","_rn_":"5"},{"1":"20231110160","2":"Cronulla-Sutherland Sharks","3":"South Sydney Rabbitohs","4":"Win","5":"0.588","6":"0.002","7":"0.410","8":"1622.466","9":"1764.852","_rn_":"6"},{"1":"20231110170","2":"Dolphins","3":"Sydney Roosters","4":"Loss","5":"0.470","6":"0.000","7":"0.530","8":"1500.000","9":"1696.643","_rn_":"7"},{"1":"20231110180","2":"Wests Tigers","3":"Gold Coast Titans","4":"Loss","5":"0.458","6":"0.000","7":"0.542","8":"1153.735","9":"1300.192","_rn_":"8"}],"options":{"columns":{"min":{},"max":[10],"total":[9]},"rows":{"min":[10],"max":[10],"total":[8]},"pages":{}}}
+  </script>
+</div>
+<!-- rnb-frame-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="save-them-to-the-drive" class="section level1">
+<h1>Save them to the drive</h1>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxub3B0aW1hbC5jdXRwb2ludHMoWCA9IFwiV2luXCIsIHN0YXR1cyA9IFwicmVzcG9uc2VcIiwgXG4gICAgICAgICAgICAgICAgICB0YWcuaGVhbHRoeSA9IFwiTG9zc1wiLCBtZXRob2RzID0gXCJNYXhLYXBwYVwiLCBcbiAgICAgICAgICAgICAgICAgIGNvbnRyb2wgPSBjb250cm9sLmN1dHBvaW50cyhDRk4gPSA2LCBDRlAgPSAyMCksIGRhdGEgPSBwcm9iKVxuXG5gYGAifQ== -->
+<pre class="r"><code>optimal.cutpoints(X = &quot;Win&quot;, status = &quot;response&quot;, 
+                  tag.healthy = &quot;Loss&quot;, methods = &quot;MaxKappa&quot;, 
+                  control = control.cutpoints(CFN = 6, CFP = 20), data = prob)
+</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoiXG5DYWxsOlxub3B0aW1hbC5jdXRwb2ludHMuZGVmYXVsdChYID0gXCJXaW5cIiwgc3RhdHVzID0gXCJyZXNwb25zZVwiLCB0YWcuaGVhbHRoeSA9IFwiTG9zc1wiLCBcbiAgICBtZXRob2RzID0gXCJNYXhLYXBwYVwiLCBkYXRhID0gcHJvYiwgY29udHJvbCA9IGNvbnRyb2wuY3V0cG9pbnRzKENGTiA9IDYsIFxuICAgICAgICBDRlAgPSAyMCkpXG5cbk9wdGltYWwgY3V0b2ZmczpcbiAgTWF4S2FwcGFcbjEgICAwLjQ4MzBcblxuQXJlYSB1bmRlciB0aGUgUk9DIGN1cnZlIChBVUMpOiAgMC44MTggKDAuOCwgMC44MzcpIFxuIn0= -->
+<pre><code>
+Call:
+optimal.cutpoints.default(X = &quot;Win&quot;, status = &quot;response&quot;, tag.healthy = &quot;Loss&quot;, 
+    methods = &quot;MaxKappa&quot;, data = prob, control = control.cutpoints(CFN = 6, 
+        CFP = 20))
 
-<div id="rmd-source-code">LS0tCnRpdGxlOiAibGV0cyBtYWtlIGEgcHVudGVyIgpvdXRwdXQ6IGh0bWxfbm90ZWJvb2sKLS0tCgoKCmBgYHtyfQpwcm9iIDwtIG1vZGVsJHZvdGVzICU+JSBhcy5kYXRhLmZyYW1lICU+JSBtdXRhdGUocmVzcG9uc2UgPSBtb2RlbCR5KQoKYmV0X3NwYW4gPC0gc2VxKDEuMDUsIDIsIDAuMDUpCgpmb3IgKG0gaW4gbGVuZ3RoKGJldF9zcGFuKSl7CiAgCiAgd2luX2N1dCA8LSBvcHRpbWFsLmN1dHBvaW50cyhYID0gIldpbiIsIHN0YXR1cyA9ICJyZXNwb25zZSIsIAogICAgICAgICAgICAgICAgICAgIHRhZy5oZWFsdGh5ID0gIkxvc3MiLCBtZXRob2RzID0gIk1heEthcHBhIiwKICAgICAgICAgICAgICAgICAgICBDRk4gPSAzLCBDRlAgPSBiZXRfc3BhblsxMF0gLSAxLCBkYXRhID0gcHJvYikkTWF4S2FwcGEkR2xvYmFsJG9wdGltYWwuY3V0b2ZmJGN1dG9mZgogIAp9CgpvcHRpbWFsLmN1dHBvaW50cyhYID0gIldpbiIsIHN0YXR1cyA9ICJyZXNwb25zZSIsIAogICAgICAgICAgICAgICAgICB0YWcuaGVhbHRoeSA9ICJMb3NzIiwgbWV0aG9kcyA9ICJNYXhLYXBwYSIsIAogICAgICAgICAgICAgICAgICBjb250cm9sID0gY29udHJvbC5jdXRwb2ludHMoQ0ZOID0gMSwgQ0ZQID0gMiksIGRhdGEgPSBwcm9iKQoKCmBgYAoKCg==</div>
+Optimal cutoffs:
+  MaxKappa
+1   0.4830
+
+Area under the ROC curve (AUC):  0.818 (0.8, 0.837) </code></pre>
+<!-- rnb-output-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuIyBDcmVhdGUgYW4gZW1wdHkgc3ByZWFkc2hlZXQuIEl0IGlzIHN0b3JlZCBhcyBhbiBvYmplY3Qgd2l0aCBhIHNoZWV0X2lkIGFuZCBkcml2ZV9pZCBcbnNzIDwtIGdzNF9jcmVhdGUobmFtZSA9IHBhc3RlMChcInJcIiwgdW5pcXVlKGluZmVyZW5jZV9kZiRyb3VuZF9pZCksIFwiX1wiLCB1bmlxdWUoaW5mZXJlbmNlX2RmJGNvbXBldGl0aW9uX3llYXIpLCBcIi5jc3ZcIiksIHNoZWV0cyA9IFwiU2hlZXQgMVwiKVxuXG4jIFB1dCB0aGUgZGF0YS5mcmFtZSBpbiB0aGUgc3ByZWFkc2hlZXQgYW5kIHByb3ZpZGUgdGhlIHNoZWV0X2lkIHNvIGl0IGNhbiBiZSBmb3VuZFxuc2hlZXRfd3JpdGUoZGF0YSA9IHByZWRpY3Rpb25zLCBzcyA9IHNzLCBzaGVldCA9XCJTaGVldCAxXCIpXG5cbiMgTW92ZSB5b3VyIHNwcmVhZHNoZWV0IHRvIHRoZSBkZXNpcmVkIGxvY2F0aW9uXG5kcml2ZV9tdihmaWxlID0gc3MsIHBhdGggPSBcImZvb3R5LXRpcHBpbmctcHJlZGljdGlvbnMvXCIsIG92ZXJ3cml0ZSA9IFQpXG5gYGAifQ== -->
+<pre class="r"><code># Create an empty spreadsheet. It is stored as an object with a sheet_id and drive_id 
+ss &lt;- gs4_create(name = paste0(&quot;r&quot;, unique(inference_df$round_id), &quot;_&quot;, unique(inference_df$competition_year), &quot;.csv&quot;), sheets = &quot;Sheet 1&quot;)
+
+# Put the data.frame in the spreadsheet and provide the sheet_id so it can be found
+sheet_write(data = predictions, ss = ss, sheet =&quot;Sheet 1&quot;)
+
+# Move your spreadsheet to the desired location
+drive_mv(file = ss, path = &quot;footy-tipping-predictions/&quot;, overwrite = T)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuZmlsZV9uYW1lID0gcGFzdGUwKFwicm91bmRcIiwgdW5pcXVlKGluZmVyZW5jZV9kZiRyb3VuZF9pZCksIFwiX1wiLCB1bmlxdWUoaW5mZXJlbmNlX2RmJGNvbXBldGl0aW9uX3llYXIpLCBcIi5jc3ZcIilcblxud3JpdGUuY3N2KHggPSBwcmVkaWN0aW9ucywgZmlsZSA9IGZpbGVfbmFtZSlcblxuZHJpdmVfdXBsb2FkKG1lZGlhID0gZmlsZV9uYW1lLCBwYXRoID0gXCJmb290eS10aXBwaW5nLXByZWRpY3Rpb25zL1wiLCBvdmVyd3JpdGUgPSBUKVxuYGBgIn0= -->
+<pre class="r"><code>file_name = paste0(&quot;round&quot;, unique(inference_df$round_id), &quot;_&quot;, unique(inference_df$competition_year), &quot;.csv&quot;)
+
+write.csv(x = predictions, file = file_name)
+
+drive_upload(media = file_name, path = &quot;footy-tipping-predictions/&quot;, overwrite = T)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<!-- rnb-text-end -->
+</div>
+
+<div id="rmd-source-code">LS0tCnRpdGxlOiAiTXVsdGljbGFzcyBGb290eSBUaXBwZXIgUGlwZWxpbmUiCm91dHB1dDogaHRtbF9ub3RlYm9vawotLS0KCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpsaWJyYXJ5KGhlcmUpCmxpYnJhcnkoc2tpbXIpCmxpYnJhcnkoRXBpKQpsaWJyYXJ5KHBST0MpCmxpYnJhcnkoZ29vZ2xlZHJpdmUpCmxpYnJhcnkoZ29vZ2xlc2hlZXRzNCkKCmlfYW0oInBpcGVsaW5lL211bHRpY2xhc3MtZm9vdHktdGlwcGVyLlJtZCIpCgpkcml2ZV9hdXRoKCkKCnNvdXJjZShwYXN0ZTAoaGVyZSgpLCIvUi9nZXQtZGF0YS5SIikpCnNvdXJjZShwYXN0ZTAoaGVyZSgpLCIvUi9jbGVhbi1kYXRhLlIiKSkKc291cmNlKHBhc3RlMChoZXJlKCksIi9SL2ZlYXR1cmUtZW5naW5lZXJpbmcuUiIpKQpzb3VyY2UocGFzdGUwKGhlcmUoKSwiL1IvbW9kZWxsaW5nLWZ1bmN0aW9ucy5SIikpCnNvdXJjZShwYXN0ZTAoaGVyZSgpLCIvUi9jb25maWcuUiIpKQpgYGAKCiMgR2V0IGFuZCBzcGxpdCB0aGUgZGF0YXNldAoKYGBge3IsIHdhcm5pbmc9RkFMU0UsIG1lc3NhZ2U9RkFMU0V9CmZvb3R5X3RpcHBpbmdfZGF0YSA8LSBnZXRfZGF0YSh5ZWFyX3NwYW4gPSAyMDEyOjIwMjMpICU+JQogIGNsZWFuX2RhdGEoKSAlPiUKICBmZWF0dXJlX2VuZ2luZWVyaW5nKGZvcm1fcGVyaW9kID0gNSwgcGlwZWxpbmUgPSAnbXVsdGljbGFzcycpICU+JQogIGVsb192YXJpYWJsZXMoKSAlPiUKICBmaWx0ZXIoY29tcGV0aXRpb25feWVhciAhPSBtaW4oY29tcGV0aXRpb25feWVhcikpICU+JQogIGdyb3VwX2J5KGdhbWVfc3RhdGVfbmFtZSkgJT4lCiAgZ3JvdXBfc3BsaXQoKQoKdHJhaW5fZGYgPC0gZm9vdHlfdGlwcGluZ19kYXRhW1sxXV0KCmluZmVyZW5jZV9kZiA8LSBmb290eV90aXBwaW5nX2RhdGFbWzJdXSAlPiUKICBmaWx0ZXIocm91bmRfaWQgPT0gbWluKHJvdW5kX2lkKSkKCnNraW0odHJhaW5fZGYpCmBgYAoKIyBUcmFpbiB0aGUgbW9kZWwKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQpjdiA8LSB0cmFpbl9tdWx0aWNsYXNzX21vZGVsKGRhdGEgPSB0cmFpbl9kZiwgCiAgICAgICAgICAgICAgICAgICAgIHByZWRpY3RvcnMgPSBwcmVkaWN0b3JzLAogICAgICAgICAgICAgICAgICAgICBvdXRjb21lX3ZhciA9ICJob21lX3RlYW1fcmVzdWx0IiwKICAgICAgICAgICAgICAgICAgICAgbWV0cmljID0gIkthcHBhIikKCm1vZGVsIDwtIGN2JGZpbmFsTW9kZWwKYGBgCgpgYGB7cn0KbW9kZWwkY29uZnVzaW9uWy0xLDI6M10gJT4lIGNvbmZ1c2lvbk1hdHJpeChwb3NpdGl2ZSA9ICJXaW4iKQpgYGAKCmBgYHtyLCB3YXJuaW5nPUZBTFNFLCBtZXNzYWdlPUZBTFNFfQppbXBvcnRhbmNlKG1vZGVsKSAlPiUgdCgpICU+JSAuWzEsXSAlPiUgCiAgYXMudGliYmxlKHJvd25hbWVzID0gInZhcmlhYmxlIikgJT4lCiAgYXJyYW5nZShkZXNjKHZhbHVlKSkgJT4lCiAgZ2dwbG90KGFlcyh4ID0gdmFyaWFibGUsIHkgPSB2YWx1ZSwgZmlsbCA9IHZhcmlhYmxlKSkgKwogIGdlb21fYmFyKHN0YXQgPSAiaWRlbnRpdHkiKSArCiAgICBjb29yZF9mbGlwKCkgKwogIHRoZW1lX21pbmltYWwoKSArCiAgdGhlbWUobGVnZW5kLnBvc2l0aW9uID0gIm5vbmUiKSArCiAgbGFicyh0aXRsZSA9ICJJbXBvcnRhbmNlIG9mIHZhcmlhYmxlcyIsCiAgICAgICB4ID0gTlVMTCwgeSA9ICJJbXBvcnRhbmNlIikKYGBgCgojIFByZWRpY3QgdGhlIHJlc3VsdHMgZm9yIHRoZSByb3VuZAoKYGBge3IsIHdhcm5pbmc9RkFMU0UsIG1lc3NhZ2U9RkFMU0V9CnByZWRpY3Rpb25zIDwtIGRhdGEuZnJhbWUoCiAgZ2FtZV9pZCA9IGluZmVyZW5jZV9kZiRnYW1lX2lkLAogIHRlYW1faG9tZSA9IGluZmVyZW5jZV9kZiR0ZWFtX2hvbWUsCiAgdGVhbV9hd2F5ID0gaW5mZXJlbmNlX2RmJHRlYW1fYXdheSwKICBob21lX3RlYW1fcmVzdWx0ID0gcHJlZGljdChtb2RlbCwgaW5mZXJlbmNlX2RmICU+JSBzZWxlY3QoYWxsX29mKGMocHJlZGljdG9ycywgImhvbWVfdGVhbV9yZXN1bHQiKSkpKSwKICBob21lX3RlYW1fd2luX3Byb2IgPSBwcmVkaWN0KG1vZGVsLCBpbmZlcmVuY2VfZGYgJT4lIHNlbGVjdChhbGxfb2YoYyhwcmVkaWN0b3JzLCAiaG9tZV90ZWFtX3Jlc3VsdCIpKSksIHR5cGUgPSAicHJvYiIpWywiV2luIl0sCiAgaG9tZV90ZWFtX2RyYXdfcHJvYiA9IHByZWRpY3QobW9kZWwsIGluZmVyZW5jZV9kZiAlPiUgc2VsZWN0KGFsbF9vZihjKHByZWRpY3RvcnMsICJob21lX3RlYW1fcmVzdWx0IikpKSwgdHlwZSA9ICJwcm9iIilbLCJEcmF3Il0sCiAgaG9tZV90ZWFtX2xvc2VfcHJvYiA9IHByZWRpY3QobW9kZWwsIGluZmVyZW5jZV9kZiAlPiUgc2VsZWN0KGFsbF9vZihjKHByZWRpY3RvcnMsICJob21lX3RlYW1fcmVzdWx0IikpKSwgdHlwZSA9ICJwcm9iIilbLCJMb3NzIl0sCiAgaG9tZV9lbG8gPSBpbmZlcmVuY2VfZGYkaG9tZV9lbG8sCiAgYXdheV9lbG8gPSBpbmZlcmVuY2VfZGYkYXdheV9lbG8KKQoKcHJlZGljdGlvbnMKYGBgCgojIFNhdmUgdGhlbSB0byB0aGUgZHJpdmUKCmBgYHtyfQpwcm9iIDwtIG1vZGVsJHZvdGVzICU+JSBhcy5kYXRhLmZyYW1lICU+JSBtdXRhdGUocmVzcG9uc2UgPSBtb2RlbCR5KQpwcm9iCgpiZXRfc3BhbiA8LSBzZXEoMS4wNSwgMiwgMC4wNSkKCmZvciAobSBpbiBsZW5ndGgoYmV0X3NwYW4pKXsKICAKICB3aW5fY3V0IDwtIG9wdGltYWwuY3V0cG9pbnRzKFggPSAiV2luIiwgc3RhdHVzID0gInJlc3BvbnNlIiwgCiAgICAgICAgICAgICAgICAgICAgdGFnLmhlYWx0aHkgPSAiTG9zcyIsIG1ldGhvZHMgPSAiTWF4S2FwcGEiLAogICAgICAgICAgICAgICAgICAgIENGTiA9IDMsIENGUCA9IGJldF9zcGFuWzEwXSAtIDEsIGRhdGEgPSBwcm9iKSRNYXhLYXBwYSRHbG9iYWwkb3B0aW1hbC5jdXRvZmYkY3V0b2ZmCiAgCn0KCm9wdGltYWwuY3V0cG9pbnRzKFggPSAiV2luIiwgc3RhdHVzID0gInJlc3BvbnNlIiwgCiAgICAgICAgICAgICAgICAgIHRhZy5oZWFsdGh5ID0gIkxvc3MiLCBtZXRob2RzID0gIk1heEthcHBhIiwgCiAgICAgICAgICAgICAgICAgIGNvbnRyb2wgPSBjb250cm9sLmN1dHBvaW50cyhDRk4gPSA2LCBDRlAgPSAyMCksIGRhdGEgPSBwcm9iKQoKCmBgYAoKCmBgYHtyfQojIENyZWF0ZSBhbiBlbXB0eSBzcHJlYWRzaGVldC4gSXQgaXMgc3RvcmVkIGFzIGFuIG9iamVjdCB3aXRoIGEgc2hlZXRfaWQgYW5kIGRyaXZlX2lkIApzcyA8LSBnczRfY3JlYXRlKG5hbWUgPSBwYXN0ZTAoInIiLCB1bmlxdWUoaW5mZXJlbmNlX2RmJHJvdW5kX2lkKSwgIl8iLCB1bmlxdWUoaW5mZXJlbmNlX2RmJGNvbXBldGl0aW9uX3llYXIpLCAiLmNzdiIpLCBzaGVldHMgPSAiU2hlZXQgMSIpCgojIFB1dCB0aGUgZGF0YS5mcmFtZSBpbiB0aGUgc3ByZWFkc2hlZXQgYW5kIHByb3ZpZGUgdGhlIHNoZWV0X2lkIHNvIGl0IGNhbiBiZSBmb3VuZApzaGVldF93cml0ZShkYXRhID0gcHJlZGljdGlvbnMsIHNzID0gc3MsIHNoZWV0ID0iU2hlZXQgMSIpCgojIE1vdmUgeW91ciBzcHJlYWRzaGVldCB0byB0aGUgZGVzaXJlZCBsb2NhdGlvbgpkcml2ZV9tdihmaWxlID0gc3MsIHBhdGggPSAiZm9vdHktdGlwcGluZy1wcmVkaWN0aW9ucy8iLCBvdmVyd3JpdGUgPSBUKQpgYGAKCgpgYGB7cn0KZmlsZV9uYW1lID0gcGFzdGUwKCJyb3VuZCIsIHVuaXF1ZShpbmZlcmVuY2VfZGYkcm91bmRfaWQpLCAiXyIsIHVuaXF1ZShpbmZlcmVuY2VfZGYkY29tcGV0aXRpb25feWVhciksICIuY3N2IikKCndyaXRlLmNzdih4ID0gcHJlZGljdGlvbnMsIGZpbGUgPSBmaWxlX25hbWUpCgpkcml2ZV91cGxvYWQobWVkaWEgPSBmaWxlX25hbWUsIHBhdGggPSAiZm9vdHktdGlwcGluZy1wcmVkaWN0aW9ucy8iLCBvdmVyd3JpdGUgPSBUKQpgYGAKCgoK</div>
 
 
 
@@ -1829,7 +1955,7 @@ $(document).ready(function () {
 <!-- code folding -->
 <script>
 $(document).ready(function () {
-  window.initializeSourceEmbed("make-a-punter.Rmd");
+  window.initializeSourceEmbed("multiclass-footy-tipper.Rmd");
   window.initializeCodeFolding("show" === "show");
 });
 </script>
