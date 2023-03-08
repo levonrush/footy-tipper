@@ -1,11 +1,23 @@
+dumb_impute <- function(data, num_val, char_val){
+  
+  data <- data %>% 
+    mutate_if(is.integer, ~replace(., is.na(.), num_val)) %>%
+    mutate_if(is.character, ~replace(., is.na(.), char_val)) %>%
+    mutate_if(is.numeric, ~replace(., is.na(.), num_val))
+  
+  return(data)
+  
+} 
+
 clean_data <- function(data){
   
   data <- data %>%
-    mutate(broadcastChannel1 = if_else(is.na(broadcastChannel1), "None", broadcastChannel1),
-           broadcastChannel2 = if_else(is.na(broadcastChannel2), "None", broadcastChannel2),
-           broadcastChannel3 = if_else(is.na(broadcastChannel3), "None", broadcastChannel3),
-           venueName = fct_lump(venueName, 42)) %>%
+    mutate(broadcast_channel1 = if_else(is.na(broadcast_channel1), "None", broadcast_channel1),
+           broadcast_channel2 = if_else(is.na(broadcast_channel2), "None", broadcast_channel2),
+           broadcast_channel3 = if_else(is.na(broadcast_channel3), "None", broadcast_channel3),
+           venueName = fct_lump(venue_name, 42)) %>%
     mutate_if(is.character, as.factor) %>%
+    mutate_if(is.factor, fct_lump_n, n = 40, ties.method = "max") %>%
     clean_names()
   
   # introduce the Dolphins as a factor level for R1 2023
@@ -13,18 +25,9 @@ clean_data <- function(data){
     mutate(team_home = fct_expand(team_home, "Dolphins"),
            team_away = fct_expand(team_away, "Dolphins"))
   
-  # # R1 ladder positions move to the end of last year - this is a bad soln and needs updating
-  # data <- data %>%
-  #   arrange(game_id) %>%
-  #   group_by(team_home) %>%
-  #   mutate(team_position_home = ifelse(round_id == 1, lag(team_position_home), team_position_home)) %>%
-  #   group_by(team_away) %>%
-  #   mutate(team_position_away = ifelse(round_id == 1, lag(team_position_away), team_position_away)) %>%
-  #   ungroup() %>%
-  #   # fix intro for dolphins
-  #   mutate(team_position_home = ifelse(game_id == 20231110170, 17, team_position_home))
-  #   
-    return(data)
+  
+  
+  return(data)
   
 }
 

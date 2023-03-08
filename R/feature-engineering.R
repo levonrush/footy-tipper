@@ -190,17 +190,15 @@ matchup_form <- function(data, form_period){
   
 }
 
-matchup_form
-
 feature_engineering <- function(data, form_period, pipeline){
  
   data <- data %>%
     fixture_result(pipeline = pipeline) %>%
     easy_pickings() %>%
-    corona_season() %>%
+    # corona_season() %>%
     timing_vars() %>%
-    season_stats() %>%
-    form_stats(form_period = form_period)  %>%
+    # season_stats() %>%
+    # form_stats(form_period = form_period)  %>%
     matchup_form(form_period = form_period)
 
   return(data)
