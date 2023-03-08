@@ -7,7 +7,7 @@ save_predictions <- function(predictions, inference_df){
                path = "footy-tipping-predictions/",
                name = paste0("round", unique(inference_df$round_id), "_",
                              unique(inference_df$competition_year), ".csv"), 
-               type = 'spreadsheet',
+               type = NULL,
                overwrite = TRUE)
   
   unlink("predictions.csv")
