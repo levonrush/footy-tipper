@@ -3,16 +3,29 @@ title: "Footy Tipper Pipeline"
 output: html_notebook
 ---
 
-```{r, warning=FALSE, message=FALSE}
-setup_env()
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+library(here)
+library(skimr)
+library(Epi)
+library(pROC)
+library(googledrive)
+
+drive_auth()
+
+i_am("pipeline/footy-tipper.Rmd")
+
+helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
+                               full.names = TRUE, ignore.case = TRUE)
+
+sapply(helper_functions, source, .GlobalEnv)
 ```
 
 # Get and split the dataset
 
 ```{r, warning=FALSE, message=FALSE}
-footy_tipping_data <- get_data(year_span) %>%
+footy_tipping_data <- get_data(year_span = year_span) %>%
   clean_data() %>%
-  feature_engineering(form_period, pipeline) %>%
+  feature_engineering(form_period = form_period, pipeline = pipeline) %>%
   elo_variables() %>%
   filter(competition_year != min(competition_year)) %>%
   group_by(game_state_name) %>%
@@ -29,19 +42,27 @@ skim(train_df)
 # Train the model
 
 ```{r, warning=FALSE, message=FALSE}
-cv <- train_multiclass_model(data = train_df, predictors, outcome_var, opt_metric)
+cv <- train_multiclass_model(data = train_df, 
+                             predictors = predictors, 
+                             outcome_var = outcome_var, 
+                             opt_metric = opt_metric)
 
 model <- cv$finalModel
-outputs <- model_properties(model)
+outputs <- model_properties(model, train_df, positive)
 ```
 
 ```{r}
-output$confusion_matrix
+outputs$confusion_matrix
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-output$importance_plot
+outputs$importance_plot
 ```
+
+```{r}
+outputs$round_performance
+```
+
 
 # Predict the results for the round
 
@@ -53,5 +74,5 @@ predictions
 # Save them to the drive
 
 ```{r}
-save_predictions(inference_df, predictions)
+save_predictions(predictions, inference_df)
 ```
