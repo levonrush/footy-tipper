@@ -66,7 +66,7 @@ get_year_ladder <- function(password, year){
   
   year_ladder <- vector(mode = "list")
   
-  for (round in 1:30){
+  for (round in 1:40){
     
     ladder_xml <- tryCatch(read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/roundLadder/111/", year, "/", round)),
                            error = function(e){NA})
@@ -165,16 +165,47 @@ get_data <- function(password = rstudioapi::askForPassword, year_span){
     
   }
   
-  fixtures_df <- bind_rows(all_fixtures) %>% type_convert()
+  fixtures_df <- bind_rows(all_fixtures) %>% clean_names() %>% type_convert()
   
-  # get all the associated ladders
-  ladders_df <- get_ladders(password, year_span)
+  # get all the associated ladders - need to move them back a step to be pre game ladder stats
+  ladders_df <- get_ladders(password, year_span) %>% clean_names() %>% type_convert() %>%
+    arrange(competition_year, round_id) %>%
+    group_by(team, competition_year) %>%
+    mutate_at(vars(-team, -round_id, -competition_year), lag) %>%
+    ungroup()
+  
+  ### ladder cleaning and engineering engineering here
+  ladders_df <- ladders_df %>%
+    # i'll need to work out the variables for these later
+    select(-c(position, day_record, night_record, current_streak)) %>%
+    # convert form things to numbers first here
+    mutate(recent_form = str_count(recent_form, coll("W")) - str_count(recent_form, coll("L")),
+           season_form = str_count(season_form, coll("W")) - str_count(season_form, coll("L"))) %>%
+    dumb_impute(0, "nothing") %>%
+    # do some engineering off that's there
+    mutate(win_rate = wins/round_id,
+           draw_rate = draws/round_id,
+           loss_rate = losses/round_id,
+           competition_point_rate = competition_points/round_id,
+           avg_points_for = points_for/round_id,
+           avg_points_against = points_against/round_id,
+           avg_points_difference = points_difference/round_id,
+           home_win_rate = home_wins/round_id,
+           home_draw_rate = home_draws/round_id,
+           home_loss_rate = home_losses/round_id,
+           away_win_rate = away_wins/round_id,
+           away_loss_rate = away_losses/round_id,
+           avg_tries_for = tries_for/round_id,
+           avg_tries_conceded = tries_conceded/round_id,
+           avg_goals_for = goals_for/round_id,
+           avg_goals_conceded = goals_conceded/round_id,
+           close_game_rate = close_games/round_id)
   
   # finally join on the ladder data for that round - remember i have to do this for both home and away teams
   footy_tipper_df <- fixtures_df %>%
     left_join(ladders_df, by = c("competition_year", "round_id", "team_home" = "team")) %>%
-    left_join(ladders_df, by = c("competition_year", "round_id", "team_home" = "team"), suffix = c("_home", "_away"))
-
+    left_join(ladders_df, by = c("competition_year", "round_id", "team_away" = "team"), suffix = c("_home", "_away"))
+    
   # return it to the env
   return(footy_tipper_df)
 

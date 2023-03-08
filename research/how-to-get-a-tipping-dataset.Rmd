@@ -167,3 +167,45 @@ all_tables <- get_ladders(password, year_span)
 
 all_tables
 ```
+
+```{r}
+# get a password
+password <- rstudioapi::askForPassword("Enter your password")
+
+# get the results for each fixture
+all_fixtures <- vector(mode = "list", length = length(year_span))
+
+for (y in 1:length(year_span)){
+  
+  # get that year's xml file
+  fixtures_xml <- read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/fixtures/111/", year_span[y]))
+  
+  # get fixture information
+  fixture_info <- get_fixture_info(fixtures_xml)
+  
+  # get results from the game
+  game_results <- get_game_results(fixtures_xml)
+  
+  # join it together and jot down the year
+  all_fixtures[[y]] <- fixture_info %>% 
+    inner_join(game_results, by = c('gameId')) %>%
+    mutate(competition_year = year_span[y])
+  
+}
+
+fixtures_df <- bind_rows(all_fixtures) %>% clean_names()
+
+# get all the associated ladders
+ladders_df <- get_ladders(password, year_span) %>% clean_names()
+
+# finally join on the ladder data for that round - remember i have to do this for both home and away teams
+footy_tipper_df <- fixtures_df %>%
+  left_join(ladders_df, by = c("competition_year", "round_id", "team_home" = "team")) #%>%
+  left_join(ladders_df, by = c("competition_year", "round_id", "team_away" = "team"), suffix = c("_home", "_away"))
+```
+
+```{r}
+ladders_df
+```
+
+
