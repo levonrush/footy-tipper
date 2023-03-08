@@ -84,43 +84,128 @@ skim(footy_tipper_df)
 # ladder stuff
 
 ```{r}
-year = 2021
-round = 15
-
-every_ladder <- vector(mode = "list")
-
-for (year in 2021:2022){
-  
-  error = F
-  round = 1
-  
+get_year_ladder <- function(password, year){
+ 
   year_ladder <- vector(mode = "list")
   
-  while(error == F){
+  for (round in 1:30){
     
-    ladder_xml <- tryCatch(
-      read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/roundLadder/111/", year, "/", round)),
-      error = T)
+    ladder_xml <- tryCatch(read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/roundLadder/111/", year, "/", round)),
+                           error = function(e){NA})
     
-    ladder[[r]] <- get_ladder_by_round(ladder_xml, year, round)
+    if (is.na(ladder_xml)) break
     
+    year_ladder[[round]] <- ladder_xml %>% xml_find_all(".//ladderposition") %>%
+      map_df(~{
+        bind_cols(
+          position = xml_attr(.x, "position"),
+          team = xml_attr(.x, "teamName"),
+          wins = xml_attr(.x, "wins"),
+          draws = xml_attr(.x, "draws"),
+          losses = xml_attr(.x, "losses"),
+          byes = xml_attr(.x, "byes"),
+          competition_points = xml_attr(.x, "competitionPoints"),
+          pointsFor = xml_attr(.x, "pointsFor"),
+          pointsAgainst = xml_attr(.x, "pointsAgainst"),
+          pointsDifference = xml_attr(.x, "pointsDifference"),
+          homeWins = xml_attr(.x, "homeWins"),
+          homeDraws = xml_attr(.x, "homeDraws"),
+          homeLosses = xml_attr(.x, "homeLosses"),
+          awayWins = xml_attr(.x, "awayWins"),
+          awayDraws = xml_attr(.x, "awayDraws"),
+          awayLosses = xml_attr(.x, "awayLosses"),
+          recentForm = xml_attr(.x, "recentForm"),
+          seasonForm = xml_attr(.x, "seasonForm"),
+          triesFor = xml_attr(.x, "triesFor"),
+          triesConceded = xml_attr(.x, "triesConceded"),
+          goalsFor = xml_attr(.x, "goalsFor"),
+          goalsConceded = xml_attr(.x, "goalsConceded"),
+          fieldGoalsFor = xml_attr(.x, "fieldGoalsFor"),
+          fieldGoalsConceded = xml_attr(.x, "fieldGoalsConceded"),
+          playersUsed = xml_attr(.x, "playersUsed"),
+          averageWinningMargin = xml_attr(.x, "averageWinningMargin"),
+          averageLosingMargin = xml_attr(.x, "averageLosingMargin"),
+          closeGames = xml_attr(.x, "closeGames"),
+          dayRecord = xml_attr(.x, "dayRecord"),
+          nightRecord = xml_attr(.x, "nightRecord"),
+          currentStreak = xml_attr(.x, "currentStreak")
+        )
+        }) %>%
+      mutate(round_id = round,
+             competition_year = year)
     
-    round = round + 1
+    }
+  
+  year_ladder <- bind_rows(year_ladder)
+  
+  return(year_ladder)
+   
+}
+
+table_data <- get_year_ladder(password, 2021)
+```
+
+```{r}
+get_ladders <- function(password, year_span){
+
+  every_ladder <- vector(mode = "list")
+  
+  for (year in year_span){
+    
+    table <- get_year_ladder(password, year)
+    every_ladder[[year]] <- table
     
   }
   
+  ladder_df <- bind_rows(every_ladder)
   
-    
+  return(ladder_df)
 
+}
+
+all_tables <- get_ladders(password, year_span)
+
+all_tables
+```
+
+```{r}
+# get a password
+password <- rstudioapi::askForPassword("Enter your password")
+
+# get the results for each fixture
+all_fixtures <- vector(mode = "list", length = length(year_span))
+
+for (y in 1:length(year_span)){
   
+  # get that year's xml file
+  fixtures_xml <- read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/fixtures/111/", year_span[y]))
   
+  # get fixture information
+  fixture_info <- get_fixture_info(fixtures_xml)
+  
+  # get results from the game
+  game_results <- get_game_results(fixtures_xml)
+  
+  # join it together and jot down the year
+  all_fixtures[[y]] <- fixture_info %>% 
+    inner_join(game_results, by = c('gameId')) %>%
+    mutate(competition_year = year_span[y])
   
 }
 
+fixtures_df <- bind_rows(all_fixtures) %>% clean_names()
 
+# get all the associated ladders
+ladders_df <- get_ladders(password, year_span) %>% clean_names()
 
-ladder_df <- get_ladder_by_round(ladder_xml, year, round)
-ladder_df
+# finally join on the ladder data for that round - remember i have to do this for both home and away teams
+footy_tipper_df <- fixtures_df %>%
+  left_join(ladders_df, by = c("competition_year", "round_id", "team_home" = "team")) #%>%
+  left_join(ladders_df, by = c("competition_year", "round_id", "team_away" = "team"), suffix = c("_home", "_away"))
+```
+
+```{r}
+ladders_df
 ```
 
 

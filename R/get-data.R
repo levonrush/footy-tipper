@@ -3,48 +3,7 @@ library(xml2)
 library(janitor)
 library(zoo)
 
-get_ladder_by_round <- function(ladder_xml, year, round){
-  
- ladder_by_round <- ladder_xml %>% xml_find_all(".//ladderposition") %>%
-   map_df(~{
-     bind_cols(
-       position = xml_attr(.x, "position"),
-       team = xml_attr(.x, "teamName"),
-       wins = xml_attr(.x, "wins"),
-       draws = xml_attr(.x, "draws"),
-       losses = xml_attr(.x, "losses"),
-       byes = xml_attr(.x, "byes"),
-       competition_points = xml_attr(.x, "competitionPoints"),
-       pointsFor = xml_attr(.x, "pointsFor"),
-       pointsAgainst = xml_attr(.x, "pointsAgainst"),
-       pointsDifference = xml_attr(.x, "pointsDifference"),
-       homeWins = xml_attr(.x, "homeWins"),
-       homeDraws = xml_attr(.x, "homeDraws"),
-       homeLosses = xml_attr(.x, "homeLosses"),
-       awayWins = xml_attr(.x, "awayWins"),
-       awayDraws = xml_attr(.x, "awayDraws"),
-       awayLosses = xml_attr(.x, "awayLosses"),
-       recentForm = xml_attr(.x, "recentForm"),
-       seasonForm = xml_attr(.x, "seasonForm"),
-       triesFor = xml_attr(.x, "triesFor"),
-       triesConceded = xml_attr(.x, "triesConceded"),
-       goalsFor = xml_attr(.x, "goalsFor"),
-       goalsConceded = xml_attr(.x, "goalsConceded"),
-       fieldGoalsFor = xml_attr(.x, "fieldGoalsFor"),
-       fieldGoalsConceded = xml_attr(.x, "fieldGoalsConceded"),
-       playersUsed = xml_attr(.x, "playersUsed"),
-       averageWinningMargin = xml_attr(.x, "averageWinningMargin"),
-       averageLosingMargin = xml_attr(.x, "averageLosingMargin"),
-       closeGames = xml_attr(.x, "closeGames"),
-       dayRecord = xml_attr(.x, "dayRecord"),
-       nightRecord = xml_attr(.x, "nightRecord"),
-       currentStreak = xml_attr(.x, "currentStreak")
-     ) 
-   }) %>%
-   mutate(round_id = round,
-          competition_year = year)
- 
-}
+##### Get game results first
 
 get_game_results <- function(fixtures_xml){
   
@@ -101,11 +60,92 @@ get_fixture_info <- function(fixtures_xml){
   
 }
 
+##### then get the historic ladder placings
+
+get_year_ladder <- function(password, year){
+  
+  year_ladder <- vector(mode = "list")
+  
+  for (round in 1:40){
+    
+    ladder_xml <- tryCatch(read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/roundLadder/111/", year, "/", round)),
+                           error = function(e){NA})
+    
+    if (is.na(ladder_xml)) break
+    
+    year_ladder[[round]] <- ladder_xml %>% xml_find_all(".//ladderposition") %>%
+      map_df(~{
+        bind_cols(
+          position = xml_attr(.x, "position"),
+          team = xml_attr(.x, "teamName"),
+          wins = xml_attr(.x, "wins"),
+          draws = xml_attr(.x, "draws"),
+          losses = xml_attr(.x, "losses"),
+          byes = xml_attr(.x, "byes"),
+          competition_points = xml_attr(.x, "competitionPoints"),
+          pointsFor = xml_attr(.x, "pointsFor"),
+          pointsAgainst = xml_attr(.x, "pointsAgainst"),
+          pointsDifference = xml_attr(.x, "pointsDifference"),
+          homeWins = xml_attr(.x, "homeWins"),
+          homeDraws = xml_attr(.x, "homeDraws"),
+          homeLosses = xml_attr(.x, "homeLosses"),
+          awayWins = xml_attr(.x, "awayWins"),
+          awayDraws = xml_attr(.x, "awayDraws"),
+          awayLosses = xml_attr(.x, "awayLosses"),
+          recentForm = xml_attr(.x, "recentForm"),
+          seasonForm = xml_attr(.x, "seasonForm"),
+          triesFor = xml_attr(.x, "triesFor"),
+          triesConceded = xml_attr(.x, "triesConceded"),
+          goalsFor = xml_attr(.x, "goalsFor"),
+          goalsConceded = xml_attr(.x, "goalsConceded"),
+          fieldGoalsFor = xml_attr(.x, "fieldGoalsFor"),
+          fieldGoalsConceded = xml_attr(.x, "fieldGoalsConceded"),
+          playersUsed = xml_attr(.x, "playersUsed"),
+          averageWinningMargin = xml_attr(.x, "averageWinningMargin"),
+          averageLosingMargin = xml_attr(.x, "averageLosingMargin"),
+          closeGames = xml_attr(.x, "closeGames"),
+          dayRecord = xml_attr(.x, "dayRecord"),
+          nightRecord = xml_attr(.x, "nightRecord"),
+          currentStreak = xml_attr(.x, "currentStreak")
+        )
+      }) %>%
+      mutate(round_id = round,
+             competition_year = year)
+    
+  }
+  
+  year_ladder <- bind_rows(year_ladder)
+  
+  return(year_ladder)
+  
+}
+
+get_ladders <- function(password, year_span){
+  
+  every_ladder <- vector(mode = "list")
+  
+  for (year in year_span){
+    
+    table <- get_year_ladder(password, year)
+    every_ladder[[year]] <- table
+    
+  }
+  
+  ladder_df <- bind_rows(every_ladder)
+  
+  return(ladder_df)
+  
+}
+
+##### finally put it all together
+
 get_data <- function(password = rstudioapi::askForPassword, year_span){
   
+  # get a password
   password <- rstudioapi::askForPassword("Enter your password")
   
-  footy_tipper_dfs <- vector(mode = "list", length = length(year_span))
+  # get the results for each fixture
+  all_fixtures <- vector(mode = "list", length = length(year_span))
   
   for (y in 1:length(year_span)){
     
@@ -119,16 +159,56 @@ get_data <- function(password = rstudioapi::askForPassword, year_span){
     game_results <- get_game_results(fixtures_xml)
     
     # join it together and jot down the year
-    footy_tipper_dfs[[y]] <- fixture_info %>% 
+    all_fixtures[[y]] <- fixture_info %>% 
       inner_join(game_results, by = c('gameId')) %>%
       mutate(competition_year = year_span[y])
     
   }
   
-  # bind each of the years together and do some cleaning
-  footy_tipper_df <- bind_rows(footy_tipper_dfs) %>% type_convert()
-
+  fixtures_df <- bind_rows(all_fixtures) %>% clean_names() %>% type_convert()
+  
+  # get all the associated ladders - need to move them back a step to be pre game ladder stats
+  ladders_df <- get_ladders(password, year_span) %>% clean_names() %>% type_convert() %>%
+    arrange(competition_year, round_id) %>%
+    group_by(team, competition_year) %>%
+    mutate_at(vars(-team, -round_id, -competition_year), lag) %>%
+    ungroup()
+  
+  ### ladder cleaning and engineering engineering here
+  ladders_df <- ladders_df %>%
+    # i'll need to work out the variables for these later
+    select(-c(position, day_record, night_record, current_streak)) %>%
+    # convert form things to numbers first here
+    mutate(recent_form = str_count(recent_form, coll("W")) - str_count(recent_form, coll("L")),
+           season_form = str_count(season_form, coll("W")) - str_count(season_form, coll("L"))) %>%
+    dumb_impute(0, "nothing") %>%
+    # do some engineering off that's there
+    mutate(win_rate = wins/round_id,
+           draw_rate = draws/round_id,
+           loss_rate = losses/round_id,
+           competition_point_rate = competition_points/round_id,
+           avg_points_for = points_for/round_id,
+           avg_points_against = points_against/round_id,
+           avg_points_difference = points_difference/round_id,
+           home_win_rate = home_wins/round_id,
+           home_draw_rate = home_draws/round_id,
+           home_loss_rate = home_losses/round_id,
+           away_win_rate = away_wins/round_id,
+           away_loss_rate = away_losses/round_id,
+           avg_tries_for = tries_for/round_id,
+           avg_tries_conceded = tries_conceded/round_id,
+           avg_goals_for = goals_for/round_id,
+           avg_goals_conceded = goals_conceded/round_id,
+           close_game_rate = close_games/round_id)
+  
+  # finally join on the ladder data for that round - remember i have to do this for both home and away teams
+  footy_tipper_df <- fixtures_df %>%
+    left_join(ladders_df, by = c("competition_year", "round_id", "team_home" = "team")) %>%
+    left_join(ladders_df, by = c("competition_year", "round_id", "team_away" = "team"), suffix = c("_home", "_away"))
+    
   # return it to the env
   return(footy_tipper_df)
 
 }
+
+
