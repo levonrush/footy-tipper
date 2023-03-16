@@ -14,7 +14,7 @@ get_game_results <- function(fixtures_xml){
         team = xml_find_all(.x, ".//teams/team") %>% xml_attr("team"),
         teamFinalScore = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamFinalScore"),
         isHomeTeam = xml_find_all(.x, ".//teams/team") %>% xml_attr("isHomeTeam"),
-        teamPosition = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamPosition")
+        teamHeadToHeadOdds = xml_find_all(.x, ".//teams/team") %>% xml_attr("teamHeadToHeadOdds")
       ) 
     }) 
   
@@ -177,7 +177,7 @@ get_data <- function(password = rstudioapi::askForPassword, year_span){
   ### ladder cleaning and engineering engineering here
   ladders_df <- ladders_df %>%
     # i'll need to work out the variables for these later
-    select(-c(position, day_record, night_record, current_streak)) %>%
+    select(-c(day_record, night_record, current_streak)) %>%
     # convert form things to numbers first here
     mutate(recent_form = str_count(recent_form, coll("W")) - str_count(recent_form, coll("L")),
            season_form = str_count(season_form, coll("W")) - str_count(season_form, coll("L"))) %>%

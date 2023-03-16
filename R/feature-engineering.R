@@ -45,7 +45,7 @@ fixture_result <- function(data, pipeline){
 easy_pickings <- function(data){
   
   data <- data %>%
-    mutate(position_diff = team_position_home - team_position_away)
+    mutate(position_diff = position_home - position_away)
   
   return(data)
   
