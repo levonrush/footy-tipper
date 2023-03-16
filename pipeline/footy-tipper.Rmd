@@ -76,9 +76,11 @@ train_df %>%
            )
          ) %>%
   filter(bet_prediction != 'Draw') %>%
-  summarise(ladder_acc = sum(ladder_prediction == home_team_result)/n(),
-            home_acc = sum(home_team_result == 'Win')/n(),
-            bet_acc = sum(bet_prediction == home_team_result, na.rm = T)/n())
+  summarise(
+    home_acc = sum(home_team_result == 'Win')/n(),
+    ladder_acc = sum(ladder_prediction == home_team_result)/n(),
+    bet_acc = sum(bet_prediction == home_team_result, na.rm = T)/n(),
+    my_acc = outputs$confusion_matrix$overall['Accuracy'])
 ```
 
 
