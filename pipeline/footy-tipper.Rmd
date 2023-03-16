@@ -27,7 +27,8 @@ footy_tipping_data <- get_data(year_span = year_span) %>%
   clean_data() %>%
   feature_engineering(form_period = form_period, pipeline = pipeline) %>%
   elo_variables() %>%
-  filter(competition_year != min(competition_year)) %>%
+  filter(competition_year != min(competition_year),
+         !is.na(team_head_to_head_odds_away)) %>%
   group_by(game_state_name) %>%
   group_split()
 
@@ -61,6 +62,23 @@ outputs$importance_plot
 
 ```{r}
 outputs$round_performance
+```
+
+# Benchmarking
+
+```{r}
+train_df %>%
+  mutate(ladder_prediction = ifelse(position_home < position_away, 'Win', 'Loss'),
+         bet_prediction = case_when(
+           team_head_to_head_odds_home < team_head_to_head_odds_away ~ 'Win',
+           team_head_to_head_odds_home > team_head_to_head_odds_away ~ 'Loss',
+           TRUE ~ 'Draw'
+           )
+         ) %>%
+  filter(bet_prediction != 'Draw') %>%
+  summarise(ladder_acc = sum(ladder_prediction == home_team_result)/n(),
+            home_acc = sum(home_team_result == 'Win')/n(),
+            bet_acc = sum(bet_prediction == home_team_result, na.rm = T)/n())
 ```
 
 
