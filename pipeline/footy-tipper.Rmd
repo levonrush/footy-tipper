@@ -57,7 +57,7 @@ outputs$confusion_matrix
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-outputs$importance_plot
+outputs$importance
 ```
 
 ```{r}
@@ -67,20 +67,7 @@ outputs$round_performance
 # Benchmarking
 
 ```{r}
-train_df %>%
-  mutate(ladder_prediction = ifelse(position_home < position_away, 'Win', 'Loss'),
-         bet_prediction = case_when(
-           team_head_to_head_odds_home < team_head_to_head_odds_away ~ 'Win',
-           team_head_to_head_odds_home > team_head_to_head_odds_away ~ 'Loss',
-           TRUE ~ 'Draw'
-           )
-         ) %>%
-  filter(bet_prediction != 'Draw') %>%
-  summarise(
-    home_acc = sum(home_team_result == 'Win')/n(),
-    ladder_acc = sum(ladder_prediction == home_team_result)/n(),
-    bet_acc = sum(bet_prediction == home_team_result, na.rm = T)/n(),
-    my_acc = outputs$confusion_matrix$overall['Accuracy'])
+outputs$benchmarking
 ```
 
 
