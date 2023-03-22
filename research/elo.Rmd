@@ -1,0 +1,101 @@
+---
+title: "Elo and how to improve it"
+output: html_notebook
+---
+
+# Set up analysis
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(here)
+library(skimr)
+library(janitor)
+library(MLmetrics)
+
+i_am("research/elo.Rmd")
+
+helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
+                               full.names = TRUE, ignore.case = TRUE)
+
+sapply(helper_functions, source, .GlobalEnv)
+```
+
+```{r}
+elo_data <- get_data(year_span = year_span) %>%
+  clean_data() %>%
+  feature_engineering(form_period = form_period, pipeline = pipeline) %>%
+  filter(game_state_name == 'Final')
+```
+
+# Show the elo function
+
+```{r}
+elo_variables
+```
+
+
+```{r}
+matches <- elo_data %>%
+  elo_variables() %>%
+  filter(competition_year > 2015) %>%
+  select(start_time_utc, team_home, team_away, home_team_result, home_prob, draw_prob, away_prob) %>%
+  mutate(home_win = ifelse(home_team_result == 'Win', 1, 0),       # Include new columns which show the true outcome of the match
+         draw = ifelse(home_team_result == 'Draw', 1, 0),
+         away_win = ifelse(home_team_result == 'Loss', 0, 1))
+
+MultiLogLoss(
+  y_pred = matches[,c("home_prob", "draw_prob", "away_prob")] %>% as.matrix(),
+  y_true = matches[,c("home_win", "draw", "away_win")] %>% as.matrix()
+)
+```
+
+# tune carry_over and k_val
+
+```{r}
+log_loss_dfs <- vector(mode = "list")
+
+for (i in 1:5){
+  for (co in 1:30) {
+    for (k in 1:50) {
+      
+      i_new = i*500
+      co_new = co/30
+      k_new = k
+      
+      matches <- elo_data %>%
+        elo_variables(carry_over = co_new, k_val = k_new, elo_init = i_new) %>%
+        filter(competition_year != min(competition_year)) %>%
+        select(start_time_utc, team_home, team_away, home_team_result, home_prob, draw_prob, away_prob) %>%
+        mutate(home_win = ifelse(home_team_result == 'Win', 1, 0),
+               draw = ifelse(home_team_result == 'Draw', 1, 0),
+               away_win = ifelse(home_team_result == 'Loss', 0, 1))
+      
+      log_loss <- MultiLogLoss(
+        y_pred = matches[,c("home_prob", "draw_prob", "away_prob")] %>% as.matrix(),
+        y_true = matches[,c("home_win", "draw", "away_win")] %>% as.matrix()
+      )
+      
+      log_loss_dfs[[i*co*k]] <- tibble(
+        elo_init = i_new,
+        carry_over = co_new,
+        k_val = k_new,
+        log_loss = log_loss
+      )
+  
+    }
+  }
+}
+
+elo_tune_results <- bind_rows(log_loss_dfs)
+
+elo_tune_results %>% filter(log_loss == min(log_loss))
+```
+
+```{r}
+range(elo_tune_results$log_loss)
+```
+
+
+
+
+
