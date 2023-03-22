@@ -25,12 +25,16 @@ model_properties <- function(model, train_df, positive){
            bet_prediction = case_when(
              team_head_to_head_odds_home < team_head_to_head_odds_away ~ 'Win',
              team_head_to_head_odds_home > team_head_to_head_odds_away ~ 'Loss',
-             TRUE ~ as.character(NA)
-           )
+             TRUE ~ as.character(NA)),
+           elo_prediction = case_when(
+             home_elo > away_elo ~ 'Win',
+             home_elo < away_elo ~ 'Loss',
+             TRUE ~ as.character(NA))
     ) %>%
     summarise(
       home_team_accuracy = sum(home_team_result == 'Win')/n(),
       ladder_accuracy = sum(ladder_prediction == home_team_result)/n(),
+      elo_accuracy = sum(elo_prediction == home_team_result)/n(),
       bet_accuracy = sum(bet_prediction == home_team_result, na.rm = T)/n(),
       model_accuracy = confusion_matrix$overall['Accuracy'])
   
