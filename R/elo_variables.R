@@ -3,7 +3,7 @@ map_margin_to_outcome <- function(margin, marg.max = 80, marg.min = -80){
   norm %>% pmin(1) %>% pmax(0)
 }
 
-elo_variables <- function(data, marg.max = 80, marg.min = -80, carry_over = 0.9666667, k_val = 1, elo_init = 1500){
+elo_variables <- function(data, marg.max = 80, marg.min = -80, carry_over, k_val, elo_init){
   
   carry_over <- carry_over
   k_val <- k_val
@@ -16,7 +16,7 @@ elo_variables <- function(data, marg.max = 80, marg.min = -80, carry_over = 0.96
       adjust(team_home, hga) +
       team_away +
       regress(competition_year, elo_init, carry_over) #+
-    #  group(round_id)
+      #group(round_id)
     ,
     k = k_val,
     data = data

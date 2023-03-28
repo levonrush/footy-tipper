@@ -1,7 +1,12 @@
 # data params
 year_span = 2012:2023
 pipeline = 'multiclass'
-form_period <- 5
+form_period = 5
+
+# elo params
+elo_init = 1500
+k_val = 70
+carry_over = 0.5
 
 # training params
 opt_metric = "Kappa"

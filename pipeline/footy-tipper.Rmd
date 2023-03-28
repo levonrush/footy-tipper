@@ -26,7 +26,7 @@ sapply(helper_functions, source, .GlobalEnv)
 footy_tipping_data <- get_data(year_span = year_span) %>%
   clean_data() %>%
   feature_engineering(form_period = form_period, pipeline = pipeline) %>%
-  elo_variables() %>%
+  elo_variables(carry_over = carry_over, k_val = k_val, elo_init = elo_init) %>%
   filter(competition_year != min(competition_year),
          !is.na(team_head_to_head_odds_away)) %>%
   group_by(game_state_name) %>%
@@ -64,10 +64,12 @@ outputs$importance
 outputs$round_performance
 ```
 
-# Benchmarking
-
 ```{r}
 outputs$benchmarking
+```
+
+```{r}
+outputs$model_lift
 ```
 
 
@@ -83,3 +85,11 @@ predictions
 ```{r}
 save_predictions(predictions, inference_df)
 ```
+
+```{r}
+predictions %>%
+  mutate(home_odds_thresh = 1/home_team_win_prob,
+         away_odds_thresh = 1/home_team_lose_prob) %>%
+  select(team_home, home_odds_thresh, team_away, away_odds_thresh)
+```
+

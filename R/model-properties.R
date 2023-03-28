@@ -20,6 +20,34 @@ model_properties <- function(model, train_df, positive){
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
   
+  model_lift <- train_df %>%
+    bind_cols(model$votes) %>%
+    mutate(prediction = ifelse(Win >= 0.5, "Win", "Loss"),
+           ladder_prediction = ifelse(position_home < position_away, 'Win', 'Loss'),
+           bet_prediction = case_when(
+             team_head_to_head_odds_home < team_head_to_head_odds_away ~ 'Win',
+             team_head_to_head_odds_home > team_head_to_head_odds_away ~ 'Loss',
+             TRUE ~ as.character(NA)),
+           elo_prediction = case_when(
+             home_elo > away_elo ~ 'Win',
+             home_elo < away_elo ~ 'Loss',
+             TRUE ~ as.character(NA)) 
+           ) %>%
+    mutate(round_name = fct_reorder(round_name, round_id)) %>%
+    group_by(round_name) %>%
+    summarise(model = sum(home_team_result == prediction) / n(),
+              home_team = sum(home_team_result == 'Win')/n(),
+              ladder = sum(ladder_prediction == home_team_result)/n(),
+              elo = sum(elo_prediction == home_team_result)/n(),
+              bet = sum(bet_prediction == home_team_result, na.rm = T)/n()) %>%
+    mutate(across(c(home_team, ladder, elo, bet), ~ model - .)) %>% 
+    select(-model) %>%
+    pivot_longer(!round_name, names_to = 'benchmark', values_to = 'lift') %>%
+    ggplot(aes(x = round_name, y = lift, fill = benchmark)) +
+      geom_bar(stat="identity", position=position_dodge()) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+  
   benchmarking <- train_df %>%
     mutate(ladder_prediction = ifelse(position_home < position_away, 'Win', 'Loss'),
            bet_prediction = case_when(
@@ -41,6 +69,7 @@ model_properties <- function(model, train_df, positive){
   return(list(confusion_matrix = confusion_matrix,
               importance = importance,
               round_performance = round_performance, 
+              model_lift = model_lift,
               benchmarking = benchmarking))
   
 }
