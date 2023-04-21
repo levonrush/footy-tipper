@@ -1,6 +1,34 @@
 library(tidyverse)
 library(lubridate)
 library(elo)
+library(tidyverse)
+
+state_of_origin <- function(data){
+  
+  data %>%
+    group_by(round_name, competition_year) %>%
+    mutate(state_of_origin = ifelse(str_detect(round_name, "Round") & n() <= 5, 1, 0))
+  
+  return(data)
+  
+}
+
+home_ground_advantage <- function(data){
+  
+  data <- data %>%
+    mutate(points_diff = team_final_score_home - team_final_score_away,
+           game_hour = hour(start_time),
+           game_day = weekdays(start_time))
+  
+  rf <- randomForest(points_diff ~ city + team_home + team_away + game_hour + game_day + round_id + competition_year, 
+                     data = data %>% filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)))
+  
+  data <- data %>%
+    mutate(home_ground_advantage = predict(rf, data))
+  
+  return(data)
+  
+}
 
 fixture_result <- function(data, pipeline){
   
@@ -199,7 +227,9 @@ feature_engineering <- function(data, form_period, pipeline){
     timing_vars() %>%
     # season_stats() %>%
     # form_stats(form_period = form_period)  %>%
-    matchup_form(form_period = form_period)
+    matchup_form(form_period = form_period) %>%
+    home_ground_advantage() %>%
+    state_of_origin()
 
   return(data)
 
