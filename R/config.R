@@ -129,5 +129,7 @@ predictors <- c("round_id"
                 , "home_prob"
                 , "away_prob"
                 , "draw_prob"
+                , "state_of_origin"
+                , "home_ground_advantage"
                 )
 
