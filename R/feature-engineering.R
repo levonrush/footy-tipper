@@ -1,6 +1,58 @@
 library(tidyverse)
 library(lubridate)
 library(elo)
+library(tidyverse)
+
+# crowd <- funciton(data){
+#   
+#   rf <- randomForest(crowd ~ city, venue_name, data = data %>% filter(!is.na(crowd)))
+#   
+#   data <- data %>%
+#     mutate(case_when(
+#       competition_year %in% 2020:2021 ~ ~replace_na(.x, 0),
+#       TRUE ~ predict(rf, data)
+#       
+#     ))
+#   
+# }
+
+state_of_origin <- function(data){
+  
+  data <- data %>%
+    mutate(state_of_origin = ifelse(str_detect(round_name, "Round") & n() <= 5, 1, 0))
+  
+  return(data)
+  
+}
+
+home_ground_advantage <- function(data){
+  
+  data <- data %>%
+    mutate(points_diff = team_final_score_home - team_final_score_away,
+           game_hour = hour(start_time),
+           game_day = weekdays(start_time))
+  
+  rf <- randomForest(points_diff ~ city + team_home + team_away + game_hour + game_day + round_id + competition_year, 
+                     data = data %>% filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)))
+  
+  train_data <- data %>%
+    filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)) %>%
+    mutate(home_ground_advantage = rf$predicted) %>%
+    select(game_id, home_ground_advantage)
+  
+  inference_data <- data %>%
+    filter(game_state_name != 'Final') %>%
+    mutate(home_ground_advantage = predict(rf, .)) %>%
+    select(game_id, home_ground_advantage)
+  
+  hga_data <- bind_rows(train_data, inference_data)
+  
+  data <- data %>%
+    left_join(hga_data, by = c("game_id"))
+           
+  return(data)
+  
+}
 
 fixture_result <- function(data, pipeline){
   
@@ -193,13 +245,14 @@ matchup_form <- function(data, form_period){
 feature_engineering <- function(data, form_period, pipeline){
  
   data <- data %>%
-    fixture_result(pipeline = pipeline) %>%
     easy_pickings() %>%
     # corona_season() %>%
     timing_vars() %>%
     # season_stats() %>%
     # form_stats(form_period = form_period)  %>%
-    matchup_form(form_period = form_period)
+    matchup_form(form_period = form_period) %>%
+    home_ground_advantage() %>%
+    state_of_origin()
 
   return(data)
 

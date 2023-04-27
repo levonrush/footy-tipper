@@ -1,0 +1,32 @@
+---
+title: "State of Origin"
+output: html_notebook
+---
+
+
+
+```{r}
+library(here)
+
+helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
+                               full.names = TRUE, ignore.case = TRUE)
+
+sapply(helper_functions, source, .GlobalEnv)
+
+footy_tipping_data <- get_data(year_span = year_span) %>%
+  clean_data() %>%
+  group_by(game_state_name) %>%
+  group_split() %>% .[[1]]
+```
+
+```{r} 
+footy_tipping_data <- footy_tipping_data %>%
+  group_by(round_name, competition_year) %>%
+  mutate(state_of_origin = ifelse(
+    str_detect(round_name, "Round") &
+    n() <= 5, 1, 0)) %>%
+  fixture_result(pipeline = pipeline)
+
+glm(home_team_result ~ state_of_origin + team_home + team_away, data = footy_tipping_data, family = "binomial") %>% summary
+```
+
