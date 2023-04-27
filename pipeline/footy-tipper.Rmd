@@ -28,6 +28,7 @@ sapply(helper_functions, source, .GlobalEnv)
 ```{r, warning=FALSE, message=FALSE}
 footy_tipping_data <- get_data(year_span = year_span) %>%
   clean_data() %>%
+  fixture_result(pipeline = pipeline) %>%
   feature_engineering(form_period = form_period, pipeline = pipeline) %>%
   elo_variables(carry_over = carry_over, k_val = k_val, elo_init = elo_init) %>%
   filter(competition_year != min(competition_year),
@@ -92,23 +93,5 @@ save_predictions(predictions, inference_df)
 # extra thangs...
 
 ```{r}
-punt_thresholds <- predictions %>%
-  mutate(home_odds_thresh = 1/home_team_win_prob,
-         away_odds_thresh = 1/home_team_lose_prob)
-
-home_picks <- punt_thresholds %>%
-  filter(home_team_result == 'Win') %>%
-  select(team_home, team_head_to_head_odds_home, home_odds_thresh) %>%
-  rename(team = team_home, price = team_head_to_head_odds_home, price_min = home_odds_thresh)
-
-away_picks <- punt_thresholds %>%
-  filter(home_team_result == 'Loss') %>%
-  select(team_away, team_head_to_head_odds_away, away_odds_thresh) %>%
-  rename(team = team_away, price = team_head_to_head_odds_away, price_min = away_odds_thresh)
-
-levons_picks <- bind_rows(home_picks, away_picks) %>%
-  filter(price > price_min) %>%
-  mutate_if(is.numeric, dollar)
-
-levons_picks
+levons_picks(predictions)
 ```
