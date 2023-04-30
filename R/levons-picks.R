@@ -18,7 +18,7 @@ levons_picks <- function(predictions){
     filter(price > price_min) %>%
     mutate_if(is.numeric, dollar)
   
-  write.csv(x = predictions, file = "levons_picks.csv")
+  write.csv(x = levons_picks, file = "levons_picks.csv")
   
   # Upload the file
   drive_upload(media = "levons_picks.csv",
