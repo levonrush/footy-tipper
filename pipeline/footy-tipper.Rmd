@@ -44,11 +44,15 @@ inference_df <- footy_tipping_data[[2]] %>%
 skim(train_df)
 ```
 
+```{r, warning=FALSE, message=FALSE}
+opt_predictors <- perform_rfe(data = train_df, k = 5, opt_metric, maximise = T, steps = NULL, outcome_var = outcome_var, predictors = predictors) 
+```
+
 # Train the model
 
 ```{r, warning=FALSE, message=FALSE}
 cv <- train_multiclass_model(data = train_df, 
-                             predictors = predictors, 
+                             predictors = opt_predictors, 
                              outcome_var = outcome_var, 
                              opt_metric = opt_metric)
 
@@ -89,6 +93,7 @@ predictions
 ```{r}
 save_predictions(predictions, inference_df)
 ```
+
 
 # extra thangs...
 
