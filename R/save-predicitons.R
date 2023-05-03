@@ -1,15 +1,19 @@
 save_predictions <- function(predictions, inference_df){
   
-  write.csv(x = predictions, file = "predictions.csv")
+  if (weekdays(Sys.Date()) == 'Thursday'){
   
-  # Upload the file
-  drive_upload(media = "predictions.csv",
-               path = "footy-tipping-predictions/",
-               name = paste0("round", unique(inference_df$round_id), "_",
-                             unique(inference_df$competition_year), ".csv"), 
-               type = NULL,
-               overwrite = TRUE)
+    write.csv(x = predictions, file = "predictions.csv")
+    
+    # Upload the file
+    drive_upload(media = "predictions.csv",
+                 path = "footy-tipping-predictions/",
+                 name = paste0("round", unique(inference_df$round_id), "_",
+                               unique(inference_df$competition_year), ".csv"), 
+                 type = NULL,
+                 overwrite = TRUE)
+    
+    unlink("predictions.csv")
   
-  unlink("predictions.csv")
+  }
   
 }
