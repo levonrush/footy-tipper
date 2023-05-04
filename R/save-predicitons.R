@@ -1,6 +1,6 @@
 save_predictions <- function(predictions, inference_df){
   
-  if (weekdays(Sys.Date()) == 'Thursday'){
+  if (prod_run == TRUE){
   
     write.csv(x = predictions, file = "predictions.csv")
     
