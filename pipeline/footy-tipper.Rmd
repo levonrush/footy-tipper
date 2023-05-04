@@ -92,12 +92,12 @@ predictions
 # Save them to the drive
 
 ```{r}
-save_predictions(predictions, inference_df)
+save_predictions(predictions, inference_df, prod_run = prod_run)
 ```
 
 
 # extra thangs...
 
 ```{r}
-levons_picks(predictions)
+levons_picks(predictions, prod_run = prod_run)
 ```
