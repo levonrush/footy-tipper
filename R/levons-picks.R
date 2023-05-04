@@ -18,16 +18,20 @@ levons_picks <- function(predictions){
     filter(price > price_min) %>%
     mutate_if(is.numeric, dollar)
   
-  write.csv(x = levons_picks, file = "levons_picks.csv")
+  if (prod_run == TRUE){
   
-  # Upload the file
-  drive_upload(media = "levons_picks.csv",
-               path = "footy-tipping-predictions/levons_picks",
-               name = paste0("levons_picks_round", unique(inference_df$round_id), "_", unique(inference_df$competition_year), ".csv"), 
-               type = NULL,
-               overwrite = TRUE)
+    write.csv(x = levons_picks, file = "levons_picks.csv")
+    
+    # Upload the file
+    drive_upload(media = "levons_picks.csv",
+                 path = "footy-tipping-predictions/levons_picks",
+                 name = paste0("levons_picks_round", unique(inference_df$round_id), "_", unique(inference_df$competition_year), ".csv"), 
+                 type = NULL,
+                 overwrite = TRUE)
+    
+    unlink("levons_picks.csv")
   
-  unlink("levons_picks.csv")
+  }
   
   return(levons_picks)
   

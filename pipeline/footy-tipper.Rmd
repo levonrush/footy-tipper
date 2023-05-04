@@ -5,6 +5,10 @@ output:
     df_print: paged
 ---
 
+```{r}
+prod_run = FALSE
+```
+
 ```{r, warning=FALSE, message=FALSE, include=FALSE}
 library(here)
 library(skimr)
