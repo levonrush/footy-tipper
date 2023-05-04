@@ -55,10 +55,7 @@ opt_predictors <- perform_rfe(data = train_df, k = 5, opt_metric, maximise = T, 
 # Train the model
 
 ```{r, warning=FALSE, message=FALSE}
-cv <- train_multiclass_model(data = train_df, 
-                             predictors = opt_predictors, 
-                             outcome_var = outcome_var, 
-                             opt_metric = opt_metric)
+cv <- train_multiclass_model(data = train_df, predictors = opt_predictors, outcome_var = outcome_var, opt_metric = opt_metric)
 
 model <- cv$finalModel
 outputs <- model_properties(model, train_df, positive)

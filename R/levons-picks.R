@@ -1,4 +1,4 @@
-levons_picks <- function(predictions){
+levons_picks <- function(predictions, prod_run = FALSE){
   
   punt_thresholds <- predictions %>%
     mutate(home_odds_thresh = 1/home_team_win_prob,
