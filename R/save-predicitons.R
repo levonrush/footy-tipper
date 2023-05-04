@@ -1,4 +1,4 @@
-save_predictions <- function(predictions, inference_df){
+save_predictions <- function(predictions, inference_df, prod_run = FALSE){
   
   if (prod_run == TRUE){
   
