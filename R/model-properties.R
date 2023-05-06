@@ -1,4 +1,4 @@
-model_properties <- function(model, train_df, positive){
+model_properties <- function(model, train_df, inference_df, positive){
   
   confusion_matrix <- model$confusion[-1,2:3] %>% confusionMatrix(positive = positive)
   
@@ -15,8 +15,9 @@ model_properties <- function(model, train_df, positive){
     mutate(round_name = fct_reorder(round_name, round_id)) %>%
     group_by(round_name) %>%
     summarise(accuracy = sum(home_team_result == prediction) / n()) %>%
-    ggplot(aes(x = factor(round_name), y = accuracy)) +
-      geom_bar(stat="identity", fill="steelblue") +
+    mutate(this_round = ifelse(round_name == unique(inference_df$round_name), T, F)) %>%
+    ggplot(aes(x = factor(round_name), y = accuracy, fill = this_round)) +
+      geom_bar(stat = "identity") + #, fill="steelblue") +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
   
