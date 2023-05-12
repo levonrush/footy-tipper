@@ -15,7 +15,7 @@ levons_picks <- function(predictions, prod_run = FALSE){
     rename(team = team_away, price = team_head_to_head_odds_away, price_min = away_odds_thresh)
   
   levons_picks <- bind_rows(home_picks, away_picks) %>%
-    filter(price > price_min) %>%
+    filter(price > (price_min*1.15)) %>%
     mutate_if(is.numeric, dollar)
   
   if (prod_run == TRUE){
