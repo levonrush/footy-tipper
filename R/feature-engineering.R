@@ -27,20 +27,21 @@ state_of_origin <- function(data){
 
 home_ground_advantage <- function(data){
   
-  data <- data %>%
+  hga_data <- footy_tipping_data %>%
     mutate(points_diff = team_final_score_home - team_final_score_away,
            game_hour = hour(start_time),
-           game_day = weekdays(start_time))
+           game_day = weekdays(start_time)) %>% 
+    filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)) %>%
+    select(all_of(c("round_name", "team_head_to_head_odds_home", "team_head_to_head_odds_away", "venue_name", "team_away", "team_home", "home_prob", "away_prob", "city", "away_elo", "position_diff", "home_elo", "average_losing_margin_home", "matchup_form", "close_game_rate_home", "avg_points_difference_away", "average_winning_margin_away", "avg_points_for_away", "points_difference_away", "average_losing_margin_away")), points_diff)
   
-  rf <- randomForest(points_diff ~ city + team_home + team_away + game_hour + game_day + round_id + competition_year, 
-                     data = data %>% filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)))
+  rf <- randomForest(points_diff ~ ., data = hga_data)
   
-  train_data <- data %>%
+  train_data <- footy_tipping_data %>%
     filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)) %>%
     mutate(home_ground_advantage = rf$predicted) %>%
     select(game_id, home_ground_advantage)
   
-  inference_data <- data %>%
+  inference_data <- footy_tipping_data %>%
     filter(game_state_name != 'Final') %>%
     mutate(home_ground_advantage = predict(rf, .)) %>%
     select(game_id, home_ground_advantage)
@@ -251,7 +252,6 @@ feature_engineering <- function(data, form_period, pipeline){
     # season_stats() %>%
     # form_stats(form_period = form_period)  %>%
     matchup_form(form_period = form_period) %>%
-    home_ground_advantage() %>%
     state_of_origin()
 
   return(data)
