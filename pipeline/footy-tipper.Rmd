@@ -35,6 +35,7 @@ footy_tipping_data <- get_data(year_span = year_span) %>%
   fixture_result(pipeline = pipeline) %>%
   feature_engineering(form_period = form_period, pipeline = pipeline) %>%
   elo_variables(carry_over = carry_over, k_val = k_val, elo_init = elo_init) %>%
+  home_ground_advantage() %>%
   filter(competition_year != min(competition_year),
          !is.na(team_head_to_head_odds_away)) %>%
   group_by(game_state_name) %>%

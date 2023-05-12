@@ -17,7 +17,8 @@ model_properties <- function(model, train_df, inference_df, positive){
     summarise(accuracy = sum(home_team_result == prediction) / n()) %>%
     mutate(this_round = ifelse(round_name == unique(inference_df$round_name), T, F)) %>%
     ggplot(aes(x = factor(round_name), y = accuracy, fill = this_round)) +
-      geom_bar(stat = "identity") + #, fill="steelblue") +
+      geom_bar(stat = "identity") +
+      scale_y_continuous(limits=c(0, 1), breaks = seq(0, 1, 0.1)) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
   
@@ -32,7 +33,11 @@ model_properties <- function(model, train_df, inference_df, positive){
            elo_prediction = case_when(
              home_elo > away_elo ~ 'Win',
              home_elo < away_elo ~ 'Loss',
-             TRUE ~ as.character(NA)) 
+             TRUE ~ as.character(NA)),
+           hga_prediction = case_when(
+             home_ground_advantage >= 0 ~ 'Win',
+             home_ground_advantage < 0 ~ 'Loss',
+             TRUE ~ as.character(NA))
            ) %>%
     mutate(round_name = fct_reorder(round_name, round_id)) %>%
     group_by(round_name) %>%
@@ -40,8 +45,9 @@ model_properties <- function(model, train_df, inference_df, positive){
               home_team = sum(home_team_result == 'Win')/n(),
               ladder = sum(ladder_prediction == home_team_result)/n(),
               elo = sum(elo_prediction == home_team_result)/n(),
+              hga = sum(hga_prediction == home_team_result)/n(),
               bet = sum(bet_prediction == home_team_result, na.rm = T)/n()) %>%
-    mutate(across(c(home_team, ladder, elo, bet), ~ model - .)) %>% 
+    mutate(across(c(home_team, ladder, elo, hga, bet), ~ model - .)) %>% 
     select(-model) %>%
     pivot_longer(!round_name, names_to = 'benchmark', values_to = 'lift') %>%
     ggplot(aes(x = round_name, y = lift, fill = benchmark)) +
@@ -58,12 +64,17 @@ model_properties <- function(model, train_df, inference_df, positive){
            elo_prediction = case_when(
              home_elo > away_elo ~ 'Win',
              home_elo < away_elo ~ 'Loss',
+             TRUE ~ as.character(NA)),
+           hga_prediction = case_when(
+             home_ground_advantage >= 0 ~ 'Win',
+             home_ground_advantage < 0 ~ 'Loss',
              TRUE ~ as.character(NA))
     ) %>%
     summarise(
       home_team_accuracy = sum(home_team_result == 'Win')/n(),
       ladder_accuracy = sum(ladder_prediction == home_team_result)/n(),
       elo_accuracy = sum(elo_prediction == home_team_result)/n(),
+      hga_accuracy = sum(hga_prediction == home_team_result)/n(),
       bet_accuracy = sum(bet_prediction == home_team_result, na.rm = T)/n(),
       model_accuracy = confusion_matrix$overall['Accuracy'])
   
