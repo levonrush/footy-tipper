@@ -6,7 +6,7 @@ output:
 ---
 
 ```{r}
-prod_run = F
+prod_run = T
 ```
 
 ```{r, warning=FALSE, message=FALSE, include=FALSE}
@@ -52,6 +52,11 @@ skim(train_df)
 ```{r, warning=FALSE, message=FALSE}
 opt_predictors <- perform_rfe(data = train_df, k = 5, opt_metric, maximise = T, steps = NULL, outcome_var = outcome_var, predictors = predictors) 
 ```
+
+```{r}
+opt_predictors
+```
+
 
 # Train the model
 

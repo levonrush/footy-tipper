@@ -3,7 +3,34 @@ library(lubridate)
 library(elo)
 library(tidyverse)
 
-# crowd <- funciton(data){
+turn_around <- function(data){
+  
+  home_games <- data %>%
+    rename(team = team_home)
+  
+  away_games <- data %>%
+    rename(team = team_away)
+  
+  turn_arounds <- bind_rows(home_games, away_games) %>%
+    arrange(start_time) %>%
+    group_by(team) %>%
+    mutate(turn_around = difftime(start_time, lag(start_time), units = 'days') %>% as.numeric()) %>%
+    ungroup() %>%
+    select(game_id, team, turn_around)
+  
+  data <- data %>%
+    left_join(turn_arounds, by = c("game_id", "team_home" = "team")) %>%
+    left_join(turn_arounds, by = c("game_id", "team_away" = "team"), suffix = c("_home", "_away")) %>%
+    mutate(turn_around_diff = turn_around_home - turn_around_away)
+  
+  return(data)
+    
+}
+
+thing <- train_df %>% turn_around() 
+thing %>% select(game_id, team_home, team_away, start_time, turn_around_home, turn_around_away, turn_around_diff) %>% View()
+
+# crowd <- function(data){
 #   
 #   rf <- randomForest(crowd ~ city, venue_name, data = data %>% filter(!is.na(crowd)))
 #   
@@ -27,21 +54,23 @@ state_of_origin <- function(data){
 
 home_ground_advantage <- function(data){
   
-  hga_data <- footy_tipping_data %>%
+  set.seed(69)
+  
+  hga_data <- data %>%
     mutate(points_diff = team_final_score_home - team_final_score_away,
            game_hour = hour(start_time),
            game_day = weekdays(start_time)) %>% 
     filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)) %>%
-    select(all_of(c("round_name", "team_head_to_head_odds_home", "team_head_to_head_odds_away", "venue_name", "team_away", "team_home", "home_prob", "away_prob", "city", "away_elo", "position_diff", "home_elo", "average_losing_margin_home", "matchup_form", "close_game_rate_home", "avg_points_difference_away", "average_winning_margin_away", "avg_points_for_away", "points_difference_away", "average_losing_margin_away")), points_diff)
+    select(all_of(c("round_name", "team_head_to_head_odds_home", "team_head_to_head_odds_away", "venue_name", "team_away", "team_home", "home_elo_prob", "away_elo_prob", "city", "away_elo", "position_diff", "home_elo", "average_losing_margin_home", "matchup_form", "close_game_rate_home", "avg_points_difference_away", "average_winning_margin_away", "avg_points_for_away", "points_difference_away", "average_losing_margin_away")), points_diff)
   
   rf <- randomForest(points_diff ~ ., data = hga_data)
   
-  train_data <- footy_tipping_data %>%
+  train_data <- data %>%
     filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)) %>%
     mutate(home_ground_advantage = rf$predicted) %>%
     select(game_id, home_ground_advantage)
   
-  inference_data <- footy_tipping_data %>%
+  inference_data <- data %>%
     filter(game_state_name != 'Final') %>%
     mutate(home_ground_advantage = predict(rf, .)) %>%
     select(game_id, home_ground_advantage)
@@ -112,7 +141,6 @@ corona_season <- function(data){
   return(data)
   
 }
-
 
 timing_vars <- function(data){
   
@@ -247,6 +275,7 @@ feature_engineering <- function(data, form_period, pipeline){
  
   data <- data %>%
     easy_pickings() %>%
+    turn_around() %>%
     # corona_season() %>%
     timing_vars() %>%
     # season_stats() %>%
