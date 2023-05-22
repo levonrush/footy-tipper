@@ -16,7 +16,7 @@ library(scales)
 
 drive_auth()
 
-i_am("footy_tipper.Rmd")
+i_am("footy-tipper.Rmd")
 
 helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
                                full.names = TRUE, ignore.case = TRUE)

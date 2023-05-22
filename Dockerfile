@@ -1,11 +1,11 @@
 # Use an official R runtime as a parent image
 FROM r-base:latest
 
-# Set the working directory in the container to /app
-WORKDIR /app
+# Set the working directory in the container to /footy-tipper
+WORKDIR /footy-tipper
 
-# Copy the current directory contents into the container at /app
-COPY . /app
+# Copy the current directory contents into the container at /footy-tipper
+COPY . /footy-tipper
 
 # Install any needed packages specified in install.R
 RUN Rscript install.R
@@ -14,4 +14,4 @@ RUN Rscript install.R
 EXPOSE 80
 
 # Run app.R when the container launches
-CMD ["Rscript", "footy_tipper.Rmd"]
+CMD ["Rscript", "footy-tipper.Rmd"]
