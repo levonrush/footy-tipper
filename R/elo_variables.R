@@ -33,15 +33,15 @@ elo_variables <- function(data, marg.max = 80, marg.min = -80, carry_over, k_val
   data <- data %>%
     mutate(home_elo = elo_results$elo.A - elo_results$update.A,
            away_elo = elo_results$elo.B - elo_results$update.B,
-           home_prob = elo_results$p.A,
-           away_prob = 1 - home_prob) %>%
-    mutate(prob_bucket = round(20*home_prob)/20) %>%
+           home_elo_prob = elo_results$p.A,
+           away_elo_prob = 1 - home_elo_prob) %>%
+    mutate(prob_bucket = round(20*home_elo_prob)/20) %>%
     left_join(draw_rates, by = "prob_bucket") %>%
     select(-prob_bucket)
   
   data <- data %>% 
-    mutate(home_prob = home_prob - home_prob * draw_prob,
-           away_prob = away_prob - away_prob * draw_prob)
+    mutate(home_elo_prob = home_elo_prob - home_elo_prob * draw_prob,
+           away_elo_prob = away_elo_prob - away_elo_prob * draw_prob)
   
   return(data)
   
