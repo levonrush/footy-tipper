@@ -13,5 +13,5 @@ RUN Rscript install.R
 # Make port 80 available to the world outside this container
 EXPOSE 80
 
-# Run app.R when the container launches
-CMD ["Rscript", "footy-tipper.Rmd"]
+# Run footy-tipper.Rmd when the container launches
+CMD ["R", "-e", "rmarkdown::render('footy-tipper.Rmd')"]

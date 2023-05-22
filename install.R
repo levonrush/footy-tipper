@@ -16,5 +16,8 @@ install.packages(c(
     , "scales"
     , "xml2"
     , "janitor"
-    , "zoo")
+    , "zoo"
+    , "rmarkdown"
+    , "knitr"
+    )
 )
