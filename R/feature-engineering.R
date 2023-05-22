@@ -16,7 +16,8 @@ turn_around <- function(data){
     group_by(team) %>%
     mutate(turn_around = difftime(start_time, lag(start_time), units = 'days') %>% as.numeric()) %>%
     ungroup() %>%
-    select(game_id, team, turn_around)
+    select(game_id, team, turn_around) %>%
+    mutate(turn_around = replace_na(turn_around, mean(turn_around, na.rm = T)))
   
   data <- data %>%
     left_join(turn_arounds, by = c("game_id", "team_home" = "team")) %>%
@@ -26,9 +27,6 @@ turn_around <- function(data){
   return(data)
     
 }
-
-thing <- train_df %>% turn_around() 
-thing %>% select(game_id, team_home, team_away, start_time, turn_around_home, turn_around_away, turn_around_diff) %>% View()
 
 # crowd <- function(data){
 #   
