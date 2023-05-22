@@ -14,4 +14,4 @@ RUN Rscript install.R
 EXPOSE 80
 
 # Run app.R when the container launches
-CMD ["Rscript", "footyTipper.Rmd"]
+CMD ["Rscript", "footy_tipper.Rmd"]
