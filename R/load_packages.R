@@ -20,7 +20,7 @@ pkg <- c(
 )
 
 # Function to load packages
-load_or_install <- function(packages){
+load_packages <- function(packages){
   
   for(package in packages){
     
