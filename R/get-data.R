@@ -1,10 +1,3 @@
-library(tidyverse)
-library(xml2)
-library(janitor)
-library(zoo)
-
-##### Get game results first
-
 get_game_results <- function(fixtures_xml){
   
   game_results_long <- fixtures_xml %>% xml_find_all(".//gameFixture") %>%

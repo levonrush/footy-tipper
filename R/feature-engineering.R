@@ -1,8 +1,3 @@
-library(tidyverse)
-library(lubridate)
-library(elo)
-library(tidyverse)
-
 turn_around <- function(data){
   
   home_games <- data %>%
