@@ -13,7 +13,7 @@ WORKDIR /footy-tipper
 # Copy the current directory contents into the container at /footy-tipper
 COPY . /footy-tipper
 
-COPY /Users/levonrush/Downloads/footy-tipper-c5bcb9639ee2.json ;2D/footy-tipper/service-account-token.json
+COPY footy-tipper-c5bcb9639ee2.json /footy-tipper/service-account-token.json
 
 # Install any needed packages specified in install.R
 RUN Rscript install.R
