@@ -1,5 +1,5 @@
 # List of packages
-install.packages(c(
+packages <- c(
     "tidyverse"
     , "lubridate"
     , "elo"
@@ -14,10 +14,12 @@ install.packages(c(
     , "pROC"
     , "googledrive"
     , "scales"
-    , "xml2"
-    , "janitor"
-    , "zoo"
-    , "rmarkdown"
-    , "knitr"
-    )
 )
+
+install_if_missing <- function(package){
+  if(!package %in% installed.packages()){
+    install.packages(package, dependencies = TRUE)
+  }
+}
+
+invisible(lapply(packages, install_if_missing))

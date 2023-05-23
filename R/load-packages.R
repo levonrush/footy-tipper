@@ -20,14 +20,10 @@ pkg <- c(
 )
 
 # Function to load packages
-load_packages <- function(packages){
-  
-  for(package in packages){
-    
+load_packages <- function(packages) {
+  for (package in packages) {
     suppressMessages(library(package, character.only = TRUE))
-  
   }
-  
 }
 
 # Use the function
