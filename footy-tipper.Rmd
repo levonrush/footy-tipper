@@ -14,7 +14,7 @@ library(pROC)
 library(googledrive)
 library(scales)
 
-drive_auth()
+drive_auth(path = "/footy-tipper/service-account-token.json")
 
 i_am("footy-tipper.Rmd")
 
