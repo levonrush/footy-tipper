@@ -135,10 +135,14 @@ get_ladders <- function(password, year_span){
 
 ##### finally put it all together
 
-get_data <- function(password = rstudioapi::askForPassword, year_span){
+get_data <- function(year_span){
   
-  # get a password
-  password <- rstudioapi::askForPassword("Enter your password")
+  # Get the password
+  if(interactive()){
+    password <- rstudioapi::askForPassword("Enter your password")
+  } else {
+    password <- Sys.getenv("PASSWORD")
+  }
   
   # get the results for each fixture
   all_fixtures <- vector(mode = "list", length = length(year_span))
