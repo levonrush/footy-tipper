@@ -1,24 +1,37 @@
-# List of packages
+# Setting CRAN mirror to use
+local({r <- getOption("repos")
+       r["CRAN"] <- "http://cran.r-project.org" 
+       options(repos = r)
+})
+
 packages <- c(
-    "tidyverse"
-    , "lubridate"
-    , "elo"
-    , "randomForest"
-    , "caret"
-    , "OptimalCutpoints"
-    , "parallel"
-    , "doParallel"
-    , "here"
-    , "skimr"
-    , "Epi"
-    , "pROC"
-    , "googledrive"
-    , "scales"
+    "dplyr",
+    "tidyr",
+    "ggplot2",
+    "lubridate",
+    "elo",
+    "randomForest",
+    "caret",
+    "OptimalCutpoints",
+    "parallel",
+    "doParallel",
+    "here",
+    "skimr",
+    "Epi",
+    "pROC",
+    "googledrive",
+    "scales"
 )
 
 install_if_missing <- function(package){
+  print(paste("Installing", package))
   if(!package %in% installed.packages()){
-    install.packages(package, dependencies = TRUE)
+    tryCatch({
+      install.packages(package, dependencies = NA)
+    }, error = function(e) {
+      print(paste("Failed to install", package))
+      print(e)
+    })
   }
 }
 
