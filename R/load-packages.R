@@ -1,6 +1,8 @@
 # List of packages
 pkg <- c(
-  "tidyverse"
+  "dplyr"
+  , "tidyr"
+  , "ggplot2"
   , "lubridate"
   , "elo"
   , "randomForest"
