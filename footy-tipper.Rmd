@@ -3,16 +3,11 @@ title: "Footy Tipper Pipeline"
 ---
 
 ```{r}
-prod_run = F
+prod_run <- Sys.getenv("PROD_RUN") == "T"
 ```
 
 ```{r, warning=FALSE, message=FALSE, include=FALSE}
 library(here)
-library(skimr)
-library(Epi)
-library(pROC)
-library(googledrive)
-library(scales)
 
 drive_auth(path = "/footy-tipper/service-account-token.json")
 
