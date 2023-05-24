@@ -5,22 +5,31 @@ local({r <- getOption("repos")
 })
 
 packages <- c(
-    "dplyr",
-    "tidyr",
-    "ggplot2",
-    "lubridate",
-    "elo",
-    "randomForest",
-    "caret",
-    "OptimalCutpoints",
-    "parallel",
-    "doParallel",
-    "here",
-    "skimr",
-    "Epi",
-    "pROC",
-    "googledrive",
-    "scales"
+  "dplyr"
+  , "tidyr"
+  , "ggplot2"
+  , "lubridate"
+  , "elo"
+  , "randomForest"
+  , "caret"
+  , "OptimalCutpoints"
+  , "parallel"
+  , "doParallel"
+  , "here"
+  , "skimr"
+  # , "Epi"
+  # , "pROC"
+  , "googledrive"
+  , "scales"
+  , "xml2"
+  , "janitor"
+  , "zoo"
+  , "rmarkdown"
+  , "purrr"
+  , "readr"
+  , "stringr"
+  , "forcats"
+  , "MLmetrics"
 )
 
 install_if_missing <- function(package){

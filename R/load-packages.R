@@ -12,13 +12,19 @@ pkg <- c(
   , "doParallel"
   , "here"
   , "skimr"
-  , "Epi"
-  , "pROC"
+  # , "Epi"
+  # , "pROC"
   , "googledrive"
   , "scales"
   , "xml2"
   , "janitor"
   , "zoo"
+  , "rmarkdown"
+  , "purrr"
+  , "readr"
+  , "stringr"
+  , "forcats"
+  , "MLmetrics"
 )
 
 # Function to load packages
