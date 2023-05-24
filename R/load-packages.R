@@ -25,6 +25,7 @@ pkg <- c(
   , "stringr"
   , "forcats"
   , "MLmetrics"
+  , "tibble"
 )
 
 # Function to load packages

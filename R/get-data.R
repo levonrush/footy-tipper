@@ -64,7 +64,7 @@ get_year_ladder <- function(password, year){
   
   for (round in 1:40){
     
-    ladder_xml <- tryCatch(read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/roundLadder/111/", year, "/", round)),
+    ladder_xml <- tryCatch(read_xml(paste0("http://", password, BASE_URL, NRL_ROUND_LADDER_EXTENTION, year, "/", round)),
                            error = function(e){NA})
     
     if (is.na(ladder_xml)) break
@@ -150,7 +150,7 @@ get_data <- function(year_span){
   for (y in 1:length(year_span)){
     
     # get that year's xml file
-    fixtures_xml <- read_xml(paste0("http://", password, "@rugbyleague-api.stats.com/api/NRL/competitions/fixtures/111/", year_span[y]))
+    fixtures_xml <- read_xml(paste0("http://", password, BASE_URL, NRL_FIXTURES_EXTENTION, year_span[y]))
     
     # get fixture information
     fixture_info <- get_fixture_info(fixtures_xml)
@@ -210,5 +210,3 @@ get_data <- function(year_span){
   return(footy_tipper_df)
 
 }
-
-
