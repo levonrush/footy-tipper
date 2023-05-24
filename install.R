@@ -30,6 +30,7 @@ packages <- c(
   , "stringr"
   , "forcats"
   , "MLmetrics"
+  , "tibble"
 )
 
 install_if_missing <- function(package){
