@@ -3,10 +3,7 @@ title: "Footy Tipper Pipeline"
 ---
 
 ```{r, warning=FALSE, message=FALSE, include=FALSE}
-prod_run <- Sys.getenv("PROD_RUN") == "T"
-
 library(here)
-
 i_am("footy-tipper.Rmd")
 
 helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$",
@@ -15,6 +12,8 @@ helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$",
 sapply(helper_functions, source, .GlobalEnv)
 
 drive_auth(path = "/footy-tipper/service-account-token.json")
+
+prod_run <- Sys.getenv("PROD_RUN") == "T"
 ```
 
 # Get and split the dataset
@@ -41,28 +40,13 @@ cv <- train_multiclass_model(data = train_df, predictors = opt_predictors, outco
 
 model <- cv$finalModel
 outputs <- model_properties(model, train_df, inference_df, positive)
-```
 
-```{r}
 outputs$confusion_matrix
-```
-
-```{r, warning=FALSE, message=FALSE}
 outputs$importance
-```
-
-```{r}
 outputs$round_performance
-```
-
-```{r}
 outputs$benchmarking
-```
-
-```{r}
 outputs$model_lift
 ```
-
 
 # Predict the results for the round
 
@@ -76,7 +60,6 @@ predictions
 ```{r}
 save_predictions(predictions, inference_df, prod_run = prod_run)
 ```
-
 
 # extra thangs...
 
