@@ -59,12 +59,16 @@ get_fixture_info <- function(fixtures_xml){
 ##### then get the historic ladder placings
 
 get_year_ladder <- function(password, year){
+
+  password <- Sys.getenv("PASSWORD")
+  base_url <- Sys.getenv("BASE_URL")
+  ladder_ext <- Sys.getenv("NRL_ROUND_LADDER_EXTENTION")
   
   year_ladder <- vector(mode = "list")
   
   for (round in 1:40){
     
-    ladder_xml <- tryCatch(read_xml(paste0("http://", password, BASE_URL, NRL_ROUND_LADDER_EXTENTION, year, "/", round)),
+    ladder_xml <- tryCatch(read_xml(paste0("http://", password, base_url, ladder_ext, year, "/", round)),
                            error = function(e){NA})
     
     if (is.na(ladder_xml)) break
@@ -136,6 +140,10 @@ get_ladders <- function(password, year_span){
 ##### finally put it all together
 
 get_data <- function(year_span){
+
+  password <- Sys.getenv("PASSWORD")
+  base_url <- Sys.getenv("BASE_URL")
+  fixtures_ext <- Sys.getenv("NRL_FIXTURES_EXTENTION")
   
   # Get the password
   if(interactive()){
@@ -150,7 +158,7 @@ get_data <- function(year_span){
   for (y in 1:length(year_span)){
     
     # get that year's xml file
-    fixtures_xml <- read_xml(paste0("http://", password, BASE_URL, NRL_FIXTURES_EXTENTION, year_span[y]))
+    fixtures_xml <- read_xml(paste0("http://", password, base_url, fixtures_ext, year_span[y]))
     
     # get fixture information
     fixture_info <- get_fixture_info(fixtures_xml)
