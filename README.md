@@ -15,7 +15,7 @@ Footy-Tipper leverages freely available NRL data, performs data cleaning and fea
 ## Prerequisites
 
 - Docker
-- R and Visual Studio Code (for development and debugging)
+- R and Visual Studio Code or R Studio (for development and debugging)
 - Google service account for Google Drive authentication (service-account-token.json)
 - Google Cloud Platform (for computation)
 
@@ -45,7 +45,7 @@ docker run --env-file secrets.env -e PROD_RUN="F" -p 4000:80 footy-tipper
 
 To run Footy-Tipper in VS Code for development and debugging:
 
-1. Open the project in VS Code.
+1. Open the project in VS Code or R Studio.
 2. Set the environment variables in a `.env` file or manually in your VS Code session.
 3. Run the pipeline.
 
