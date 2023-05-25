@@ -20,7 +20,11 @@ load_dot_env(file = "secrets.env")
 drive_auth(path = "/footy-tipper/service-account-token.json")
 
 # define what type of run we're doing
-prod_run <- Sys.getenv("PROD_RUN") == "T"
+  if(interactive()){
+    prod_run <- F
+  } else {
+    prod_run <- Sys.getenv("PROD_RUN") == "T"
+  }
 ```
 
 # Get and split the dataset
