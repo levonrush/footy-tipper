@@ -51,5 +51,8 @@ rsconnect/
 # DS_Store things
 .DS_Store
 
-# environment variables
-.env
+# secret environment variables
+secrets.env
+
+# google drive service account
+/service-account-token.json
