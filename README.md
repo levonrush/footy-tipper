@@ -1,6 +1,6 @@
 # The Footy-Tipper: A machine learning approach to winning the pub tipping comp
 
-Footy-Tipper is an open-source Rugby League prediction engine designed to predict the outcomes of National Rugby League (NRL) matches. Initially created as a data science project for a pub tipping competition, this tool is now used by NRL fans who want to gain an edge in their own tipping competitions or just want to understand the game better.
+The Footy-Tipper is an open-source Rugby League prediction engine designed to predict the outcomes of National Rugby League (NRL) matches. Initially created as a data science project for a pub tipping competition, this tool is now used by NRL fans who want to gain an edge in their own tipping competitions or just want to understand the game better.
 
 ## Background and Motivation
 
