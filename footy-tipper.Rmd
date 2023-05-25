@@ -1,59 +1,45 @@
 ---
 title: "Footy Tipper Pipeline"
-output:
-  html_document:
-    df_print: paged
 ---
 
-```{r}
-prod_run = T
-```
-
 ```{r, warning=FALSE, message=FALSE, include=FALSE}
+# define where the pipeline lives
 library(here)
-library(skimr)
-library(Epi)
-library(pROC)
-library(googledrive)
-library(scales)
+i_am("footy-tipper.Rmd")
 
-drive_auth()
-
-i_am("pipeline/footy-tipper.Rmd")
-
-helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
+# find and load all the helper functions for the project
+helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$",
                                full.names = TRUE, ignore.case = TRUE)
 
 sapply(helper_functions, source, .GlobalEnv)
+
+# load the project secrets
+load_dot_env(file = "secrets.env")
+
+# authenticate google drive with our service account
+drive_auth(path = "/footy-tipper/service-account-token.json")
+
+# define what type of run we're doing
+  if(interactive()){
+    prod_run <- F
+  } else {
+    prod_run <- Sys.getenv("PROD_RUN") == "T"
+  }
 ```
 
 # Get and split the dataset
 
 ```{r, warning=FALSE, message=FALSE}
-footy_tipping_data <- get_data(year_span = year_span) %>%
-  clean_data() %>%
-  fixture_result(pipeline = pipeline) %>%
-  feature_engineering(form_period = form_period, pipeline = pipeline) %>%
-  elo_variables(carry_over = carry_over, k_val = k_val, elo_init = elo_init) %>%
-  home_ground_advantage() %>%
-  filter(competition_year != min(competition_year),
-         !is.na(team_head_to_head_odds_away)) %>%
-  group_by(game_state_name) %>%
-  group_split()
+footy_tipping_data <- data_pipeline(year_span, pipeline, form_period, carry_over, k_val, elo_init)
 
-train_df <- footy_tipping_data[[1]]
-
-inference_df <- footy_tipping_data[[2]] %>%
-  filter(round_id == min(round_id))
+train_df <- footy_tipping_data$train_df
+inference_df <- footy_tipping_data$inference_df
 
 skim(train_df)
 ```
 
 ```{r, warning=FALSE, message=FALSE}
 opt_predictors <- perform_rfe(data = train_df, k = 5, opt_metric, maximise = T, steps = NULL, outcome_var = outcome_var, predictors = predictors) 
-```
-
-```{r}
 opt_predictors
 ```
 
@@ -65,28 +51,13 @@ cv <- train_multiclass_model(data = train_df, predictors = opt_predictors, outco
 
 model <- cv$finalModel
 outputs <- model_properties(model, train_df, inference_df, positive)
-```
 
-```{r}
 outputs$confusion_matrix
-```
-
-```{r, warning=FALSE, message=FALSE}
 outputs$importance
-```
-
-```{r}
 outputs$round_performance
-```
-
-```{r}
 outputs$benchmarking
-```
-
-```{r}
 outputs$model_lift
 ```
-
 
 # Predict the results for the round
 
@@ -100,7 +71,6 @@ predictions
 ```{r}
 save_predictions(predictions, inference_df, prod_run = prod_run)
 ```
-
 
 # extra thangs...
 

@@ -1,11 +1,3 @@
-library(tidyverse)
-library(randomForest)
-library(caret)
-library(OptimalCutpoints)
-library(parallel)
-library(doParallel)
-library(ggplot2)
-
 train_model <- function(data, predictors, outcome_var, method = "rf", num_clusters = detectCores(), 
                         num_folds = 5, opt_metric = "ROC", seed = 69) {
   
