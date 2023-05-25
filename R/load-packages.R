@@ -26,6 +26,7 @@ pkg <- c(
   , "forcats"
   , "MLmetrics"
   , "tibble"
+  , "dotenv"
 )
 
 # Function to load packages

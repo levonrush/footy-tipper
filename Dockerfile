@@ -31,5 +31,8 @@ RUN Rscript install.R
 # Make port 80 available to the world outside this container
 EXPOSE 80
 
+# set the default type of run to test (ie. not prod)
+ENV PROD_RUN F
+
 # Render footy-tipper.Rmd when the container launches
 CMD ["R", "-e", "rmarkdown::render('footy-tipper.Rmd')"]

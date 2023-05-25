@@ -51,9 +51,9 @@ get_fixture_info <- function(fixtures_xml){
         broadcastChannel3 = xml_find_all(.x, ".//gameFixture") %>% xml_attr("broadcastChannel3")
       ) 
     })
-  
+
   return(fixture_info)
-  
+
 }
 
 ##### then get the historic ladder placings

@@ -3,16 +3,23 @@ title: "Footy Tipper Pipeline"
 ---
 
 ```{r, warning=FALSE, message=FALSE, include=FALSE}
+# define where the pipeline lives
 library(here)
 i_am("footy-tipper.Rmd")
 
+# find and load all the helper functions for the project
 helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$",
                                full.names = TRUE, ignore.case = TRUE)
 
 sapply(helper_functions, source, .GlobalEnv)
 
+# load the project secrets
+load_dot_env(file = "secrets.env")
+
+# authenticate google drive with our service account
 drive_auth(path = "/footy-tipper/service-account-token.json")
 
+# define what type of run we're doing
 prod_run <- Sys.getenv("PROD_RUN") == "T"
 ```
 

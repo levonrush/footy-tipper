@@ -31,6 +31,7 @@ packages <- c(
   , "forcats"
   , "MLmetrics"
   , "tibble"
+  , "dotenv"
 )
 
 install_if_missing <- function(package){
