@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "footy-tipper",
+  "private_key_id": "c5bcb9639ee2bb6e6a431019cfa4fd3cf02d6477",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCXrQlcj0j7daEO\naqNbAU/KzFXVYR06xdziwmj72WqUBRALhFW590ZTgXWpcYRGB3emkHvIzkcuFAKs\nJCBcVQJLxzsywt6bhigS9B8kTUhivoC0fWmt3oSy51fGXeqZQgsqX6bxUMVsZmJk\nJyi+W2BB9MpvhuVwawDy9yYiiuJl+HErOPpnhh93eOMTSM6ihsu3s2yGIw1QkLxk\njiBUjS/mntlv7IBaUuH1pBBIhsYx3FrolLU9Orlu+G8d7UL7VSfVTAsVtnh8fD2F\nUQNADDuWF/xLVhCkvIZzEnbfVpML/wuG9wz+f57Ov0Wp+EJ863PFP9gD2DmnahZ6\nuSUTZyRHAgMBAAECggEAF0un/25buuYTKYAEEkso8oXgZ63LFnwjSTSreTBTEo7r\nKvRVUlhXQHtxaJKbH+0FBIZ2bJ4PXVViH7GgwsL6X6HRnCHv8hpwdztwDlxMUiuI\n4Fp5a7nxzvnXMmFkUcuh+WJy5Ty5mxo9NxKzSvav2bwmMhZEO7hDj2Lu7tPpTS3X\nFw4yaAM2KnPT3uykf13Cc7BDQY2lgfceo5Ix2FqvbmQ+30PtvEeRjFPpLte46CjB\nkmLSqcCeDPCH5dV5KiSFxt0ptzOrVnUKaJIjS5hz5fvEVpJCdiU/QZBQlSpDOZ1J\nUNrK8uDSmQG13y6NrWsexQ1caAFDj2wgEcMETK7OIQKBgQDLY+eVpY1QoW0BLzP/\nJiOi3iBj3TE80xlvKGyjm8gZQqcL59GSUEXRwykuwNCluaH21I11RTfXYyXfGsej\nvn/H3gwu8dxRW1dl0kPtp3LAhKUogNxNwCCWxeuSsORk9R9WHnYK/lO1PyBAqX+G\nXqWHhdjjHvOCbGpMipsg8kuCFwKBgQC+6LZvgrIkYDUB/mIF1gG0eV5dD0xC1Gn3\nybQbNMjbpHn0JsC15RbTUDDmfu5U5gW8CfJild3f4PHVEg7m5GKw6uypj77+X8aX\nYXtqg+DIQ110li29wx8Mz3jQ1Oirv5d/ZuPyeC/pAX5ouAcUEPW6U6kURxCOayKG\nuLAnDEi9UQKBgEJdLstdYWbVxUOFq2mtgCM8Z0Uuf0phdwMWJZyc0AWuAeOYmIEt\nQBrZmy5uK6Znk7l+UUnadAYLi+foTQvYtMj6Yu9Oa50AONw4Z4G8CW1X2qwEn92e\nuwN3QQ50OZHXiYoIFmwv4BBbsKJoq/ukFk7KFaLGDp6X0Xd4InX1mT2xAoGBAIyF\n30PVgCsmZd5B0QVasYaWj88QI6JNmHK8Fcaw4+hI+TuuCsvZBSQmMth3Nhdn+XCg\nIbpPdjIE8f1UfYOXOM3hHrLxDDVRamyjZKTSzfKbI39dy+2SYpibXuLY1SsWq/0r\nTz57GUj5wIJ0c0Fh+n5cdmhmptkuIwvnhkI32JMBAoGBAIwyDkwsY09MRAscUrk5\npwCr9QSFPf+WjDvixsVecXP8mV+2mIkMJkku5jonZcMzrAF2sTS2dxi4ckDOYPH3\nwuE7+fyxNodYbF958ZA71aoRDhJRP70O2EW8YF5WcNsDIQmNwgi04AxCqHbMdxV1\nVcx+gCU7tbf1to4LFMC+ZTVm\n-----END PRIVATE KEY-----\n",
+  "client_email": "erniedingo@footy-tipper.iam.gserviceaccount.com",
+  "client_id": "114285961240852245212",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/erniedingo%40footy-tipper.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
