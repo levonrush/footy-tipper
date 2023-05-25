@@ -17,11 +17,11 @@ sapply(helper_functions, source, .GlobalEnv)
 load_dot_env(file = "secrets.env")
 
 # authenticate google drive with our service account
-drive_auth(path = "/footy-tipper/service-account-token.json")
+drive_auth(path = "/footy-tipper/footy-tipper-c5bcb9639ee2.json")
 
 # define what type of run we're doing
   if(interactive()){
-    prod_run <- F
+    prod_run <- T
   } else {
     prod_run <- Sys.getenv("PROD_RUN") == "T"
   }
