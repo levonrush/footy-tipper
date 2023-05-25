@@ -55,4 +55,4 @@ rsconnect/
 secrets.env
 
 # google drive service account
-/service-account-token.json
+/footy-tipper-c5bcb9639ee2.json
