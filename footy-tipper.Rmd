@@ -43,7 +43,6 @@ opt_predictors <- perform_rfe(data = train_df, k = 5, opt_metric, maximise = T, 
 opt_predictors
 ```
 
-
 # Train the model
 
 ```{r, warning=FALSE, message=FALSE}
