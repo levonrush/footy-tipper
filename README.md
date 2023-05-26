@@ -60,4 +60,4 @@ To obtain the project's secrets or for any questions or comments related to this
 For more of the blog itself you can find it on [Levon's Medium profile](https://medium.com/@levonrush).
 
 ## Acknowledgements
-Special thanks to Seven Seas Hotel for motivating this project, Kate for telling me to have a portfolio piece, Victoria for the emotional support, and ChatGPT for writing this readme.
+Special thanks to Seven Seas Hotel for motivating this project, Kate for telling me to make myself a portfolio piece, Victoria and Ernie for the emotional support, and ChatGPT for writing this readme.
