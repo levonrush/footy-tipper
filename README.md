@@ -55,7 +55,7 @@ Footy-Tipper welcomes contributions from the community. Please check the issues 
 
 ## Contact
 
-To obtain the project's secrets or for any questions or comments related to this project, you can reach out to Levon at levon_rush@hotmail.com
+To obtain the project's secrets or for any questions or comments related to this project, you can reach out to Levon at levon.rush@gmail.com.com
 
 For more of the blog itself you can find it on [Levon's Medium profile](https://medium.com/@levonrush).
 
