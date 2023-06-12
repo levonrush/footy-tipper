@@ -145,13 +145,6 @@ get_data <- function(year_span){
   base_url <- Sys.getenv("BASE_URL")
   fixtures_ext <- Sys.getenv("NRL_FIXTURES_EXTENTION")
   
-  # Get the password
-  if(interactive()){
-    password <- rstudioapi::askForPassword("Enter your password")
-  } else {
-    password <- Sys.getenv("PASSWORD")
-  }
-  
   # get the results for each fixture
   all_fixtures <- vector(mode = "list", length = length(year_span))
   
