@@ -13,7 +13,7 @@ sapply(data_prep_functions, source, .GlobalEnv)
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-footy_tipping_data <- data_pipeline(year_span, pipeline, form_period, carry_over, k_val, elo_init)
+footy_tipping_data <- data_pipeline(year_span, pipeline = 'binomial', form_period, carry_over, k_val, elo_init)
 
 train_df <- footy_tipping_data$train_df
 inference_df <- footy_tipping_data$inference_df
@@ -31,13 +31,4 @@ dbWriteTable(con, "inference_df", inference_df, overwrite = T)
 
 # Disconnect from the SQLite database
 dbDisconnect(con)
-```
-
-
-```{r, warning=FALSE, message=FALSE}
-train_df %>%
-    with(table(home_team_result))
-
-inference_df %>%
-    with(table(home_team_result))
 ```
