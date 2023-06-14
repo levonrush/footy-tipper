@@ -10,9 +10,7 @@ RUN apt-get update \
 # Install system libraries
 RUN apt-get update && apt-get install -y \
     libfontconfig1-dev \
-    libfreetype6-dev
-
-RUN apt-get update && apt-get install -y \
+    libfreetype6-dev \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev

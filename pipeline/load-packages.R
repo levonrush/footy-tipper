@@ -12,8 +12,6 @@ pkg <- c(
   , "doParallel"
   , "here"
   , "skimr"
-  # , "Epi"
-  # , "pROC"
   , "googledrive"
   , "scales"
   , "xml2"
@@ -27,6 +25,8 @@ pkg <- c(
   , "MLmetrics"
   , "tibble"
   , "dotenv"
+  , "RSQLite"
+  , "DBI"
 )
 
 # Function to load packages
