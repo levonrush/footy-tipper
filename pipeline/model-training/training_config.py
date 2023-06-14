@@ -1,8 +1,8 @@
 # model type
-estimator = "rf"
+estimator = "gbm"
 
 # training params
-opt_metric = "Kappa"
+opt_metric = "Accuracy"
 
 # outcome variable
 outcome_var = "home_team_result"
