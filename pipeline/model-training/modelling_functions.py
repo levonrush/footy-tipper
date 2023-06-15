@@ -42,8 +42,6 @@ def perform_rfe(estimator, data, k, opt_metric, maximise, steps=None, outcome_va
     # Return the one-hot encoded data and the optimal features
     return X, y, optimal_features
 
-
-
 def train_tune_model(estimator, param_grid, X, y, num_folds=5, opt_metric='ROC', seed=69):
     
     # Scoring metric
