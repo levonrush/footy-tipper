@@ -73,25 +73,16 @@ def training_pipeline(train_df, estimator, param_grid, outcome_var, predictors, 
 
     return cv
 
-# def training_pipeline(train_df, estimator, outcome_var, predictors, opt_metric):
-
-    # label_encoder = LabelEncoder()
-    # train_df[outcome_var] = label_encoder.fit_transform(train_df[outcome_var])
-
-    # if estimator == 'rf':
-    #     rf_estimator = RandomForestClassifier(n_jobs = -1)
-    #     rf_param_grid = {'n_estimators': [10, 50, 100], 'max_features': ['auto', 'sqrt', 'log2']}
-    #     # Capture the returned values
-    #     X_encoded, y_encoded, optimal_features = perform_rfe(rf_estimator, data=train_df, k=5, opt_metric=opt_metric, maximise=True, outcome_var=outcome_var, predictors=predictors)
-    #     # Train and tune the model using the one-hot encoded data
-    #     cv = train_tune_model(rf_estimator, rf_param_grid, X_encoded[optimal_features], y_encoded)
+def make_predictions(trained_model, test_data, label_encoder):
+    # Preprocess your test_data as you did with your training data
+    X_test = one_hot_encode_features(test_data, predictors)
+    # Assuming test_data is already preprocessed
     
-    # elif estimator == 'gbm':
-    #     gb_estimator = GradientBoostingClassifier()
-    #     gb_param_grid = {'n_estimators': [50, 100, 200], 'learning_rate': [0.01, 0.1, 0.2]}
-    #     # Capture the returned values
-    #     X_encoded, y_encoded, optimal_features = perform_rfe(gb_estimator, data=train_df, k=5, opt_metric=opt_metric, maximise=True, outcome_var=outcome_var, predictors=predictors)
-    #     # Use opt_gb_predictors as the predictors parameter
-    #     cv = train_tune_model(gb_estimator, gb_param_grid, X_encoded[optimal_features], y_encoded)
-
-    # return cv
+    # Use the model to make predictions
+    predictions = trained_model.predict(test_data)
+    
+    # Reverse transform if your labels are encoded
+    if label_encoder:
+        predictions = label_encoder.inverse_transform(predictions)
+    
+    return predictions
