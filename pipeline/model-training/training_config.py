@@ -3,6 +3,7 @@ estimator = "gbm"
 
 # training params
 opt_metric = "Accuracy"
+num_folds = 5
 
 # outcome variable
 outcome_var = "home_team_result"
