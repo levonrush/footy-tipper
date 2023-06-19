@@ -8,8 +8,10 @@ library(here)
 i_am("footy-tipper.Rmd")
 
 # find and load all the helper functions for the project
-pipeline_functions <- list.files(paste0(here(), "/pipeline"), pattern = "*.R$",
-                               full.names = TRUE, ignore.case = TRUE)
+pipeline_functions <- list.files(
+    paste0(here(), "/pipeline"), pattern = "*.R$",
+    full.names = TRUE, ignore.case = TRUE
+)
 
 sapply(pipeline_functions, source, .GlobalEnv)
 
@@ -25,10 +27,7 @@ detect_set_environment(prod_run = F)
 ```{r, warning=FALSE, message=FALSE}
 footy_tipping_data <- data_pipeline(year_span, pipeline, form_period, carry_over, k_val, elo_init)
 
-train_df <- footy_tipping_data$train_df
-inference_df <- footy_tipping_data$inference_df
-
-skim(train_df)
+skim(footy_tipping_data)
 ```
 
 ```{r, warning=FALSE, message=FALSE}

@@ -6,17 +6,19 @@ title: "Data Preparation"
 i_am("pipeline/data-prep/data-prep.Rmd")
 
 # find and load all the helper functions for the project
-data_prep_functions <- list.files(paste0(here(), "/pipeline/data-prep"), pattern = "*.R$",
-                                  full.names = TRUE, ignore.case = TRUE)
+data_prep_functions <- list.files(
+    paste0(here(), "/pipeline/data-prep"), pattern = "*.R$",
+    full.names = TRUE, ignore.case = TRUE
+)
 
 sapply(data_prep_functions, source, .GlobalEnv)
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-footy_tipping_data <- data_pipeline(year_span, pipeline = 'binomial', form_period, carry_over, k_val, elo_init)
-
-# train_df <- footy_tipping_data$train_df
-# inference_df <- footy_tipping_data$inference_df
+footy_tipping_data <- data_pipeline(
+    year_span, pipeline = "binomial",
+    form_period, carry_over, k_val, elo_init
+)
 
 skim(footy_tipping_data)
 ```
