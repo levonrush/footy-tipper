@@ -15,10 +15,10 @@ sapply(data_prep_functions, source, .GlobalEnv)
 ```{r, warning=FALSE, message=FALSE}
 footy_tipping_data <- data_pipeline(year_span, pipeline = 'binomial', form_period, carry_over, k_val, elo_init)
 
-train_df <- footy_tipping_data$train_df
-inference_df <- footy_tipping_data$inference_df
+# train_df <- footy_tipping_data$train_df
+# inference_df <- footy_tipping_data$inference_df
 
-skim(train_df)
+skim(footy_tipping_data)
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -26,8 +26,7 @@ skim(train_df)
 con <- dbConnect(SQLite(), paste0(here(), "/data/footy-tipper-db.sqlite"))
 
 # Write your dataframes
-dbWriteTable(con, "train_df", train_df, overwrite = T)
-dbWriteTable(con, "inference_df", inference_df, overwrite = T)
+dbWriteTable(con, "footy_tipping_data", footy_tipping_data, overwrite = T)
 
 # Disconnect from the SQLite database
 dbDisconnect(con)

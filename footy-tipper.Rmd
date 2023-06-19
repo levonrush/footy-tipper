@@ -9,7 +9,7 @@ i_am("footy-tipper.Rmd")
 
 # find and load all the helper functions for the project
 pipeline_functions <- list.files(paste0(here(), "/pipeline"), pattern = "*.R$",
-                                 full.names = TRUE, ignore.case = TRUE)
+                               full.names = TRUE, ignore.case = TRUE)
 
 sapply(pipeline_functions, source, .GlobalEnv)
 
@@ -23,13 +23,16 @@ detect_set_environment(prod_run = F)
 # Get and split the dataset
 
 ```{r, warning=FALSE, message=FALSE}
-render("pipeline/data-prep.Rmd", output_format = "github_document")
+footy_tipping_data <- data_pipeline(year_span, pipeline, form_period, carry_over, k_val, elo_init)
+
+train_df <- footy_tipping_data$train_df
+inference_df <- footy_tipping_data$inference_df
+
+skim(train_df)
 ```
 
 ```{r, warning=FALSE, message=FALSE}
-opt_predictors <- perform_rfe(train_df, k_val, opt_metric, maximise, num_features = 5:10, outcome_var, predictors, algorithm = "xgbTree")
-
-
+opt_predictors <- perform_rfe(data = train_df, k = 5, opt_metric, maximise = T, steps = NULL, outcome_var = outcome_var, predictors = predictors) 
 opt_predictors
 ```
 
