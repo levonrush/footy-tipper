@@ -27,6 +27,7 @@ pkg <- c(
   , "dotenv"
   , "RSQLite"
   , "DBI"
+  , "reticulate"
 )
 
 # Function to load packages

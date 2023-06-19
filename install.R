@@ -32,6 +32,7 @@ packages <- c(
   , "dotenv"
   , "RSQLite"
   , "DBI"
+  , "reticulate"
 )
 
 install_if_missing <- function(package){
