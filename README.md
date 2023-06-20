@@ -1,53 +1,50 @@
-# The Footy-Tipper: A machine learning approach to winning the pub tipping comp
+# The Footy-Tipper: A Machine Learning Approach to Winning the Pub Tipping Comp
 
-The Footy-Tipper is an open-source Rugby League prediction engine designed to predict the outcomes of National Rugby League (NRL) matches. Initially created as a data science project for a pub tipping competition, this tool is now used by NRL fans who want to gain an edge in their own tipping competitions or just want to understand the game better.
+The Footy-Tipper is an open-source Rugby League prediction engine designed to predict the outcomes of National Rugby League (NRL) matches. This project artfully blends the capabilities of R, Python, and SQL to develop a wholistic data science product. R is used for constructing data pipelines and researching Rugby League behaviors, Python for machine learning modeling, and SQL for efficient data management across platforms.
 
-## Background and Motivation
+A development blog, titled "The Footy Tipper," provides detailed insights into the progress and findings of this project. You can read the first edition of the blog [here](https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292).
 
-Footy-Tipper was created by Levon Rush, an NRL enthusiast, who combines his love for the sport and data science in this project. Levon began the project as a way to gain an advantage in his local pub's footy-tipping competition at the Seven Seas Hotel. The idea was simple: use machine learning to predict match outcomes more accurately than the average punter.
+## How it Works
 
-The project began with a simple question, "Can machine learning improve my footy tips?" As it turns out, the answer was a resounding "yes". You can read more about the background and motivation of the project in Levon's [blog post on Medium](https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292).
-
-## How it works
-
-Footy-Tipper leverages freely available NRL data, performs data cleaning and feature engineering, and applies machine learning algorithms to predict the outcomes of NRL matches. The pipeline of the project is implemented in R and wrapped in a Docker container for portability and ease of deployment.
+Footy-Tipper leverages freely available NRL data, performs data cleaning, and feature engineering in R to investigate and understand Rugby League behaviors. Python, being versatile and having a rich set of libraries for machine learning, is employed for constructing predictive models. SQL plays an integral role in managing and transferring data between different platforms and environments. The synergy of these technologies results in a powerful prediction engine. The pipeline of the project is wrapped in a Docker container for portability and ease of deployment.
 
 ## Prerequisites
 
-- Docker
-- R and Visual Studio Code or R Studio (for development and debugging)
-- Google service account for Google Drive authentication (service-account-token.json)
-- Google Cloud Platform (for computation)
+- Docker installed and running on your machine.
+- Google service account for Google Drive authentication (`service-account-token.json`).
+- (Optional) R and R Studio or Visual Studio Code, if you want to develop or debug locally.
+- (Optional) Google Cloud Platform account for computation.
 
 ## Usage
 
-To run Footy-Tipper in a production environment:
+### Using Docker
 
 1. Clone this repository.
-```
-git clone https://github.com/<your_username>/footy-tipper.git
-```
+    ```
+    git clone https://github.com/<your_username>/footy-tipper.git
+    ```
 
-2. Go to the project's directory.
-```
-cd footy-tipper
-```
+2. Navigate to the project's directory.
+    ```
+    cd footy-tipper
+    ```
 
 3. Build the Docker image.
-```
-docker build -t footy-tipper .
-```
+    ```
+    docker build -t footy-tipper .
+    ```
 
-4. Run the Docker container with the environment variables defined in a `secrets.env` file and map the internal Docker port 80 to your host's port 4000.
-```
-docker run --env-file secrets.env -e PROD_RUN="F" -p 4000:80 footy-tipper
-```
+4. Run the Docker container, replacing `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000).
+    ```
+    docker run -e PROD_RUN="T" -p <your_host_port>:80 footy-tipper
+    ```
+    Note: Set `PROD_RUN` to `T` for production mode. Set it to `F` for test mode.
 
-To run Footy-Tipper in VS Code for development and debugging:
+### For Development and Debugging
 
-1. Open the project in VS Code or R Studio.
-2. Set the environment variables in a `.env` file or manually in your VS Code session.
-3. Run the pipeline.
+1. Open the project in R Studio or Visual Studio Code.
+2. Set the environment variables in a `.env` file or manually in your R session.
+3. Run the pipeline by executing `footy-tipper.R`.
 
 ## Contributing
 
@@ -55,9 +52,7 @@ Footy-Tipper welcomes contributions from the community. Please check the issues 
 
 ## Contact
 
-To obtain the project's secrets or for any questions or comments related to this project, you can reach out to Levon at levon.rush@gmail.com.com
-
-For more of the blog itself you can find it on [Levon's Medium profile](https://medium.com/@levonrush).
+To obtain the project's secrets or for any questions or comments related to this project, please reach out via the repository's issues section.
 
 ## Acknowledgements
 Special thanks to Seven Seas Hotel for motivating this project, Kate for telling me to make myself a portfolio piece, Victoria and Ernie for the emotional support, and ChatGPT for writing this readme.

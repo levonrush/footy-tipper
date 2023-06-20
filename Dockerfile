@@ -1,21 +1,23 @@
 # Use an official R runtime as a parent image
 FROM r-base:latest
 
+# Install system libraries
+RUN apt-get update && apt-get install -y \
+    libfontconfig1-dev \
+    libfreetype6-dev \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    python3-venv \
+    python3-pip \
+    python3-dev \
+    build-essential
+
 # Install pandoc
 RUN apt-get update \
  && apt-get install -y --no-install-recommends pandoc \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
-
-# Install system libraries
-RUN apt-get update && apt-get install -y \
-    libfontconfig1-dev \
-    libfreetype6-dev
-
-RUN apt-get update && apt-get install -y \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    libxml2-dev
 
 # Set the working directory in the container to /footy-tipper
 WORKDIR /footy-tipper
@@ -24,6 +26,11 @@ WORKDIR /footy-tipper
 COPY . /footy-tipper
 
 COPY footy-tipper-c5bcb9639ee2.json /footy-tipper/service-account-token.json
+
+# Create a Python virtual environment and install Python packages
+RUN python3 -m venv footyenv
+ENV PATH="/footy-tipper/footyenv/bin:$PATH"
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Install any needed packages specified in install.R
 RUN Rscript install.R
@@ -34,5 +41,5 @@ EXPOSE 80
 # set the default type of run to test (ie. not prod)
 ENV PROD_RUN F
 
-# Render footy-tipper.Rmd when the container launches
-CMD ["R", "-e", "rmarkdown::render('footy-tipper.Rmd')"]
+# Run footy-tipper.R when the container launches
+CMD ["Rscript", "footy-tipper.R"]

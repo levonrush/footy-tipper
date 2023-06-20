@@ -25,8 +25,6 @@ clean_data <- function(data){
     mutate(team_home = fct_expand(team_home, "Dolphins"),
            team_away = fct_expand(team_away, "Dolphins"))
   
-  
-  
   return(data)
   
 }
