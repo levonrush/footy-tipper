@@ -56,3 +56,10 @@ secrets.env
 
 # google drive service account
 /footy-tipper-c5bcb9639ee2.json
+
+# pycache
+__pycache__/
+.pyc
+
+# .html docs
+.html

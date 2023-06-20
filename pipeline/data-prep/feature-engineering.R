@@ -82,7 +82,7 @@ fixture_result <- function(data, pipeline){
   if (pipeline == 'binomial'){
     
     data <- data %>%
-      mutate(home_team_result = ifelse(team_final_score_home > team_final_score_away,
+      mutate(home_team_result = ifelse(team_final_score_home >= team_final_score_away,
                                        "Win", "Loss") %>% as.factor())
     
     
@@ -264,7 +264,7 @@ matchup_form <- function(data, form_period){
   
 }
 
-feature_engineering <- function(data, form_period, pipeline){
+feature_engineering <- function(data, form_period){
  
   data <- data %>%
     easy_pickings() %>%

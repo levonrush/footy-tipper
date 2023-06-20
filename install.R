@@ -1,6 +1,6 @@
 # Setting CRAN mirror to use
 local({r <- getOption("repos")
-       r["CRAN"] <- "http://cran.r-project.org" 
+       r["CRAN"] <- "http://cran.r-project.org"
        options(repos = r)
 })
 
@@ -17,8 +17,6 @@ packages <- c(
   , "doParallel"
   , "here"
   , "skimr"
-  # , "Epi"
-  # , "pROC"
   , "googledrive"
   , "scales"
   , "xml2"
@@ -32,6 +30,9 @@ packages <- c(
   , "MLmetrics"
   , "tibble"
   , "dotenv"
+  , "RSQLite"
+  , "DBI"
+  , "reticulate"
 )
 
 install_if_missing <- function(package){
