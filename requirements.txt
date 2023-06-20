@@ -2,3 +2,4 @@ scikit-learn
 xgboost
 pandas
 numpy
+jupyter

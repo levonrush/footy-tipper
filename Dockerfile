@@ -1,7 +1,7 @@
 # Use an official R runtime as a parent image
 FROM r-base:latest
 
-# Install system libraries and pandoc
+# Install system libraries
 RUN apt-get update && apt-get install -y \
     libfontconfig1-dev \
     libfreetype6-dev \
@@ -10,12 +10,14 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     python3-venv \
     python3-pip \
-    wget
+    python3-dev \
+    build-essential
 
 # Install pandoc
-RUN wget https://github.com/jgm/pandoc/releases/download/2.14.2/pandoc-2.14.2-1-amd64.deb && \
-    dpkg -i pandoc-2.14.2-1-amd64.deb && \
-    rm pandoc-2.14.2-1-amd64.deb
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pandoc \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container to /footy-tipper
 WORKDIR /footy-tipper
@@ -27,7 +29,8 @@ COPY footy-tipper-c5bcb9639ee2.json /footy-tipper/service-account-token.json
 
 # Create a Python virtual environment and install Python packages
 RUN python3 -m venv footyenv
-RUN . footyenv/bin/activate && pip install --no-cache-dir -r requirements.txt
+ENV PATH="/footy-tipper/footyenv/bin:$PATH"
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Install any needed packages specified in install.R
 RUN Rscript install.R
