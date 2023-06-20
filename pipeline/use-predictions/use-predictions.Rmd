@@ -3,10 +3,10 @@ title: "Get, Save and Use Predicitons"
 output: github_document
 ---
 
-# Get the predicitons from the DB and 
+# Get the predicitons from the DB and save them in the Google Drive
 
 ```{r, warning=FALSE, message=FALSE, include=FALSE}
-i_am("use-predictions.Rmd")
+i_am("pipeline/use-predictions/use-predictions.Rmd")
 
 # find and load all the helper functions for the project
 save_predicitons_functions <- list.files(
