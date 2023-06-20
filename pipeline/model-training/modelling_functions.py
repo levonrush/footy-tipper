@@ -2,7 +2,7 @@
 from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_selection import RFECV
 from sklearn.model_selection import StratifiedKFold, GridSearchCV
-from sklearn.metrics import make_scorer, roc_auc_score, f1_score
+from sklearn.metrics import accuracy_score, make_scorer, roc_auc_score, f1_score
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.utils import class_weight
 
