@@ -1,7 +1,7 @@
 # Use an official R runtime as a parent image
 FROM r-base:latest
 
-# Install system libraries
+# Install system libraries and pandoc
 RUN apt-get update && apt-get install -y \
     libfontconfig1-dev \
     libfreetype6-dev \
@@ -9,7 +9,13 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libxml2-dev \
     python3-venv \
-    python3-pip
+    python3-pip \
+    wget
+
+# Install pandoc
+RUN wget https://github.com/jgm/pandoc/releases/download/2.14.2/pandoc-2.14.2-1-amd64.deb && \
+    dpkg -i pandoc-2.14.2-1-amd64.deb && \
+    rm pandoc-2.14.2-1-amd64.deb
 
 # Set the working directory in the container to /footy-tipper
 WORKDIR /footy-tipper
