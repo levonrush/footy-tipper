@@ -21,7 +21,7 @@ Footy-Tipper leverages freely available NRL data, performs data cleaning, and fe
 
 1. Clone this repository.
     ```
-    git clone https://github.com/<your_username>/footy-tipper.git
+    git clone https://github.com/levonrush/footy-tipper.git
     ```
 
 2. Navigate to the project's directory.
