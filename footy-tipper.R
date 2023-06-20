@@ -5,7 +5,7 @@ prod_run = F
 
 # define where the pipeline lives
 library(here)
-i_am("footy-tipper.Rmd")
+i_am("footy-tipper.R")
 
 # find and load all the helper functions for the project and load them
 pipeline_functions <- list.files(
