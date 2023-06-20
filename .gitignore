@@ -60,3 +60,6 @@ secrets.env
 # pycache
 __pycache__/
 .pyc
+
+# .html docs
+.html

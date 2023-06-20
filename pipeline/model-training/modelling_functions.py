@@ -2,26 +2,16 @@
 from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_selection import RFECV
 from sklearn.model_selection import StratifiedKFold, GridSearchCV
-from sklearn.metrics import make_scorer, roc_auc_score
+from sklearn.metrics import make_scorer, roc_auc_score, f1_score
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.utils import class_weight
 
 # Other libraries
+import xgboost as xgb
 import pandas as pd
 import numpy as np
 
 def one_hot_encode_and_split(data, predictors, outcome_var):
-    # # One hot encode categorical variables
-    # X = data[predictors].copy()
-    # object_columns = X.select_dtypes(include=['object']).columns
-    # X = pd.get_dummies(X, columns=object_columns)
-    
-    # # Getting updated predictors
-    # updated_predictors = X.columns.tolist()
-
-    # # Encode the label if it's a categorical variable
-    # y = data[outcome_var].copy()
-    # if y.dtype == 'object':
-    #     label_encoder = LabelEncoder()
-    #     y = label_encoder.fit_transform(y)
 
     # One hot encode categorical variables
     X = data[predictors].copy()
@@ -58,8 +48,6 @@ def one_hot_encode_and_split(data, predictors, outcome_var):
         X_inference = X[inference_mask]
     else:
         X_inference = pd.DataFrame(columns=X.columns)  # empty DataFrame with same columns
-        
-    # return X_train, y_train, X_inference, updated_predictors, label_encoder
 
     # Extract game_id for the inference set
     game_id_inference = data.loc[X_inference.index, 'game_id']
@@ -73,6 +61,8 @@ def perform_rfe(estimator, X, y, num_folds, opt_metric):
     # Scoring metric
     if opt_metric == 'ROC':
         scoring = make_scorer(roc_auc_score, multi_class="ovr", needs_proba=True)
+    elif opt_metric == 'F1':
+        scoring = 'f1'
     else:
         scoring = 'accuracy'
 
@@ -86,11 +76,14 @@ def perform_rfe(estimator, X, y, num_folds, opt_metric):
     # Return the one-hot encoded data and the optimal features
     return X, y, optimal_features
 
+
 def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5, opt_metric='ROC', seed=69):
     
     # Scoring metric
     if opt_metric == 'ROC':
         scoring = make_scorer(roc_auc_score, multi_class="ovr", needs_proba=True)
+    elif opt_metric == 'F1':
+        scoring = 'f1'
     else:
         scoring = 'accuracy'
 
@@ -123,6 +116,73 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
     
     # Return tuned model as well as X_inference and label encoder for making predictions
     return tuned_model, X_inference[optimal_features], label_encoder, game_id_inference
+
+
+def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_folds, opt_metric):
+    # Define your models and parameter grids
+    models_and_params = [
+        (xgb.XGBClassifier(n_jobs=-1), {
+            'n_estimators': [50, 100, 200],
+            'learning_rate': [0.01, 0.1, 0.2],
+            'max_depth': [3, 4, 5],
+            'subsample': [0.8, 0.9, 1.0],
+            'colsample_bytree': [0.3, 0.5, 0.7],
+            'gamma': [0, 0.1, 0.2]
+        }),
+        (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
+            'n_estimators': [50, 100, 200],
+            'max_features': ['sqrt', 'log2'],
+            'max_depth': [None, 10, 20, 30],
+            'min_samples_split': [2, 5, 10],
+            'min_samples_leaf': [1, 2, 4],
+            'bootstrap': [True, False]
+        }),
+        (GradientBoostingClassifier(), {
+            'n_estimators': [50, 100, 200],
+            'learning_rate': [0.01, 0.1, 0.2],
+            'max_depth': [3, 4, 5],
+            'min_samples_split': [2, 5, 10],
+            'min_samples_leaf': [1, 2, 4],
+            'subsample': [0.8, 0.9, 1.0],
+            'max_features': ['sqrt', 'log2']
+        })
+    ]
+    
+    best_model = None
+    best_score = -float('inf')
+    best_label_encoder = None
+    best_X_inference = None
+    best_game_id_inference = None
+    
+    # Train each model and keep track of the best one
+    for estimator, param_grid in models_and_params:
+        tuned_model, X_inference, label_encoder, game_id_inference = train_model_pipeline(
+            data, predictors, outcome_var,
+            estimator, param_grid,
+            use_rfe=use_rfe, num_folds=num_folds,
+            opt_metric=opt_metric
+        )
+        
+        # Assume the `X_inference` is your validation dataset (X_valid) for evaluation
+        # Calculate the score using the desired metric (e.g., accuracy, f1-score, etc.)
+        y_pred = tuned_model.predict(X_inference) # Change this line if it doesn't fit your structure
+        score = 0
+        if opt_metric == 'accuracy':
+            score = accuracy_score(y_valid, y_pred) # You'll need to define y_valid
+        elif opt_metric == 'f1_score':
+            score = f1_score(y_valid, y_pred, average='weighted') # You'll need to define y_valid
+        elif opt_metric == 'roc_auc':
+            score = roc_auc_score(y_valid, y_pred) # You'll need to define y_valid
+        
+        # Update best_model, best_score, etc.
+        if score > best_score:
+            best_model = tuned_model
+            best_score = score
+            best_label_encoder = label_encoder
+            best_X_inference = X_inference
+            best_game_id_inference = game_id_inference
+            
+    return best_model, best_X_inference, best_label_encoder, best_game_id_inference
 
 def model_predictions(tuned_model, X_inference, label_encoder, game_id_inference):
     
