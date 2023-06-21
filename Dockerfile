@@ -41,5 +41,8 @@ EXPOSE 80
 # set the default type of run to test (ie. not prod)
 ENV PROD_RUN F
 
+# when running in container set DOCKER variable to be trie
+ENV DOCKER true
+
 # Run footy-tipper.R when the container launches
 CMD ["Rscript", "footy-tipper.R"]

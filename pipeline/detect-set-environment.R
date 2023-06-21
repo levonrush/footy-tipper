@@ -1,6 +1,6 @@
 detect_set_environment <- function(prod_run) {
   # Perform the authentication first
-  drive_auth(path = "/footy-tipper/footy-tipper-c5bcb9639ee2.json")
+  drive_auth(path = "/footy-tipper/service-account-token.json")
   
   # Check if we are in Docker
   if (Sys.getenv("DOCKER") == "true") {
