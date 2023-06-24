@@ -11,9 +11,8 @@ save_predictions <- function(predictions, prod_run = FALSE){
     # Upload the file
     drive_upload(media = "predictions.csv",
                  path = "footy-tipping-predictions/",
-                #  name = paste0("round", unique(predictions$round_id), "_",
-                #                unique(predictions$competition_year), ".csv"),
-                name = "test",
+                 name = paste0("round", unique(predictions$round_id), "_",
+                               unique(predictions$competition_year), ".csv"),
                  type = NULL,
                  overwrite = TRUE)
 
