@@ -64,11 +64,12 @@ dbDisconnect(con)
 # Save them to the drive
 
 ```{r}
+googledrive::drive_auth(
+    path = paste0(here(), "/service-account-token.json"),
+    scopes = "https://www.googleapis.com/auth/drive"
+)
+
 save_predictions(predictions, prod_run = prod_run)
-```
 
-# extra thangs...
-
-```{r}
 levons_picks(predictions, prod_run = prod_run)
 ```
