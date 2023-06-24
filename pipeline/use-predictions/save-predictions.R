@@ -2,13 +2,18 @@ save_predictions <- function(predictions, prod_run = FALSE){
 
   if (prod_run == TRUE){
 
+    googledrive::drive_auth(
+      path = paste0(here(), "/footy-tipper-c5bcb9639ee2.json"),
+      scopes = "https://www.googleapis.com/auth/drive"
+    )
     write.csv(x = predictions, file = "predictions.csv")
 
     # Upload the file
     drive_upload(media = "predictions.csv",
                  path = "footy-tipping-predictions/",
-                 name = paste0("round", unique(predictions$round_id), "_",
-                               unique(predictions$competition_year), ".csv"),
+                #  name = paste0("round", unique(predictions$round_id), "_",
+                #                unique(predictions$competition_year), ".csv"),
+                name = "test",
                  type = NULL,
                  overwrite = TRUE)
 
