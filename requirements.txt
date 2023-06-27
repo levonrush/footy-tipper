@@ -3,3 +3,14 @@ xgboost
 pandas
 numpy
 jupyter
+google
+python-dotenv
+gspread
+oauth2client 
+google-auth 
+google-auth-oauthlib 
+google-auth-httplib2 
+google-api-python-client
+openai
+langchain
+oauth2client

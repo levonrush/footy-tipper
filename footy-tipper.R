@@ -21,8 +21,9 @@ detect_set_environment(prod_run = prod_run)
 # define the paths to the notebooks
 data_prep_rmd <- paste0(here(), "/pipeline/data-prep/data-prep.Rmd")
 model_training_ipynb <- paste0(here(), "/pipeline/model-training/model-training.ipynb")
-use_predictions_rmd <- paste0(here(), "/pipeline/use-predictions/use-predictions.Rmd")
-#use_predictions_r <- paste0(here(), "/pipeline/use-predictions/use-predictions.R")
+# use_predictions_rmd <- paste0(here(), "/pipeline/use-predictions/use-predictions.Rmd")
+# use_predictions_r <- paste0(here(), "/pipeline/use-predictions/use-predictions.R")
+save-email-predictions_ipynb <- paste0(here(), "/pipeline/use-predictions/save-email-predictions.ipynb")
 
 # Execute the data-prep.Rmd notebook
 rmarkdown::render(
@@ -34,8 +35,8 @@ rmarkdown::render(
 system(paste("jupyter nbconvert --to notebook --execute", model_training_ipynb))
 
 # Execute the use-predictions.Rmd notebook
-rmarkdown::render(
-    use_predictions_rmd,
-    output_format = "github_document"
-)
-# source(use_predictions_r)
+# rmarkdown::render(
+#     use_predictions_rmd,
+#     output_format = "github_document"
+# )
+system(paste("jupyter nbconvert --to notebook --execute", save-email-predictions_ipynb ))
