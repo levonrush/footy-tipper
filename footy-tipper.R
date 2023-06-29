@@ -23,7 +23,7 @@ data_prep_rmd <- paste0(here(), "/pipeline/data-prep/data-prep.Rmd")
 model_training_ipynb <- paste0(here(), "/pipeline/model-training/model-training.ipynb")
 # use_predictions_rmd <- paste0(here(), "/pipeline/use-predictions/use-predictions.Rmd")
 # use_predictions_r <- paste0(here(), "/pipeline/use-predictions/use-predictions.R")
-save-email-predictions_ipynb <- paste0(here(), "/pipeline/use-predictions/save-email-predictions.ipynb")
+save_email_predictions_ipynb <- paste0(here(), "/pipeline/use-predictions/save-email-predictions.ipynb")
 
 # Execute the data-prep.Rmd notebook
 rmarkdown::render(
@@ -39,4 +39,4 @@ system(paste("jupyter nbconvert --to notebook --execute", model_training_ipynb))
 #     use_predictions_rmd,
 #     output_format = "github_document"
 # )
-system(paste("jupyter nbconvert --to notebook --execute", save-email-predictions_ipynb ))
+system(paste("jupyter nbconvert --to notebook --execute", save_email_predictions_ipynb ))
