@@ -6,13 +6,13 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 
 ## How it Works
 
-Footy-Tipper leverages freely available NRL data, performs data cleaning, and feature engineering in R to investigate and understand Rugby League behaviors. Python, being versatile and having a rich set of libraries for machine learning, is employed for constructing predictive models. SQL plays an integral role in managing and transferring data between different platforms and environments. The synergy of these technologies results in a powerful prediction engine. The pipeline of the project is wrapped in a Docker container for portability and ease of deployment.
+Footy-Tipper leverages freely available NRL data, performs data cleaning, and feature engineering in R to investigate and understand Rugby League behaviors. Python, being versatile and having a rich set of libraries for machine learning, data manipulation, and interacting with APIs, is employed for constructing predictive models, generating and uploading predictions to Google Drive, generating game synopsis using OpenAI, and sending out automated emails with game predictions. SQL plays an integral role in managing and transferring data between different platforms and environments. The synergy of these technologies results in a powerful prediction engine. The pipeline of the project is wrapped in a Docker container for portability and ease of deployment.
 
 ## Prerequisites
 
 - Docker installed and running on your machine.
 - Google service account for Google Drive authentication (`service-account-token.json`).
-- (Optional) R and R Studio or Visual Studio Code, if you want to develop or debug locally.
+- (Optional) R, Python and Visual Studio Code, if you want to develop or debug locally.
 - (Optional) Google Cloud Platform account for computation.
 
 ## Usage
@@ -36,9 +36,8 @@ Footy-Tipper leverages freely available NRL data, performs data cleaning, and fe
 
 4. Run the Docker container, replacing `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000).
     ```
-    docker run -e PROD_RUN="T" -p <your_host_port>:80 footy-tipper
+    docker run -p <your_host_port>:80 footy-tipper
     ```
-    Note: Set `PROD_RUN` to `T` for production mode. Set it to `F` for test mode.
 
 ### For Development and Debugging
 

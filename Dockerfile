@@ -25,8 +25,6 @@ WORKDIR /footy-tipper
 # Copy the current directory contents into the container at /footy-tipper
 COPY . /footy-tipper
 
-COPY footy-tipper-c5bcb9639ee2.json /footy-tipper/service-account-token.json
-
 # Create a Python virtual environment and install Python packages
 RUN python3 -m venv footyenv
 ENV PATH="/footy-tipper/footyenv/bin:$PATH"
@@ -37,9 +35,6 @@ RUN Rscript install.R
 
 # Make port 80 available to the world outside this container
 EXPOSE 80
-
-# set the default type of run to test (ie. not prod)
-ENV PROD_RUN F
 
 # when running in container set DOCKER variable to be trie
 ENV DOCKER true
