@@ -12,6 +12,9 @@ data_prep_functions <- list.files(
 )
 
 sapply(data_prep_functions, source, .GlobalEnv)
+
+# load the project secrets
+load_dot_env(file = paste0(here(), "/secrets.env"))
 ```
 
 ```{r, warning=FALSE, message=FALSE}

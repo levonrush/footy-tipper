@@ -1,9 +1,20 @@
 import os
 import pandas as pd
+
+# for google
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+import gspread
+from google.oauth2 import service_account
+
+# for reg
 from langchain.llms import OpenAI
+
+# for emails
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 def get_tipper_picks(predictions, prod_run=False):
     predictions['home_odds_thresh'] = 1 / predictions['home_team_win_prob']
@@ -100,3 +111,39 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
 
     return reg_regan
 
+def send_emails(doc_name, subject, message, sender_email, sender_password, json_path):
+    # Use your downloaded credentials file
+    scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
+             "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
+
+    creds = service_account.Credentials.from_service_account_file(json_path, scopes=scope)
+    client = gspread.authorize(creds)
+
+    # Open the test sheet and get the data
+    sheet = client.open(doc_name).sheet1  # use your actual sheet name
+    email_data = sheet.get_all_records()  # gets all the data inside your Google Sheet
+
+    recipient_emails = [row['Email'] for row in email_data]  # replace 'Email' with your actual column name
+
+    # Setup the email
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = ', '.join(recipient_emails)
+    msg['Subject'] = subject
+
+    # Add your message
+    msg.attach(MIMEText(message, 'plain'))
+
+    # Setup the SMTP server
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+
+    # Add your credentials
+    server.login(sender_email, sender_password)
+
+    # Send the email
+    text = msg.as_string()
+    server.sendmail(sender_email, recipient_emails, text)
+
+    # Close the connection
+    server.quit()
