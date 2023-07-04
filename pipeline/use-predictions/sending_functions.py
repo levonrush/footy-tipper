@@ -95,7 +95,7 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
         * Away Team Position: the away team's position on the NRL ladder
         * Away Team Head to Head Price: the price bookies are offering for an away win
         
-        It also comes up with some good value tips for those interested in a punt in \n{input_picks}\n. The description of the columns of interest is:
+        It also comes up with some good value tips for those interested in a punt in \n{input_picks}\n. If it is empty there isn't much value for punting in the round. The description of the columns of interest is:
         
         * Team = Team that is a good value pick
         * Price = what the bookies are offering them at
