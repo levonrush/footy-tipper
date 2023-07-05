@@ -11,6 +11,9 @@ import xgboost as xgb
 import pandas as pd
 import numpy as np
 
+# This function first one-hot encodes the categorical variables in the dataset. 
+# It then splits the dataset into training and inference datasets based on certain conditions.
+# The function also extracts game_id for the inference set.
 def one_hot_encode_and_split(data, predictors, outcome_var):
 
     # One hot encode categorical variables
@@ -55,7 +58,8 @@ def one_hot_encode_and_split(data, predictors, outcome_var):
     # Return game_id_inference as well
     return X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference
 
-
+# This function performs Recursive Feature Elimination (RFE) using cross-validation on the training set.
+# The goal of RFE is to select features by recursively considering smaller and smaller sets of features.
 def perform_rfe(estimator, X, y, num_folds, opt_metric):
 
     # Scoring metric
@@ -76,7 +80,9 @@ def perform_rfe(estimator, X, y, num_folds, opt_metric):
     # Return the one-hot encoded data and the optimal features
     return X, y, optimal_features
 
-
+# This function performs hyperparameter tuning using Grid Search and Cross Validation on the training set.
+# The function takes as input the machine learning estimator, parameter grid, training set, optimal features 
+# obtained from RFE, number of folds for cross-validation, the optimization metric, and a seed for random state.
 def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5, opt_metric='ROC', seed=69):
     
     # Scoring metric
@@ -100,6 +106,9 @@ def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5,
 
     return cv
 
+# This function is a pipeline for training a machine learning model. 
+# It first one-hot encodes and splits the data, performs Recursive Feature Elimination (if specified), 
+# and then trains and tunes the model.
 def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, use_rfe=False, num_folds=5, opt_metric='ROC', seed=69):
     
     # Step 1: One-hot encode and split the dataset
@@ -117,7 +126,8 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
     # Return tuned model as well as X_inference and label encoder for making predictions
     return tuned_model, X_inference[optimal_features], label_encoder, game_id_inference
 
-
+# This function trains and tunes multiple models specified in 'models_and_params' 
+# and selects the best model based on the specified optimization metric.
 def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_folds, opt_metric):
     # Define your models and parameter grids
     models_and_params = [
@@ -184,6 +194,9 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             
     return best_model, best_X_inference, best_label_encoder, best_game_id_inference
 
+# This function takes as input a trained model, inference dataset, label encoder, and game_id for the inference set. 
+# It outputs the predictions made by the model on the inference set, and returns a dataframe with game_id, predicted outcome, 
+# and the probability estimates for each outcome.
 def model_predictions(tuned_model, X_inference, label_encoder, game_id_inference):
     
     # Make predictions

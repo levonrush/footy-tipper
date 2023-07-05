@@ -16,22 +16,30 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+# The 'get_tipper_picks' function calculates the odds threshold for both home and away teams and then selects the home and away teams based on their predicted results.
 def get_tipper_picks(predictions, prod_run=False):
-    predictions['home_odds_thresh'] = 1 / predictions['home_team_win_prob']
-    predictions['away_odds_thresh'] = 1 / predictions['home_team_lose_prob']
     
+    # Calculate odds thresholds for home and away teams
+    predictions['home_odds_thresh'] = 1 / predictions['home_team_win_prob']
+    predictions['away_odds_thresh'] = 1 / predictions['home_team_lose_prob'] 
+    
+    # Select home teams that are predicted to win and rename the columns accordingly.
     home_picks = predictions[predictions['home_team_result'] == 'Win'][['team_home', 'team_head_to_head_odds_home', 'home_odds_thresh']].copy()
     home_picks.rename(columns={'team_home': 'team', 'team_head_to_head_odds_home': 'price', 'home_odds_thresh': 'price_min'}, inplace=True)
     
+    # Select away teams that are predicted to lose and rename the columns accordingly.
     away_picks = predictions[predictions['home_team_result'] == 'Loss'][['team_away', 'team_head_to_head_odds_away', 'away_odds_thresh']].copy()
     away_picks.rename(columns={'team_away': 'team', 'team_head_to_head_odds_away': 'price', 'away_odds_thresh': 'price_min'}, inplace=True)
     
+    # Concatenate the home and away picks and filter rows where 'price' is more than 15% of 'price_min'.
     tipper_picks = pd.concat([home_picks, away_picks])
     tipper_picks = tipper_picks[tipper_picks['price'] > (tipper_picks['price_min'] * 1.15)]
 
     return tipper_picks
 
+# The 'upload_df_to_drive' function uploads a pandas DataFrame to Google Drive as a CSV file.
 def upload_df_to_drive(df, json_path, folder_id, filename):
+
     # Load the credentials from the service_account.json
     creds = service_account.Credentials.from_service_account_file(json_path)
 
@@ -54,14 +62,16 @@ def upload_df_to_drive(df, json_path, folder_id, filename):
     # Delete the local file after upload
     os.remove(filename)
 
+# The 'generate_reg_regan_email' function generates an email content with the help of an AI language model (OpenAI). The email contains a synopsis of NRL games and some value tips.
 def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
-    # Set up the OpenAI model
+
+    # Set up the OpenAI model using provided API key and model parameters
     llm = OpenAI(openai_api_key=api_key,
                  model_name="gpt-3.5-turbo-16k",
                  max_tokens=15000,
                  temperature=1.1)
 
-    # Generate input_predictions string
+    # Generate input_predictions string by iterating over 'predictions' dataframe and formatting data into string
     input_predictions = ""
     for index, row in predictions.iterrows():
         input_predictions += f"""
@@ -74,7 +84,8 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
             Away Team Position: {row['position_away']},
             Away Team Head to Head Price: {row['team_head_to_head_odds_away']}
             """
-    # Generate input_picks string
+    
+    # Generate input_picks string by iterating over 'tipper_picks' dataframe and formatting data into string
     input_picks = ""
     for index, row in tipper_picks.iterrows():
         input_picks += f"""
@@ -82,7 +93,7 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
             Price: {row['price']}
             """
 
-    # Generate the prompt
+    # Generate the prompt string to be used with the AI model
     prompt = f"""
         I have a set of predictions for NRL games in {predictions['round_name'].unique()[0]} {predictions['competition_year'].unique()[0]} made by a machine learning pipeline called the Footy Tipper: \n{input_predictions}\n 
         The description of the columns of interest is:
@@ -106,44 +117,47 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
         Also, tell everyone to bring back the biff at the end of the email.
         Always sign off the email as Reg Regan.
         """
-    # Generate the email with the OpenAI model
+    
+    # Use the AI model to generate the email content based on the prompt
     reg_regan = llm.predict(prompt)
 
     return reg_regan
 
+# The 'send_emails' function sends an email to a list of recipients. The email details are prepared and the SMTP server is used to send the emails.
 def send_emails(doc_name, subject, message, sender_email, sender_password, json_path):
-    # Use your downloaded credentials file
+
+    # 
     scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
 
+    # Authorize Google client using service account credentials to access Google Sheets
     creds = service_account.Credentials.from_service_account_file(json_path, scopes=scope)
     client = gspread.authorize(creds)
 
-    # Open the test sheet and get the data
-    sheet = client.open(doc_name).sheet1  # use your actual sheet name
+    # Open the spreadsheet and get the data
+    sheet = client.open(doc_name).sheet1 # this is the spreadsheet with the emails
     email_data = sheet.get_all_records()  # gets all the data inside your Google Sheet
 
+    # Extract the recipient emails from the Google Sheet data
     recipient_emails = [row['Email'] for row in email_data]  # replace 'Email' with your actual column name
 
-    # Setup the email
+    # Prepare the email message using MIMEText
     msg = MIMEMultipart()
     msg['From'] = sender_email
     msg['To'] = ', '.join(recipient_emails)
     msg['Subject'] = subject
-
-    # Add your message
     msg.attach(MIMEText(message, 'plain'))
 
-    # Setup the SMTP server
+    # Setup the SMTP server for sending the email
     server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()
 
-    # Add your credentials
+    # Login to the SMTP server using sender's email and password
     server.login(sender_email, sender_password)
 
-    # Send the email
+    # Send the email to the list of recipients
     text = msg.as_string()
     server.sendmail(sender_email, recipient_emails, text)
 
-    # Close the connection
+    # Close the SMTP server connection
     server.quit()
