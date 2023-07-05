@@ -1,84 +1,7 @@
-turn_around <- function(data){
-  
-  home_games <- data %>%
-    rename(team = team_home)
-  
-  away_games <- data %>%
-    rename(team = team_away)
-  
-  turn_arounds <- bind_rows(home_games, away_games) %>%
-    arrange(start_time) %>%
-    group_by(team) %>%
-    mutate(turn_around = difftime(start_time, lag(start_time), units = 'days') %>% as.numeric()) %>%
-    ungroup() %>%
-    select(game_id, team, turn_around) %>%
-    mutate(turn_around = replace_na(turn_around, mean(turn_around, na.rm = T)))
-  
-  data <- data %>%
-    left_join(turn_arounds, by = c("game_id", "team_home" = "team")) %>%
-    left_join(turn_arounds, by = c("game_id", "team_away" = "team"), suffix = c("_home", "_away")) %>%
-    mutate(turn_around_diff = turn_around_home - turn_around_away)
-  
-  return(data)
-    
-}
-
-# crowd <- function(data){
-#   
-#   rf <- randomForest(crowd ~ city, venue_name, data = data %>% filter(!is.na(crowd)))
-#   
-#   data <- data %>%
-#     mutate(case_when(
-#       competition_year %in% 2020:2021 ~ ~replace_na(.x, 0),
-#       TRUE ~ predict(rf, data)
-#       
-#     ))
-#   
-# }
-
-state_of_origin <- function(data){
-  
-  data <- data %>%
-    mutate(state_of_origin = ifelse(str_detect(round_name, "Round") & n() <= 5, 1, 0))
-  
-  return(data)
-  
-}
-
-home_ground_advantage <- function(data){
-  
-  set.seed(69)
-  
-  hga_data <- data %>%
-    mutate(points_diff = team_final_score_home - team_final_score_away,
-           game_hour = hour(start_time),
-           game_day = weekdays(start_time)) %>% 
-    filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)) %>%
-    select(all_of(c("round_name", "team_head_to_head_odds_home", "team_head_to_head_odds_away", "venue_name", "team_away", "team_home", "home_elo_prob", "away_elo_prob", "city", "away_elo", "position_diff", "home_elo", "average_losing_margin_home", "matchup_form", "close_game_rate_home", "avg_points_difference_away", "average_winning_margin_away", "avg_points_for_away", "points_difference_away", "average_losing_margin_away")), points_diff)
-  
-  rf <- randomForest(points_diff ~ ., data = hga_data)
-  
-  train_data <- data %>%
-    filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)) %>%
-    mutate(home_ground_advantage = rf$predicted) %>%
-    select(game_id, home_ground_advantage)
-  
-  inference_data <- data %>%
-    filter(game_state_name != 'Final') %>%
-    mutate(home_ground_advantage = predict(rf, .)) %>%
-    select(game_id, home_ground_advantage)
-  
-  hga_data <- bind_rows(train_data, inference_data)
-  
-  data <- data %>%
-    left_join(hga_data, by = c("game_id"))
-           
-  return(data)
-  
-}
-
+# Function to add a result column based on the pipeline specification
 fixture_result <- function(data, pipeline){
   
+  # For a binomial classification, create a binary outcome variable: 'Win' or 'Loss'
   if (pipeline == 'binomial'){
     
     data <- data %>%
@@ -86,7 +9,9 @@ fixture_result <- function(data, pipeline){
                                        "Win", "Loss") %>% as.factor())
     
     
-  } else if (pipeline == 'multiclass'){
+  } 
+  # For a multiclass classification, create an outcome variable with three levels: 'Win', 'Loss', or 'Draw'
+  else if (pipeline == 'multiclass'){
     
     data <- data %>%
       mutate(home_team_result = case_when(
@@ -94,7 +19,9 @@ fixture_result <- function(data, pipeline){
         team_final_score_home < team_final_score_away ~ "Loss",
         TRUE                                          ~ "Draw") %>% as.factor())
     
-  } else if (pipeline == 'elo'){
+  } 
+  # For Elo ratings, create variables to keep track of wins, losses, and draws for home and away teams and calculate game margin
+  else if (pipeline == 'elo'){
     
     data <- data %>%
       mutate(home_team_result = case_when(
@@ -103,60 +30,90 @@ fixture_result <- function(data, pipeline){
         TRUE                                          ~ "Draw") %>% as.factor())
     
     data <- data %>% 
-      mutate(home_result = case_when(team_final_score_home > team_final_score_away ~ 1,
-                                     team_final_score_home < team_final_score_away ~ 0,
-                                     team_final_score_home == team_final_score_away ~ 0.5),
-             away_result = case_when(team_final_score_home < team_final_score_away ~ 1,
-                                     team_final_score_home > team_final_score_away ~ 0,
-                                     team_final_score_home == team_final_score_away ~ 0.5),
-             margin = abs(team_final_score_home - team_final_score_away))
+      mutate(home_result = case_when(team_final_score_home > team_final_score_away ~ 1,  # win for home team
+                                     team_final_score_home < team_final_score_away ~ 0,  # loss for home team
+                                     team_final_score_home == team_final_score_away ~ 0.5),  # draw
+             away_result = case_when(team_final_score_home < team_final_score_away ~ 1,  # win for away team
+                                     team_final_score_home > team_final_score_away ~ 0,  # loss for away team
+                                     team_final_score_home == team_final_score_away ~ 0.5),  # draw
+             margin = abs(team_final_score_home - team_final_score_away))  # absolute margin of the game
     
   }
   
-  return(data)
+  return(data)  # Return the modified dataset
 
 }
 
+# Function to calculate turnaround times between games for each team
+turn_around <- function(data){
+  
+  # Creating two datasets, one for home games and one for away games
+  home_games <- data %>%
+    rename(team = team_home)  # Rename team_home to team in home_games dataset
+  
+  away_games <- data %>%
+    rename(team = team_away)  # Rename team_away to team in away_games dataset
+  
+  # Combine the two datasets and calculate the time difference between successive games for each team
+  turn_arounds <- bind_rows(home_games, away_games) %>%
+    arrange(start_time) %>%
+    group_by(team) %>%
+    mutate(turn_around = difftime(start_time, lag(start_time), units = 'days') %>% as.numeric()) %>%
+    ungroup() %>%
+    select(game_id, team, turn_around) %>%
+    mutate(turn_around = replace_na(turn_around, mean(turn_around, na.rm = T)))  # Replace NA values with the mean turnaround time
+  
+  # Add the calculated turnaround times to the original dataset
+  data <- data %>%
+    left_join(turn_arounds, by = c("game_id", "team_home" = "team")) %>%
+    left_join(turn_arounds, by = c("game_id", "team_away" = "team"), suffix = c("_home", "_away")) %>%
+    mutate(turn_around_diff = turn_around_home - turn_around_away)  # Calculate the difference between home and away turnarounds
+  
+  return(data)  # Return the modified dataset
+}
+
+# Function to create a feature indicating whether the game is a state of origin game
+state_of_origin <- function(data){
+  
+  data <- data %>%
+    mutate(state_of_origin = ifelse(str_detect(round_name, "Round") & n() <= 5, 1, 0))  # If the round name contains "Round" and there are 5 or less records, set state_of_origin to 1, else 0
+  
+  return(data)  # Return the modified dataset
+}
+
+# This function adds new columns to the data which could be useful for further analysis or prediction
 easy_pickings <- function(data){
   
   data <- data %>%
-    mutate(position_diff = position_home - position_away)
-  
-  return(data)
-  
-}
-
-corona_season <- function(data){
-  
-  data <- data %>%
-    mutate(corona_season = ifelse(competition_year == 2020, T, F))
-  
-  return(data)
-  
-}
-
-timing_vars <- function(data){
-  
-  data <- data %>%
-    mutate(start_hour = hour(start_time),
+    # Calculate the difference in positions between home and away teams
+    mutate(position_diff = position_home - position_away,
+           # Flag if the season is the 2020 season, which was affected by the Covid-19 pandemic
+           corona_season = ifelse(competition_year == 2020, T, F),
+           # Extract the start hour of the game from the start_time column
+           start_hour = hour(start_time),
+           # Determine the day of the week the game is played on
            game_day = weekdays(as.Date(start_time)) %>% as.factor())
   
+  # Return the modified dataset
   return(data)
-
+  
 }
 
+# The 'season_stats' function calculates and adds season statistics to the dataset for each team, both when playing home and away
 season_stats <- function(data){
   
+  # Split data into home and away games
   home_games <- data %>%
     select(game_id, competition_year, team_home, team_final_score_home, team_final_score_away, home_team_result) %>%
     rename(team = team_home, points_for = team_final_score_home, points_against = team_final_score_away) %>%
     arrange(game_id) 
-  
+
   away_games <- data %>%
     select(game_id, competition_year, team_away, team_final_score_home, team_final_score_away, home_team_result) %>%
     rename(team = team_away, points_for = team_final_score_away, points_against = team_final_score_home) %>%
-    arrange(game_id) 
+    arrange(game_id)
   
+  # Combine home and away data, calculate cumulative season stats (points for, against and record)
   season_record <- bind_rows(
     home_games %>% mutate(is_home_team = T), 
     away_games %>% mutate(is_home_team = F)
@@ -180,6 +137,7 @@ season_stats <- function(data){
     group_by(is_home_team) %>%
     group_split()
   
+  # Join the computed season stats back to the original data
   data <- data %>%
     left_join(season_record[[1]] %>% select(-is_home_team), by = "game_id") %>%
     left_join(season_record[[2]] %>% select(-is_home_team), by = "game_id", suffix = c("_away", "_home"))
@@ -188,22 +146,25 @@ season_stats <- function(data){
   
 }
 
+# The 'form_stats' function calculates and adds short-term form statistics (over a specified period of games) to the dataset for each team, both when playing at home and away
 form_stats <- function(data, form_period){
   
+  # Split data into home and away games
   home_games <- data %>%
     select(game_id, competition_year, team_home, team_final_score_home, team_final_score_away, home_team_result) %>%
     rename(team = team_home, points_for = team_final_score_home, points_against = team_final_score_away) %>%
     arrange(game_id) 
-  
+
   away_games <- data %>%
     select(game_id, competition_year, team_away, team_final_score_home, team_final_score_away, home_team_result) %>%
     rename(team = team_away, points_for = team_final_score_away, points_against = team_final_score_home) %>%
     arrange(game_id) 
   
+  # Combine home and away data, calculate form stats (record of results and average points for and against over the specified period)
   season_form <- bind_rows(
     home_games %>% mutate(is_home_team = T), 
     away_games %>% mutate(is_home_team = F)
-  ) %>%  
+  ) %>%
     arrange(game_id) %>%
     group_by(team, competition_year) %>%
     mutate(season_form = ifelse(seq(n()) < form_period,
@@ -235,14 +196,16 @@ form_stats <- function(data, form_period){
     group_by(is_home_team) %>%
     group_split()
   
+  # Join the computed form stats back to the original data
   data <- data %>%
     left_join(season_form[[1]] %>% select(-is_home_team), by = "game_id") %>%
     left_join(season_form[[2]] %>% select(-is_home_team), by = "game_id", suffix = c("_away", "_home"))
   
-  
   return(data)
   
 }
+
+# The 'matchup_form' function calculates and adds a matchup form statistic to the dataset for each pair of teams (team_home, team_away) over a specified number of their most recent games
 
 matchup_form <- function(data, form_period){
   
@@ -264,15 +227,12 @@ matchup_form <- function(data, form_period){
   
 }
 
+# The 'feature_engineering' function is a wrapper function that applies multiple data transformation and feature engineering functions on the input data
 feature_engineering <- function(data, form_period){
  
   data <- data %>%
     easy_pickings() %>%
     turn_around() %>%
-    # corona_season() %>%
-    timing_vars() %>%
-    # season_stats() %>%
-    # form_stats(form_period = form_period)  %>%
     matchup_form(form_period = form_period) %>%
     state_of_origin()
 

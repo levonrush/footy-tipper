@@ -12,9 +12,6 @@ pipeline_functions <- list.files(
 
 sapply(pipeline_functions, source, .GlobalEnv)
 
-# load the project secrets
-load_dot_env(file = "secrets.env")
-
 # define the paths to the notebooks
 data_prep_rmd <- paste0(here(), "/pipeline/data-prep/data-prep.Rmd")
 model_training_ipynb <- paste0(here(), "/pipeline/model-training/model-training.ipynb")
