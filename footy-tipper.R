@@ -20,11 +20,12 @@ send_predictions_ipynb <- paste0(here(), "/pipeline/use-predictions/send_predict
 # Execute the data-prep.Rmd notebook
 rmarkdown::render(
     data_prep_rmd,
-    output_format = "github_document"
+    output_format = NULL
 )
 
 # Execute the model-training.ipynb notebook
-system(paste("jupyter nbconvert --to notebook --execute", model_training_ipynb))
+system(paste("python -m nbconvert --to python --execute", model_training_ipynb))
 
 # Execute the use-predictions.Rmd notebook
-system(paste("jupyter nbconvert --to notebook --execute", send_predictions_ipynb))
+system(paste("python -m nbconvert --to python --execute", send_predictions_ipynb))
+
