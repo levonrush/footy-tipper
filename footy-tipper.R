@@ -4,13 +4,6 @@
 library(here)
 i_am("footy-tipper.R")
 
-# Find and load helper functions from .R files in the pipeline directory
-pipeline_functions <- list.files(
-    paste0(here(), "/pipeline"), pattern = "*.R$",
-    full.names = TRUE, ignore.case = TRUE
-)
-sapply(pipeline_functions, source, .GlobalEnv)
-
 # Define paths to data-preparation script and model-training and send-predictions notebooks
 data_prep_r <- paste0(here(), "/pipeline/data-prep/data-prep.R")
 model_training_ipynb <- paste0(here(), "/pipeline/model-training/model-training.ipynb")
