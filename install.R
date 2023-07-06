@@ -1,6 +1,6 @@
 # Setting CRAN mirror to use
 local({r <- getOption("repos")
-       r["CRAN"] <- "http://cran.r-project.org"
+       r["CRAN"] <- "http://cran.ms.unimelb.edu.au/"
        options(repos = r)
 })
 
@@ -16,23 +16,23 @@ packages <- c(
   # , "parallel"
   # , "doParallel"
   , "here"
-  , "skimr"
-  , "googledrive"
-  , "scales"
+  # , "skimr"
+  # , "googledrive"
+  # , "scales"
   , "xml2"
   , "janitor"
   , "zoo"
-  , "rmarkdown"
+  # , "rmarkdown"
   , "purrr"
   , "readr"
   , "stringr"
   , "forcats"
   # , "MLmetrics"
   , "tibble"
-  , "dotenv"
+  # , "dotenv"
   , "RSQLite"
   , "DBI"
-  , "reticulate"
+  # , "reticulate"
 )
 
 install_if_missing <- function(package){
@@ -43,8 +43,10 @@ install_if_missing <- function(package){
     }, error = function(e) {
       print(paste("Failed to install", package))
       print(e)
+      stop("Stopping due to failure in package installation.")
     })
   }
 }
+
 
 invisible(lapply(packages, install_if_missing))

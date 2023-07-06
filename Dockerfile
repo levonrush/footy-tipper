@@ -1,5 +1,5 @@
 # Use an official R runtime as a parent image
-FROM r-base:latest
+FROM r-base:4.2.3
 
 # Install system libraries
 RUN apt-get update && apt-get install -y \

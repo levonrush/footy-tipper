@@ -1,31 +1,26 @@
 ### The Footy Tipper Pipeline ###
 
-# define where the pipeline lives
+# Load 'here' package and set project directory
 library(here)
 i_am("footy-tipper.R")
 
-# find and load all the helper functions for the project and load them
+# Find and load helper functions from .R files in the pipeline directory
 pipeline_functions <- list.files(
     paste0(here(), "/pipeline"), pattern = "*.R$",
     full.names = TRUE, ignore.case = TRUE
 )
-
 sapply(pipeline_functions, source, .GlobalEnv)
 
-# define the paths to the notebooks
-data_prep_rmd <- paste0(here(), "/pipeline/data-prep/data-prep.Rmd")
+# Define paths to data-preparation script and model-training and send-predictions notebooks
+data_prep_r <- paste0(here(), "/pipeline/data-prep/data-prep.R")
 model_training_ipynb <- paste0(here(), "/pipeline/model-training/model-training.ipynb")
 send_predictions_ipynb <- paste0(here(), "/pipeline/use-predictions/send_predictions.ipynb")
 
-# Execute the data-prep.Rmd notebook
-rmarkdown::render(
-    data_prep_rmd,
-    output_format = NULL
-)
+# Run data-preparation script
+source(data_prep_r)
 
-# Execute the model-training.ipynb notebook
+# Convert and run model-training notebook
 system(paste("python -m nbconvert --to python --execute", model_training_ipynb))
 
-# Execute the use-predictions.Rmd notebook
+# Convert and run send-predictions notebook
 system(paste("python -m nbconvert --to python --execute", send_predictions_ipynb))
-
