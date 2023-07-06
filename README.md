@@ -12,6 +12,8 @@ Subsequent to the data preparation, the pipeline moves forward to the model deve
 
 Upon successful model training, the pipeline proceeds to the `send_predictions.ipynb` notebook in the 'use-predictions' folder. Here, the model's predictions are generated and uploaded to Google Drive. In a unique twist, an email synopsis, crafted in the persona of Reg Regan, is generated using OpenAI's language model. These predictions, embellished with Reg Regan's characteristic flair, are dispatched via automated emails, ensuring all recipients receive the latest forecasts with an enjoyable twist.
 
+In addition to the operational pipeline, Footy-Tipper also houses an extensive body of research that was integral to its development. This research, stored in the 'research' folder, encompasses various preliminary analyses, data explorations, and experimental model iterations. These research artifacts serve a dual purpose - they are a testament to the methodical process of building Footy-Tipper and also act as a resource for future enhancements. By maintaining transparency and retaining a rich record of the project's development journey, we ensure that Footy-Tipper remains open to continuous evolution and improvement, driven by the latest advances in predictive analytics and machine learning research.
+
 Throughout this pipeline, SQL plays a vital role in data management and transition across various platforms and environments. Furthermore, Docker encapsulates the entire pipeline, ensuring portability and facilitating easy deployment. In essence, the synergy of R, Python, SQL, and Docker, coupled with the entertaining narrative of Reg Regan, coalesce to create the compelling prediction engine that is Footy-Tipper.
 
 ## Prerequisites
