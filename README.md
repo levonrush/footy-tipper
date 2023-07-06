@@ -6,7 +6,13 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 
 ## How it Works
 
-Footy-Tipper leverages freely available NRL data, performs data cleaning, and feature engineering in R to investigate and understand Rugby League behaviors. Python, being versatile and having a rich set of libraries for machine learning, data manipulation, and interacting with APIs, is employed for constructing predictive models, generating and uploading predictions to Google Drive, generating game synopsis using OpenAI, and sending out automated emails with game predictions. SQL plays an integral role in managing and transferring data between different platforms and environments. The synergy of these technologies results in a powerful prediction engine. The pipeline of the project is wrapped in a Docker container for portability and ease of deployment.
+Footy-Tipper operates by harnessing freely available NRL data and implementing a series of scripts and notebooks in a systematic pipeline. The journey commences with the `data-prep.R` script, situated in the 'data-prep' folder. This script is charged with data cleaning and feature engineering, furthering our grasp of Rugby League behaviors.
+
+Subsequent to the data preparation, the pipeline moves forward to the model development phase. This is executed in the `model-training.ipynb` notebook situated in the 'model-training' folder. Python, renowned for its flexibility and extensive suite of machine learning libraries, is utilized for constructing robust predictive models from the preprocessed data.
+
+Upon successful model training, the pipeline proceeds to the `send_predictions.ipynb` notebook in the 'use-predictions' folder. Here, the model's predictions are generated and uploaded to Google Drive. In a unique twist, an email synopsis, crafted in the persona of Reg Regan, is generated using OpenAI's language model. These predictions, embellished with Reg Regan's characteristic flair, are dispatched via automated emails, ensuring all recipients receive the latest forecasts with an enjoyable twist.
+
+Throughout this pipeline, SQL plays a vital role in data management and transition across various platforms and environments. Furthermore, Docker encapsulates the entire pipeline, ensuring portability and facilitating easy deployment. In essence, the synergy of R, Python, SQL, and Docker, coupled with the entertaining narrative of Reg Regan, coalesce to create the compelling prediction engine that is Footy-Tipper.
 
 ## Prerequisites
 
