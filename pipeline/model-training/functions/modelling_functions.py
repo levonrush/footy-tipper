@@ -5,6 +5,8 @@ from sklearn.model_selection import StratifiedKFold, GridSearchCV
 from sklearn.metrics import accuracy_score, make_scorer, roc_auc_score, f1_score
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.utils import class_weight
+from sklearn_genetic import GASearchCV, GAFeatureSelectionCV
+from sklearn_genetic.space import Continuous, Categorical, Integer
 
 # Other libraries
 import xgboost as xgb
@@ -60,7 +62,7 @@ def one_hot_encode_and_split(data, predictors, outcome_var):
 
 # This function performs Recursive Feature Elimination (RFE) using cross-validation on the training set.
 # The goal of RFE is to select features by recursively considering smaller and smaller sets of features.
-def perform_rfe(estimator, X, y, num_folds, opt_metric):
+def feature_selection(estimator, X, y, num_folds, opt_metric):
 
     # Scoring metric
     if opt_metric == 'ROC':
@@ -70,17 +72,37 @@ def perform_rfe(estimator, X, y, num_folds, opt_metric):
     else:
         scoring = 'accuracy'
 
+    cv=StratifiedKFold(num_folds)
+
     # Recursive Feature Elimination with cross-validation
-    rfecv = RFECV(estimator=estimator, step=1, n_jobs=-1, cv=StratifiedKFold(num_folds), scoring=scoring)
+    rfecv = RFECV(estimator=estimator, step=1, n_jobs=-1, cv=cv, scoring=scoring)
     rfecv.fit(X, y)
 
     # Optimal set of predictors (one-hot encoded)
     optimal_features = np.array(X.columns)[rfecv.support_]
 
+    # evolved_estimator = GAFeatureSelectionCV(
+    #     estimator=estimator,
+    #     cv=cv,
+    #     scoring=scoring,
+    #     population_size=30,
+    #     generations=40,
+    #     n_jobs=-1,
+    #     verbose=False,
+    #     keep_top_k=2,
+    #     elitism=True,
+    # )
+
+    # # Fit the model to your data
+    # evolved_estimator.fit(X, y)
+
+    # Optimal set of predictors (one-hot encoded)
+    # optimal_features = np.array(X.columns)[evolved_estimator.support_]
+
     # Return the one-hot encoded data and the optimal features
     return X, y, optimal_features
 
-# This function performs hyperparameter tuning using Grid Search and Cross Validation on the training set.
+# This function performs hyperparameter tuning using Genetic Search and Cross Validation on the training set.
 # The function takes as input the machine learning estimator, parameter grid, training set, optimal features 
 # obtained from RFE, number of folds for cross-validation, the optimization metric, and a seed for random state.
 def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5, opt_metric='ROC', seed=69):
@@ -96,27 +118,49 @@ def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5,
     # Select only the optimal features from X
     X_optimal = X[optimal_features]
 
-    # Grid Search with cross-validation
-    cv = GridSearchCV(estimator, param_grid, cv=StratifiedKFold(num_folds), scoring=scoring, verbose=1, n_jobs=-1)
-    cv.fit(X_optimal, y)
+    cv = StratifiedKFold(n_splits=num_folds, shuffle=True)
+
+    # Genetic Search with cross-validation    
+    evolved_estimator = GASearchCV(
+        estimator=estimator,
+        cv=cv,
+        scoring=scoring,
+        population_size=10,
+        generations=100,
+        tournament_size=3,
+        elitism=True,
+        crossover_probability=0.8,
+        mutation_probability=0.1,
+        param_grid=param_grid,
+        criteria='max',
+        algorithm='eaMuPlusLambda',
+        n_jobs=-1,
+        verbose=False,
+        keep_top_k=4
+    )
+    
+    evolved_estimator.fit(X_optimal, y)
     
     # Print results
-    print(cv.best_params_)
-    print(cv.best_score_)
+    print(evolved_estimator.best_params_)
+    print(evolved_estimator.best_score_)
 
-    return cv
+    return evolved_estimator
 
 # This function is a pipeline for training a machine learning model. 
 # It first one-hot encodes and splits the data, performs Recursive Feature Elimination (if specified), 
 # and then trains and tunes the model.
 def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, use_rfe=False, num_folds=5, opt_metric='ROC', seed=69):
+
+    print(f"Training model: {type(estimator).__name__}")
     
     # Step 1: One-hot encode and split the dataset
     X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference = one_hot_encode_and_split(data, predictors, outcome_var)
     
     # Step 2: Perform Recursive Feature Elimination (RFE) if required
     if use_rfe:
-        _, _, optimal_features = perform_rfe(estimator, X_train, y_train, num_folds, opt_metric)
+        _, _, optimal_features = feature_selection(estimator, X_train, y_train, num_folds, opt_metric)
+        print(f"Number of features selected: {len(optimal_features)} out of {len(updated_predictors)}")
     else:
         optimal_features = updated_predictors
     
@@ -132,29 +176,29 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
     # Define your models and parameter grids
     models_and_params = [
         (xgb.XGBClassifier(n_jobs=-1), {
-            'n_estimators': [50, 100, 200],
-            'learning_rate': [0.01, 0.1, 0.2],
-            'max_depth': [3, 4, 5],
-            'subsample': [0.8, 0.9, 1.0],
-            'colsample_bytree': [0.3, 0.5, 0.7],
-            'gamma': [0, 0.1, 0.2]
+            'n_estimators': Integer(50, 250),
+            'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
+            'max_depth': Integer(3, 5),
+            'subsample': Continuous(0.8, 1.0, distribution='uniform'),
+            'colsample_bytree': Continuous(0.3, 0.7, distribution='uniform'),
+            'gamma': Continuous(0, 0.2, distribution='uniform'),
         }),
         (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
-            'n_estimators': [50, 100, 200],
-            'max_features': ['sqrt', 'log2'],
-            'max_depth': [None, 10, 20, 30],
-            'min_samples_split': [2, 5, 10],
-            'min_samples_leaf': [1, 2, 4],
-            'bootstrap': [True, False]
+            'n_estimators': Integer(50, 250),
+            'max_features': Categorical(['sqrt', 'log2']),
+            'max_depth': Integer(10, 30),
+            'min_samples_split': Integer(2, 10),
+            'min_samples_leaf': Integer(1, 4),
+            'bootstrap': Categorical([True, False]),
         }),
         (GradientBoostingClassifier(), {
-            'n_estimators': [50, 100, 200],
-            'learning_rate': [0.01, 0.1, 0.2],
-            'max_depth': [3, 4, 5],
-            'min_samples_split': [2, 5, 10],
-            'min_samples_leaf': [1, 2, 4],
-            'subsample': [0.8, 0.9, 1.0],
-            'max_features': ['sqrt', 'log2']
+            'n_estimators': Integer(50, 250),
+            'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
+            'max_depth': Integer(3, 5),
+            'min_samples_split': Integer(2, 10),
+            'min_samples_leaf': Integer(1, 4),
+            'subsample': Continuous(0.8, 1.0, distribution='uniform'),
+            'max_features': Categorical(['sqrt', 'log2']),
         })
     ]
     
@@ -175,14 +219,15 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
         
         # Assume the `X_inference` is your validation dataset (X_valid) for evaluation
         # Calculate the score using the desired metric (e.g., accuracy, f1-score, etc.)
-        y_pred = tuned_model.predict(X_inference) # Change this line if it doesn't fit your structure
-        score = 0
-        if opt_metric == 'accuracy':
-            score = accuracy_score(y_valid, y_pred) # You'll need to define y_valid
-        elif opt_metric == 'f1_score':
-            score = f1_score(y_valid, y_pred, average='weighted') # You'll need to define y_valid
-        elif opt_metric == 'roc_auc':
-            score = roc_auc_score(y_valid, y_pred) # You'll need to define y_valid
+        #y_pred = tuned_model.predict(X_inference) # Change this line if it doesn't fit your structure
+        # score = 0
+        score = tuned_model.best_score_
+        # if opt_metric == 'accuracy':
+        #     score = accuracy_score(y_valid, y_pred) # You'll need to define y_valid
+        # elif opt_metric == 'f1_score':
+        #     score = f1_score(y_valid, y_pred, average='weighted') # You'll need to define y_valid
+        # elif opt_metric == 'roc_auc':
+        #     score = roc_auc_score(y_valid, y_pred) # You'll need to define y_valid
         
         # Update best_model, best_score, etc.
         if score > best_score:
