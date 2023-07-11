@@ -216,19 +216,9 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             use_rfe=use_rfe, num_folds=num_folds,
             opt_metric=opt_metric
         )
-        
-        # Assume the `X_inference` is your validation dataset (X_valid) for evaluation
-        # Calculate the score using the desired metric (e.g., accuracy, f1-score, etc.)
-        #y_pred = tuned_model.predict(X_inference) # Change this line if it doesn't fit your structure
-        # score = 0
+
         score = tuned_model.best_score_
-        # if opt_metric == 'accuracy':
-        #     score = accuracy_score(y_valid, y_pred) # You'll need to define y_valid
-        # elif opt_metric == 'f1_score':
-        #     score = f1_score(y_valid, y_pred, average='weighted') # You'll need to define y_valid
-        # elif opt_metric == 'roc_auc':
-        #     score = roc_auc_score(y_valid, y_pred) # You'll need to define y_valid
-        
+
         # Update best_model, best_score, etc.
         if score > best_score:
             best_model = tuned_model
