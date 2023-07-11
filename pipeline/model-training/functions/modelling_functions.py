@@ -1,11 +1,11 @@
 # sklearn
 from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_selection import RFECV
-from sklearn.model_selection import StratifiedKFold, GridSearchCV
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score, make_scorer, roc_auc_score, f1_score
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.utils import class_weight
-from sklearn_genetic import GASearchCV, GAFeatureSelectionCV
+from sklearn_genetic import GASearchCV
 from sklearn_genetic.space import Continuous, Categorical, Integer
 
 # Other libraries
@@ -81,24 +81,6 @@ def feature_selection(estimator, X, y, num_folds, opt_metric):
     # Optimal set of predictors (one-hot encoded)
     optimal_features = np.array(X.columns)[rfecv.support_]
 
-    # evolved_estimator = GAFeatureSelectionCV(
-    #     estimator=estimator,
-    #     cv=cv,
-    #     scoring=scoring,
-    #     population_size=30,
-    #     generations=40,
-    #     n_jobs=-1,
-    #     verbose=False,
-    #     keep_top_k=2,
-    #     elitism=True,
-    # )
-
-    # # Fit the model to your data
-    # evolved_estimator.fit(X, y)
-
-    # Optimal set of predictors (one-hot encoded)
-    # optimal_features = np.array(X.columns)[evolved_estimator.support_]
-
     # Return the one-hot encoded data and the optimal features
     return X, y, optimal_features
 
@@ -119,24 +101,24 @@ def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5,
     X_optimal = X[optimal_features]
 
     cv = StratifiedKFold(n_splits=num_folds, shuffle=True)
-
+   
     # Genetic Search with cross-validation    
     evolved_estimator = GASearchCV(
         estimator=estimator,
         cv=cv,
         scoring=scoring,
-        population_size=10,
-        generations=100,
-        tournament_size=3,
+        population_size=20,
+        generations=200,
+        tournament_size=5,
         elitism=True,
-        crossover_probability=0.8,
-        mutation_probability=0.1,
+        crossover_probability=0.7,
+        mutation_probability=0.3,
         param_grid=param_grid,
         criteria='max',
         algorithm='eaMuPlusLambda',
         n_jobs=-1,
         verbose=False,
-        keep_top_k=4
+        keep_top_k=5
     )
     
     evolved_estimator.fit(X_optimal, y)
