@@ -12,6 +12,8 @@ data_prep_functions <- list.files(
 # Source each function into the Global Environment for use
 sapply(data_prep_functions, source, .GlobalEnv)
 
+load_dot_env(paste0(here(), "/secrets.env"))
+
 # Run the data pipeline function (defined in one of the helper files) with specified parameters
 footy_tipping_data <- data_pipeline(
     year_span, pipeline = "binomial",

@@ -37,7 +37,7 @@ predictors = [
     , "home_win_rate_home"         
     , "home_draw_rate_home"
     , "home_loss_rate_home"
-    , "away_win_rate_home"         
+    , "away_win_rate_home"
     , "away_loss_rate_home"
     , "avg_tries_for_home"
     , "avg_tries_conceded_home"    
