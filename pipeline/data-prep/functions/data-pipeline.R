@@ -23,4 +23,3 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
     return(footy_tipping_data)
 
 }
-
