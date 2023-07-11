@@ -1,5 +1,5 @@
 # training params
-opt_metric = "accuracy" # ROC, F1 or accuracy
+opt_metric = "accuracy" # ROC, f1 or accuracy
 num_folds = 5
 use_rfe = True
 

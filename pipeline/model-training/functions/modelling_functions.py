@@ -9,6 +9,7 @@ from sklearn_genetic import GASearchCV, GAFeatureSelectionCV
 from sklearn_genetic.space import Continuous, Categorical, Integer
 
 # Other libraries
+from catboost import CatBoostClassifier
 import xgboost as xgb
 import pandas as pd
 import numpy as np
@@ -18,13 +19,17 @@ import numpy as np
 # The function also extracts game_id for the inference set.
 def one_hot_encode_and_split(data, predictors, outcome_var):
 
-    # One hot encode categorical variables
+    # Copy the predictors into X
     X = data[predictors].copy()
-    object_columns = X.select_dtypes(include=['object']).columns
-    X = pd.get_dummies(X, columns=object_columns)
-    
+
+    # Indicate which features are categorical
+    categorical_features = X.select_dtypes(include=['object']).columns
+
+    # One hot encode categorical variables
+    X_encoded = pd.get_dummies(X, columns=categorical_features)
+
     # Getting updated predictors
-    updated_predictors = X.columns.tolist()
+    updated_predictors = X_encoded.columns.tolist()
 
     # Encode the label if it's a categorical variable
     y = data[outcome_var].copy()
@@ -57,8 +62,8 @@ def one_hot_encode_and_split(data, predictors, outcome_var):
     # Extract game_id for the inference set
     game_id_inference = data.loc[X_inference.index, 'game_id']
 
-    # Return game_id_inference as well
-    return X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference
+    # Return both versions of X (encoded and not), as well as categorical features
+    return X, X_encoded, y_train, X_inference, updated_predictors, predictors, label_encoder, game_id_inference, categorical_features
 
 # This function performs Recursive Feature Elimination (RFE) using cross-validation on the training set.
 # The goal of RFE is to select features by recursively considering smaller and smaller sets of features.
@@ -67,7 +72,7 @@ def feature_selection(estimator, X, y, num_folds, opt_metric):
     # Scoring metric
     if opt_metric == 'ROC':
         scoring = make_scorer(roc_auc_score, multi_class="ovr", needs_proba=True)
-    elif opt_metric == 'F1':
+    elif opt_metric == 'f1':
         scoring = 'f1'
     else:
         scoring = 'accuracy'
@@ -155,17 +160,27 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
     print(f"Training model: {type(estimator).__name__}")
     
     # Step 1: One-hot encode and split the dataset
-    X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference = one_hot_encode_and_split(data, predictors, outcome_var)
+    X, X_encoded, y_train, X_inference, updated_predictors, predictors, label_encoder, game_id_inference, categorical_features = one_hot_encode_and_split(data, predictors, outcome_var)
     
+    # Convert categorical_features into their indices
+    categorical_features_indices = [X.columns.get_loc(c) for c in categorical_features if c in X]
+
     # Step 2: Perform Recursive Feature Elimination (RFE) if required
     if use_rfe:
-        _, _, optimal_features = feature_selection(estimator, X_train, y_train, num_folds, opt_metric)
-        print(f"Number of features selected: {len(optimal_features)} out of {len(updated_predictors)}")
+        if isinstance(estimator, CatBoostClassifier):
+            _, _, optimal_features = feature_selection(estimator, X, y_train, num_folds, opt_metric)
+        else:
+            _, _, optimal_features = feature_selection(estimator, X_encoded, y_train, num_folds, opt_metric)
+        print(f"Number of features selected: {len(optimal_features)} out of {len(predictors)}")
     else:
-        optimal_features = updated_predictors
+        optimal_features = updated_predictors if not isinstance(estimator, CatBoostClassifier) else predictors
     
     # Step 3: Hyperparameter tuning
-    tuned_model = train_tune_model(estimator, param_grid, X_train, y_train, optimal_features, num_folds, opt_metric, seed)
+    if isinstance(estimator, CatBoostClassifier):  # add this condition
+        param_grid['cat_features'] = [categorical_features_indices]
+        tuned_model = train_tune_model(estimator, param_grid, X, y_train, optimal_features, num_folds, opt_metric, seed)
+    else:
+        tuned_model = train_tune_model(estimator, param_grid, X_encoded, y_train, optimal_features, num_folds, opt_metric, seed)
     
     # Return tuned model as well as X_inference and label encoder for making predictions
     return tuned_model, X_inference[optimal_features], label_encoder, game_id_inference
@@ -175,6 +190,15 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
 def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_folds, opt_metric):
     # Define your models and parameter grids
     models_and_params = [
+        (CatBoostClassifier(thread_count=-1), {
+            'depth': Integer(4, 10),
+            'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
+            'iterations': Integer(50, 300),
+            'l2_leaf_reg': Integer(2, 30),
+            'border_count': Integer(32, 255),
+            'ctr_border_count': Integer(50, 255),
+            'thread_count': Categorical([4])
+        }),
         (xgb.XGBClassifier(n_jobs=-1), {
             'n_estimators': Integer(50, 250),
             'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
@@ -199,7 +223,7 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             'min_samples_leaf': Integer(1, 4),
             'subsample': Continuous(0.8, 1.0, distribution='uniform'),
             'max_features': Categorical(['sqrt', 'log2']),
-        })
+        }),
     ]
     
     best_model = None
@@ -217,17 +241,7 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             opt_metric=opt_metric
         )
         
-        # Assume the `X_inference` is your validation dataset (X_valid) for evaluation
-        # Calculate the score using the desired metric (e.g., accuracy, f1-score, etc.)
-        #y_pred = tuned_model.predict(X_inference) # Change this line if it doesn't fit your structure
-        # score = 0
         score = tuned_model.best_score_
-        # if opt_metric == 'accuracy':
-        #     score = accuracy_score(y_valid, y_pred) # You'll need to define y_valid
-        # elif opt_metric == 'f1_score':
-        #     score = f1_score(y_valid, y_pred, average='weighted') # You'll need to define y_valid
-        # elif opt_metric == 'roc_auc':
-        #     score = roc_auc_score(y_valid, y_pred) # You'll need to define y_valid
         
         # Update best_model, best_score, etc.
         if score > best_score:
