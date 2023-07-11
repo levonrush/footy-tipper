@@ -16,6 +16,7 @@ pkg <- c(
   , "tibble"
   , "RSQLite"
   , "DBI"
+  , "dotenv"
 )
 
 # Function to load packages

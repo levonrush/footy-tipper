@@ -35,12 +35,13 @@ elo_variables <- function(data, marg.max = 80, marg.min = -80, carry_over, k_val
                            win_loss_draw = elo_model$elos[,4]) %>%
     mutate(prob_bucket = abs(round((win_prob)*20)) / 20) %>%
     group_by(prob_bucket) %>%
-    summarise(draw_prob = sum(ifelse(win_loss_draw == 0.5, 1, 0)) / n())
+    summarise(elo_draw_prob = sum(ifelse(win_loss_draw == 0.5, 1, 0)) / n())
   
   # Adding ELO scores and probabilities to the original data
   data <- data %>%
     mutate(home_elo = elo_results$elo.A - elo_results$update.A,
            away_elo = elo_results$elo.B - elo_results$update.B,
+           elo_diff = home_elo - away_elo,
            home_elo_prob = elo_results$p.A,
            away_elo_prob = 1 - home_elo_prob) %>%
     mutate(prob_bucket = round(20*home_elo_prob)/20) %>% # Creating buckets of probabilities
@@ -49,8 +50,9 @@ elo_variables <- function(data, marg.max = 80, marg.min = -80, carry_over, k_val
   
   # Adjusting home and away ELO probabilities based on the draw probability
   data <- data %>% 
-    mutate(home_elo_prob = home_elo_prob - home_elo_prob * draw_prob,
-           away_elo_prob = away_elo_prob - away_elo_prob * draw_prob)
+    mutate(home_elo_prob = home_elo_prob - home_elo_prob * elo_draw_prob,
+           away_elo_prob = away_elo_prob - away_elo_prob * elo_draw_prob,
+           elo_prob_diff = home_elo_prob - away_elo_prob)
   
   return(data)
   

@@ -30,12 +30,14 @@ fixture_result <- function(data, pipeline){
         TRUE                                          ~ "Draw") %>% as.factor())
     
     data <- data %>% 
-      mutate(home_result = case_when(team_final_score_home > team_final_score_away ~ 1,  # win for home team
-                                     team_final_score_home < team_final_score_away ~ 0,  # loss for home team
-                                     team_final_score_home == team_final_score_away ~ 0.5),  # draw
-             away_result = case_when(team_final_score_home < team_final_score_away ~ 1,  # win for away team
-                                     team_final_score_home > team_final_score_away ~ 0,  # loss for away team
-                                     team_final_score_home == team_final_score_away ~ 0.5),  # draw
+      mutate(home_result = case_when(
+              team_final_score_home > team_final_score_away ~ 1,  # win for home team
+              team_final_score_home < team_final_score_away ~ 0,  # loss for home team
+              team_final_score_home == team_final_score_away ~ 0.5),  # draw
+             away_result = case_when(
+              team_final_score_home < team_final_score_away ~ 1,  # win for away team
+              team_final_score_home > team_final_score_away ~ 0,  # loss for away team
+              team_final_score_home == team_final_score_away ~ 0.5),  # draw
              margin = abs(team_final_score_home - team_final_score_away))  # absolute margin of the game
     
   }
@@ -77,7 +79,7 @@ state_of_origin <- function(data){
   
   data <- data %>%
     mutate(state_of_origin = ifelse(str_detect(round_name, "Round") & n() <= 5, 1, 0))  # If the round name contains "Round" and there are 5 or less records, set state_of_origin to 1, else 0
-  
+
   return(data)  # Return the modified dataset
 }
 
@@ -92,8 +94,26 @@ easy_pickings <- function(data){
            # Extract the start hour of the game from the start_time column
            start_hour = hour(start_time),
            # Determine the day of the week the game is played on
-           game_day = weekdays(as.Date(start_time)) %>% as.factor())
-  
+           game_day = weekdays(as.Date(start_time)) %>% as.factor(),
+           # Find differences between average stats as variables
+           punt_odds_diff = (1/team_head_to_head_odds_home) - (1/team_head_to_head_odds_away),
+           line_amount_diff = team_line_amount_home - team_line_amount_away,
+           recent_form_diff = recent_form_home - recent_form_away,
+           win_rate_diff = win_rate_home - win_rate_away,
+           loss_rate_diff = loss_rate_home - loss_rate_away,
+           draw_rate_diff = loss_rate_home - loss_rate_away,
+           players_used_diff = players_used_home - players_used_away,
+           average_winning_margin_diff = average_winning_margin_home - average_winning_margin_away,
+           average_losing_margin_diff = average_losing_margin_home - average_losing_margin_away,
+           competition_point_rate_diff = competition_point_rate_home - competition_point_rate_away,
+           avg_points_for_diff = avg_points_for_home - avg_points_for_away,
+           avg_points_against_diff = avg_points_against_home - avg_points_against_away,
+           avg_points_difference_diff = avg_points_difference_home - avg_points_difference_away,
+           avg_tries_for_diff = avg_tries_for_home - avg_tries_for_away,
+           avg_tries_conceded_diff = avg_tries_conceded_home - avg_tries_conceded_away,
+           close_game_rate_diff = close_game_rate_home - close_game_rate_away
+           )
+
   # Return the modified dataset
   return(data)
   
