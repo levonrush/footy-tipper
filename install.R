@@ -21,6 +21,7 @@ packages <- c(
   , "tibble"
   , "RSQLite"
   , "DBI"
+  , "dotenv"
 )
 
 install_if_missing <- function(package){

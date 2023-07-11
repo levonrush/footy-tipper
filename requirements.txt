@@ -14,3 +14,4 @@ google-api-python-client
 openai
 langchain
 oauth2client
+sklearn-genetic-opt
