@@ -87,7 +87,9 @@ def feature_selection(estimator, X, y, num_folds, opt_metric):
 # This function performs hyperparameter tuning using Genetic Search and Cross Validation on the training set.
 # The function takes as input the machine learning estimator, parameter grid, training set, optimal features 
 # obtained from RFE, number of folds for cross-validation, the optimization metric, and a seed for random state.
-def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5, opt_metric='ROC', seed=69):
+from sklearn.feature_selection import RFECV
+
+def train_tune_model(estimator, param_grid, X, y, num_folds=5, opt_metric='ROC', seed=69):
     
     # Scoring metric
     if opt_metric == 'ROC':
@@ -97,9 +99,6 @@ def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5,
     else:
         scoring = 'accuracy'
 
-    # Select only the optimal features from X
-    X_optimal = X[optimal_features]
-
     cv = StratifiedKFold(n_splits=num_folds, shuffle=True)
    
     # Genetic Search with cross-validation    
@@ -108,7 +107,7 @@ def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5,
         cv=cv,
         scoring=scoring,
         population_size=20,
-        generations=200,
+        generations=100,
         tournament_size=5,
         elitism=True,
         crossover_probability=0.7,
@@ -121,40 +120,46 @@ def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5,
         keep_top_k=5
     )
     
-    evolved_estimator.fit(X_optimal, y)
+    # Recursive Feature Elimination with Cross-Validation
+    selector = RFECV(evolved_estimator, step=1, cv=cv, scoring=scoring, n_jobs=-1)
+    selector.fit(X, y)
     
+    # Refit GASearchCV with selected features
+    X_selected = X[:, selector.support_]
+    evolved_estimator.fit(X_selected, y)
+
     # Print results
+    print(selector.support_)  # Mask of selected features
+    print(selector.ranking_)  # Feature ranking, 1 means selected
+    print(selector.grid_scores_)  # CV scores for each feature set size
     print(evolved_estimator.best_params_)
     print(evolved_estimator.best_score_)
 
-    return evolved_estimator
+    return selector, evolved_estimator
 
 # This function is a pipeline for training a machine learning model. 
 # It first one-hot encodes and splits the data, performs Recursive Feature Elimination (if specified), 
 # and then trains and tunes the model.
-def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, use_rfe=False, num_folds=5, opt_metric='ROC', seed=69):
+def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, num_folds=5, opt_metric='ROC', seed=69):
 
     print(f"Training model: {type(estimator).__name__}")
     
     # Step 1: One-hot encode and split the dataset
     X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference = one_hot_encode_and_split(data, predictors, outcome_var)
     
-    # Step 2: Perform Recursive Feature Elimination (RFE) if required
-    if use_rfe:
-        _, _, optimal_features = feature_selection(estimator, X_train, y_train, num_folds, opt_metric)
-        print(f"Number of features selected: {len(optimal_features)} out of {len(updated_predictors)}")
-    else:
-        optimal_features = updated_predictors
-    
-    # Step 3: Hyperparameter tuning
-    tuned_model = train_tune_model(estimator, param_grid, X_train, y_train, optimal_features, num_folds, opt_metric, seed)
+    # Step 2: Feature selection and hyperparameter tuning
+    selector, tuned_model = train_tune_model(estimator, param_grid, X_train, y_train, num_folds, opt_metric, seed)
+    print(f"Number of features selected: {sum(selector.support_)} out of {len(updated_predictors)}")
+
+    # Transform inference data using the RFECV selector
+    X_inference = selector.transform(X_inference)
     
     # Return tuned model as well as X_inference and label encoder for making predictions
-    return tuned_model, X_inference[optimal_features], label_encoder, game_id_inference
+    return tuned_model, X_inference, label_encoder, game_id_inference
 
 # This function trains and tunes multiple models specified in 'models_and_params' 
 # and selects the best model based on the specified optimization metric.
-def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_folds, opt_metric):
+def train_and_select_best_model(data, predictors, outcome_var, num_folds, opt_metric):
     # Define your models and parameter grids
     models_and_params = [
         (xgb.XGBClassifier(n_jobs=-1), {
@@ -165,23 +170,23 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             'colsample_bytree': Continuous(0.3, 0.7, distribution='uniform'),
             'gamma': Continuous(0, 0.2, distribution='uniform'),
         }),
-        (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
-            'n_estimators': Integer(50, 250),
-            'max_features': Categorical(['sqrt', 'log2']),
-            'max_depth': Integer(10, 30),
-            'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 4),
-            'bootstrap': Categorical([True, False]),
-        }),
-        (GradientBoostingClassifier(), {
-            'n_estimators': Integer(50, 250),
-            'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
-            'max_depth': Integer(3, 5),
-            'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 4),
-            'subsample': Continuous(0.8, 1.0, distribution='uniform'),
-            'max_features': Categorical(['sqrt', 'log2']),
-        })
+        # (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
+        #     'n_estimators': Integer(50, 250),
+        #     'max_features': Categorical(['sqrt', 'log2']),
+        #     'max_depth': Integer(10, 30),
+        #     'min_samples_split': Integer(2, 10),
+        #     'min_samples_leaf': Integer(1, 4),
+        #     'bootstrap': Categorical([True, False]),
+        # }),
+        # (GradientBoostingClassifier(), {
+        #     'n_estimators': Integer(50, 250),
+        #     'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
+        #     'max_depth': Integer(3, 5),
+        #     'min_samples_split': Integer(2, 10),
+        #     'min_samples_leaf': Integer(1, 4),
+        #     'subsample': Continuous(0.8, 1.0, distribution='uniform'),
+        #     'max_features': Categorical(['sqrt', 'log2']),
+        # })
     ]
     
     best_model = None
@@ -194,8 +199,8 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
     for estimator, param_grid in models_and_params:
         tuned_model, X_inference, label_encoder, game_id_inference = train_model_pipeline(
             data, predictors, outcome_var,
-            estimator, param_grid,
-            use_rfe=use_rfe, num_folds=num_folds,
+            estimator, param_grid, 
+            num_folds=num_folds,
             opt_metric=opt_metric
         )
 
