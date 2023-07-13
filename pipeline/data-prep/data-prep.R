@@ -15,17 +15,24 @@ sapply(data_prep_functions, source, .GlobalEnv)
 load_dot_env(paste0(here(), "/secrets.env"))
 
 # Run the data pipeline function (defined in one of the helper files) with specified parameters
-footy_tipping_data <- data_pipeline(
+pipeline_data <- data_pipeline(
     year_span, pipeline = "binomial",
     form_period, carry_over, k_val, elo_init
 )
 
+# Separate the datasets from the pipeline
+footy_tipping_data <- pipeline_data[["footy_tipping_data"]]
+training_data <- pipeline_data[["training_data"]]
+inference_data <- pipeline_data[["inference_data"]]
+
 # Connect to the SQLite database located in '/data/footy-tipper-db.sqlite'
 con <- dbConnect(SQLite(), paste0(here(), "/data/footy-tipper-db.sqlite"))
 
-# Write the processed data into the SQLite database as 'footy_tipping_data' table, 
+# Write the processed data into the SQLite database, 
 # overwrite the table if it already exists
 dbWriteTable(con, "footy_tipping_data", footy_tipping_data, overwrite = T)
+dbWriteTable(con, "training_data", training_data, overwrite = T)
+dbWriteTable(con, "inference_data", inference_data, overwrite = T)
 
 # Disconnect from the SQLite database to ensure no other operations are unintentionally performed
 dbDisconnect(con)
