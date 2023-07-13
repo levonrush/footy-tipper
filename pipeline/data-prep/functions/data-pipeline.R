@@ -37,5 +37,5 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
     return(list(footy_tipping_data = footy_tipping_data,
                 training_data = training_data,
                 inference_data = inference_data))
-                
+
 }
