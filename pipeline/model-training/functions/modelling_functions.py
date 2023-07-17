@@ -13,9 +13,7 @@ import xgboost as xgb
 import pandas as pd
 import numpy as np
 
-# This function first one-hot encodes the categorical variables in the dataset. 
-# It then splits the dataset into training and inference datasets based on certain conditions.
-# The function also extracts game_id for the inference set.
+# This function first one-hot encodes the categorical variables in the dataset.
 def one_hot_encode_and_split(data, predictors, outcome_var):
 
     # One hot encode categorical variables
@@ -32,33 +30,8 @@ def one_hot_encode_and_split(data, predictors, outcome_var):
     if y.dtype == 'object':
         label_encoder = LabelEncoder()
         y = label_encoder.fit_transform(y)
-    
-    # Compute minimum competition_year
-    min_competition_year = data['competition_year'].min()
 
-    # Split the dataset into train and inference
-    train_mask = ((data['game_state_name'] == 'Final') & 
-                  (data['competition_year'] != min_competition_year) &
-                  (data['team_head_to_head_odds_away'].notna()))
-    
-    X_train = X[train_mask]
-    y_train = y[train_mask]
-
-    # Compute minimum round_id for the remaining set
-    remaining_set = data[data['game_state_name'] == 'Pre Game']
-    if not remaining_set.empty:
-        min_round_id = remaining_set['round_id'].min()
-        inference_mask = ((data['game_state_name'] == 'Pre Game') & 
-                          (data['round_id'] == min_round_id))
-        X_inference = X[inference_mask]
-    else:
-        X_inference = pd.DataFrame(columns=X.columns)  # empty DataFrame with same columns
-
-    # Extract game_id for the inference set
-    game_id_inference = data.loc[X_inference.index, 'game_id']
-
-    # Return game_id_inference as well
-    return X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference
+    return X, y, updated_predictors, label_encoder
 
 # This function performs Recursive Feature Elimination (RFE) using cross-validation on the training set.
 # The goal of RFE is to select features by recursively considering smaller and smaller sets of features.
@@ -107,9 +80,9 @@ def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5,
         estimator=estimator,
         cv=cv,
         scoring=scoring,
-        population_size=20,
-        generations=200,
-        tournament_size=5,
+        population_size=5,
+        generations=3,
+        tournament_size=2,
         elitism=True,
         crossover_probability=0.7,
         mutation_probability=0.3,
@@ -117,8 +90,8 @@ def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5,
         criteria='max',
         algorithm='eaMuPlusLambda',
         n_jobs=-1,
-        verbose=False,
-        keep_top_k=5
+        verbose=True,
+        keep_top_k=2
     )
     
     evolved_estimator.fit(X_optimal, y)
@@ -137,7 +110,7 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
     print(f"Training model: {type(estimator).__name__}")
     
     # Step 1: One-hot encode and split the dataset
-    X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference = one_hot_encode_and_split(data, predictors, outcome_var)
+    X_train, y_train, updated_predictors, label_encoder = one_hot_encode_and_split(data, predictors, outcome_var)
     
     # Step 2: Perform Recursive Feature Elimination (RFE) if required
     if use_rfe:
@@ -149,8 +122,8 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
     # Step 3: Hyperparameter tuning
     tuned_model = train_tune_model(estimator, param_grid, X_train, y_train, optimal_features, num_folds, opt_metric, seed)
     
-    # Return tuned model as well as X_inference and label encoder for making predictions
-    return tuned_model, X_inference[optimal_features], label_encoder, game_id_inference
+    # Return tuned model as well as label encoder for making predictions
+    return tuned_model, label_encoder
 
 # This function trains and tunes multiple models specified in 'models_and_params' 
 # and selects the best model based on the specified optimization metric.
@@ -158,41 +131,39 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
     # Define your models and parameter grids
     models_and_params = [
         (xgb.XGBClassifier(n_jobs=-1), {
-            'n_estimators': Integer(50, 250),
-            'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
-            'max_depth': Integer(3, 5),
+            'n_estimators': Integer(25, 250),
+            'learning_rate': Continuous(0.01, 0.5, distribution='uniform'),
+            'max_depth': Integer(2, 8),
             'subsample': Continuous(0.8, 1.0, distribution='uniform'),
             'colsample_bytree': Continuous(0.3, 0.7, distribution='uniform'),
-            'gamma': Continuous(0, 0.2, distribution='uniform'),
+            'gamma': Continuous(0, 0.5, distribution='uniform'),
         }),
-        (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
-            'n_estimators': Integer(50, 250),
-            'max_features': Categorical(['sqrt', 'log2']),
-            'max_depth': Integer(10, 30),
-            'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 4),
-            'bootstrap': Categorical([True, False]),
-        }),
-        (GradientBoostingClassifier(), {
-            'n_estimators': Integer(50, 250),
-            'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
-            'max_depth': Integer(3, 5),
-            'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 4),
-            'subsample': Continuous(0.8, 1.0, distribution='uniform'),
-            'max_features': Categorical(['sqrt', 'log2']),
-        })
+        # (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
+        #     'n_estimators': Integer(50, 250),
+        #     'max_features': Categorical(['sqrt', 'log2']),
+        #     'max_depth': Integer(10, 30),
+        #     'min_samples_split': Integer(2, 10),
+        #     'min_samples_leaf': Integer(1, 4),
+        #     'bootstrap': Categorical([True, False]),
+        # }),
+        # (GradientBoostingClassifier(), {
+        #     'n_estimators': Integer(50, 250),
+        #     'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
+        #     'max_depth': Integer(3, 5),
+        #     'min_samples_split': Integer(2, 10),
+        #     'min_samples_leaf': Integer(1, 4),
+        #     'subsample': Continuous(0.8, 1.0, distribution='uniform'),
+        #     'max_features': Categorical(['sqrt', 'log2']),
+        # })
     ]
     
     best_model = None
     best_score = -float('inf')
     best_label_encoder = None
-    best_X_inference = None
-    best_game_id_inference = None
     
     # Train each model and keep track of the best one
     for estimator, param_grid in models_and_params:
-        tuned_model, X_inference, label_encoder, game_id_inference = train_model_pipeline(
+        tuned_model, label_encoder = train_model_pipeline(
             data, predictors, outcome_var,
             estimator, param_grid,
             use_rfe=use_rfe, num_folds=num_folds,
@@ -206,36 +177,5 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             best_model = tuned_model
             best_score = score
             best_label_encoder = label_encoder
-            best_X_inference = X_inference
-            best_game_id_inference = game_id_inference
             
-    return best_model, best_X_inference, best_label_encoder, best_game_id_inference
-
-# This function takes as input a trained model, inference dataset, label encoder, and game_id for the inference set. 
-# It outputs the predictions made by the model on the inference set, and returns a dataframe with game_id, predicted outcome, 
-# and the probability estimates for each outcome.
-def model_predictions(tuned_model, X_inference, label_encoder, game_id_inference):
-    
-    # Make predictions
-    predictions = tuned_model.predict(X_inference)
-    
-    # Get probability estimates
-    probability_estimates = tuned_model.predict_proba(X_inference)
-
-    # Convert integer labels back to original class labels
-    original_class_labels = label_encoder.inverse_transform(predictions)
-
-    # Split probability estimates into separate columns
-    home_team_win_prob = probability_estimates[:, 1]
-    home_team_lose_prob = probability_estimates[:, 0]
-
-    # Create a DataFrame with the results
-    results = pd.DataFrame({
-        'game_id': game_id_inference.values,
-        'home_team_result': original_class_labels,
-        'home_team_win_prob': home_team_win_prob,
-        'home_team_lose_prob': home_team_lose_prob
-    })
-    
-    # Return the DataFrame
-    return results
+    return best_model, best_label_encoder
