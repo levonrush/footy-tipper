@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 
 def preprocess_inference_data(inference_data, predictors, label_encoder, optimal_features):
     # One hot encode categorical variables
@@ -15,16 +14,6 @@ def preprocess_inference_data(inference_data, predictors, label_encoder, optimal
 
     return X_infer
 
-# This is your inference data
-inference_data = ...
-
-# You'll need to use the 'optimal_features' variable which was returned from 'train_model_pipeline' or 'train_and_select_best_model' function
-optimal_features = best_model.best_estimator_.named_steps['columntransformer'].transformers_[1][1].named_steps['onehotencoder'].get_feature_names(input_features=categorical_columns)
-
-X_inference = preprocess_inference_data(inference_data, predictors, label_encoder, optimal_features)
-
-# Make predictions
-predictions = best_model.predict(X_inference)
 
 # # This function takes as input a trained model, inference dataset, label encoder, and game_id for the inference set. 
 # # It outputs the predictions made by the model on the inference set, and returns a dataframe with game_id, predicted outcome, 
