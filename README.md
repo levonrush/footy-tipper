@@ -50,9 +50,12 @@ Throughout these processes, SQL plays a vital role in data management and transi
 
 ### For Development and Debugging
 
-1. Open the project in R Studio or Visual Studio Code.
-2. Set the environment variables in a `.env` file or manually in your R session.
-3. Run the pipeline by executing `footy-tipper.R`.
+1. Open the project in your preferred code editor.
+2. If needed, set environment variables in a `.env` file or manually in your Python or R session.
+3. Run the `data-prep.R` script located in the 'data-prep' folder for data cleaning and feature engineering.
+4. For model building, open and execute the `model-training.ipynb` notebook situated in the 'model-training' folder.
+5. For model prediction, execute the `model-prediction.ipynb` notebook in the 'model-prediction' folder, followed by the `send_predictions.ipynb` notebook in the 'use-predictions' folder. The latter notebook sends out the model's predictions.
+6. If Docker is used, ensure to build and run the Docker image as necessary.
 
 ## Contributing
 
