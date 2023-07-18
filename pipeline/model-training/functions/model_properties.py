@@ -1,4 +1,5 @@
 import pandas as pd
+from sklearn.preprocessing import OneHotEncoder
 
 def get_feature_importance(pipeline, column_names):
     """

@@ -19,7 +19,7 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
       filter(competition_year != min(competition_year))
 
     # If use_odds is TRUE, then only rows where team_head_to_head_odds_away is not NA are filtered.
-    if (use_odds = TRUE) {
+    if (use_odds == TRUE) {
       footy_tipping_data <- footy_tipping_data %>%
         filter(!is.na(team_head_to_head_odds_away))
     } 
