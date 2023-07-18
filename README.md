@@ -57,6 +57,8 @@ Throughout these processes, SQL plays a vital role in data management and transi
 5. For model prediction, execute the `model-prediction.ipynb` notebook in the 'model-prediction' folder, followed by the `send_predictions.ipynb` notebook in the 'use-predictions' folder. The latter notebook sends out the model's predictions.
 6. If Docker is used, ensure to build and run the Docker image as necessary.
 
+Note: Ensure your Python and R environments have all necessary packages installed to run the scripts and notebooks.
+
 ## Contributing
 
 Footy-Tipper welcomes contributions from the community. Please check the issues section of the repository to see how you can contribute.
