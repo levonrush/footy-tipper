@@ -111,13 +111,13 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
         * Team = Team that is a good value pick
         * Price = what the bookies are offering them at
         
-        Could you write up an email to my mates from Reg Regan, giving them a synopsis of the round along with the tips? 
-        Accompany the tips with some smart arsed comments to about the teams playing.
+        Could you write up an email to my mates from Reg Reagan, giving them a synopsis of the round along with the tips? 
+        Accompany the tips with some smart arsed comments about the teams playing.
         Remember to link everyone to the tips folder: {folder_url}
         Also, tell everyone to bring back the biff at the end of the email.
-        Always sign off the email as Reg Regan.
+        Always sign off the email as Reg Reagan.
         """
-    
+
     # Use the AI model to generate the email content based on the prompt
     reg_regan = llm.predict(prompt)
 

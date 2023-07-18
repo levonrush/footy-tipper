@@ -1,45 +1,57 @@
+from joblib import load
+import dill as pickle
 import pandas as pd
 
-def preprocess_inference_data(inference_data, predictors, label_encoder, optimal_features):
-    # One hot encode categorical variables
-    X_infer = inference_data[predictors].copy()
-    object_columns = X_infer.select_dtypes(include=['object']).columns
-    X_infer = pd.get_dummies(X_infer, columns=object_columns)
+def load_models(project_root):
+    """
+    Load the LabelEncoder and Pipeline objects from files.
     
-    # Make sure inference data has the same columns as the training data
-    missing_cols = set(optimal_features) - set(X_infer.columns)
-    for c in missing_cols:
-        X_infer[c] = 0
-    X_infer = X_infer[optimal_features]
+    Args:
+        project_root (Path): The root path of the project.
+        
+    Returns:
+        label_encoder (LabelEncoder): The loaded LabelEncoder.
+        pipeline (Pipeline): The loaded Pipeline.
+    """
 
-    return X_infer
-
-
-# # This function takes as input a trained model, inference dataset, label encoder, and game_id for the inference set. 
-# # It outputs the predictions made by the model on the inference set, and returns a dataframe with game_id, predicted outcome, 
-# # and the probability estimates for each outcome.
-# def model_predictions(tuned_model, X_inference, label_encoder, game_id_inference):
+    # Load the LabelEncoder
+    label_encoder = load(project_root / "models" / 'label_encoder.pkl')
     
-#     # Make predictions
-#     predictions = tuned_model.predict(X_inference)
+    # Load the pipeline
+    with open(project_root / "models" / 'footy_tipper.pkl', 'rb') as f:
+        pipeline = pickle.load(f)
+        
+    return label_encoder, pipeline
+
+def model_predictions(pipeline, inference_data, label_encoder):
+    """
+    Make predictions using the trained model.
+
+    Args:
+        tuned_model (Pipeline): The trained model.
+        inference_data (DataFrame): The data to make predictions on.
+        label_encoder (LabelEncoder): The LabelEncoder object.
+
+    Returns:
+        results (DataFrame): The predictions and probability estimates.
+    """
     
-#     # Get probability estimates
-#     probability_estimates = tuned_model.predict_proba(X_inference)
+    # Make predictions
+    encoded_predictions = pipeline.predict(inference_data)
 
-#     # Convert integer labels back to original class labels
-#     original_class_labels = label_encoder.inverse_transform(predictions)
+    # Get probability estimates
+    probability_estimates = pipeline.predict_proba(inference_data)
 
-#     # Split probability estimates into separate columns
-#     home_team_win_prob = probability_estimates[:, 1]
-#     home_team_lose_prob = probability_estimates[:, 0]
+    # Reverse transform the predictions to get the original labels
+    predictions = label_encoder.inverse_transform(encoded_predictions)
 
-#     # Create a DataFrame with the results
-#     results = pd.DataFrame({
-#         'game_id': game_id_inference.values,
-#         'home_team_result': original_class_labels,
-#         'home_team_win_prob': home_team_win_prob,
-#         'home_team_lose_prob': home_team_lose_prob
-#     })
+    # Put everything into a DataFrame
+    results = pd.DataFrame({
+        'game_id': inference_data["game_id"],
+        'home_team_result': predictions,
+        'home_team_win_prob': probability_estimates[:, 1],
+        'home_team_lose_prob': probability_estimates[:, 0]
+    })
     
-#     # Return the DataFrame
-#     return results
+    # Return the DataFrame
+    return results

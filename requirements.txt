@@ -15,3 +15,4 @@ openai
 langchain
 oauth2client
 sklearn-genetic-opt
+dill
