@@ -1,9 +1,10 @@
 # data params
-year_span = 2012:2023
-form_period = 5
-pipeline = 'binomial'
+year_span <- 2012:2023
+form_period <- 5
+pipeline <- "binomial"
+use_odds <- TRUE
 
 # elo params
-elo_init = 1500
-k_val = 70
-carry_over = 0.5
+elo_init <- 1500
+k_val <- 70
+carry_over <- 0.5

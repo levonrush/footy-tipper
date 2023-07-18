@@ -1,4 +1,4 @@
-data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, elo_init) {
+data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, elo_init, use_odds) {
     
     # Step 1: Calling 'get_data' function to fetch data for the specified range of years.
     # Step 2: The fetched data is then passed to 'clean_data' function for data cleaning.
@@ -6,6 +6,7 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
     # Step 4: The data from the previous step is passed to 'feature_engineering' function for feature extraction and engineering.
     # Step 5: 'elo_variables' function is called with the data from previous step, carry_over, k_val and elo_init for ELO rating calculations.
     # Step 6: The resulting data is passed to 'home_ground_advantage' function to calculate the home ground advantage.
+    # Step 7: The resulting data is filtered to remove the first round of each competition.
     footy_tipping_data <- get_data(year_span = year_span) %>%
       clean_data() %>%
       fixture_result(pipeline = pipeline) %>%
@@ -14,14 +15,16 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
         carry_over = carry_over,
         k_val = k_val, elo_init = elo_init
       ) %>%
-      home_ground_advantage()
+      home_ground_advantage() %>%
+      filter(competition_year != min(competition_year))
 
-    # Removing rows where competition_year equals the minimum competition_year and where team_head_to_head_odds_away is NA.
-    footy_tipping_data <- footy_tipping_data %>%
-      filter(competition_year != min(competition_year),
-             !is.na(team_head_to_head_odds_away))
-
-    # Grouping the data by game_state_name, followed by splitting the grouped data into list.
+    # If use_odds is TRUE, then only rows where team_head_to_head_odds_away is not NA are filtered.
+    if (use_odds = TRUE) {
+      footy_tipping_data <- footy_tipping_data %>%
+        filter(!is.na(team_head_to_head_odds_away))
+    } 
+    
+    # The data is grouped by game_state_name and split into two lists.
     train_inference_split <- footy_tipping_data  %>%
       group_by(game_state_name) %>%
       group_split()
