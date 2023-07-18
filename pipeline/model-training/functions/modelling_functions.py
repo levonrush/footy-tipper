@@ -117,6 +117,18 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
     # Fit the pipeline
     pipeline.fit(X, y)
 
+    # Print the type of model that's been trained
+    print(f"\nModel trained: {type(estimator).__name__}")
+    
+    if use_rfe:
+        # Print the number of features selected
+        num_features_selected = pipeline.named_steps['feature_elimination'].n_features_
+        print(f"Number of features selected: {num_features_selected}")
+    
+    # Print the best parameters and best score
+    print(f"Best parameters: {pipeline.named_steps['hyperparamtuning'].best_params_}")
+    print(f"Best score: {pipeline.named_steps['hyperparamtuning'].best_score_}\n")
+
     return  le, pipeline
 
 
@@ -186,6 +198,10 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             best_pipeline = pipeline
             best_score = score
             best_label_encoder = label_encoder
+
+    # Print the best model and its score at the end
+    print(f"Best overall model: {type(best_pipeline.named_steps['hyperparamtuning'].estimator).__name__}")
+    print(f"Best overall score: {best_pipeline.named_steps['hyperparamtuning'].best_score_}")
             
     return best_pipeline, best_label_encoder
 
