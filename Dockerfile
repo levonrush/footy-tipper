@@ -36,8 +36,15 @@ RUN Rscript install.R
 # Make port 80 available to the world outside this container
 EXPOSE 80
 
-# when running in container set DOCKER variable to be trie
+# when running in container set DOCKER variable to be true
 ENV DOCKER true
 
-# Run footy-tipper.R when the container launches
-CMD ["Rscript", "footy-tipper.R"]
+# Add a new argument for which process to run
+ARG PROCESS
+
+# Use the PROCESS argument to set an environment variable
+ENV PROCESS=${PROCESS}
+
+# Run appropriate R script based on PROCESS when the container launches
+CMD ["Rscript", "${PROCESS}.R"]
+
