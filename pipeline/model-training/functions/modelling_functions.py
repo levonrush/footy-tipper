@@ -1,3 +1,5 @@
+import pandas as pd
+import sqlite3
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -8,6 +10,33 @@ from sklearn_genetic import GASearchCV
 from sklearn_genetic.space import Integer, Continuous, Categorical
 from joblib import dump
 import dill as pickle
+
+def get_training_data(db_path, sql_file):
+    """
+    Retrieve training data from an SQLite database.
+    
+    Args:
+        db_path (Path): The path to the SQLite database.
+        sql_file (str): The path to the SQL file that contains the query.
+        
+    Returns:
+        DataFrame: The DataFrame containing training data.
+    """
+    
+    # Connect to the SQLite database
+    con = sqlite3.connect(str(db_path))
+
+    # Read SQL query from external SQL file
+    with open(sql_file, 'r') as file:
+        query = file.read()
+
+    training_data = pd.read_sql_query(query, con)
+
+    # Close the connection
+    con.close()
+    
+    return training_data
+
 
 def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_cols):
     """

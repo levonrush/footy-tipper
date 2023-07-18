@@ -1,20 +1,14 @@
-### The Footy Tipper Pipeline ###
-
 # Load 'here' package and set project directory
 library(here)
-i_am("footy-tipper.R")
+i_am("model_prediction.R")
 
-# Define paths to data-preparation script and model-training and send-predictions notebooks
+# Define paths to data-preparation script, model-prediction and send-predictions notebooks
 data_prep_r <- paste0(here(), "/pipeline/data-prep/data-prep.R")
-model_training_ipynb <- paste0(here(), "/pipeline/model-training/model-training.ipynb")
-model_prediciton_ipynb <- paste0(here(), "/pipeline/model-training/model-prediction.ipynb")
+model_prediction_ipynb <- paste0(here(), "/pipeline/model-prediction/model-prediction.ipynb")
 send_predictions_ipynb <- paste0(here(), "/pipeline/use-predictions/send_predictions.ipynb")
 
 # Run data-preparation script
 source(data_prep_r)
-
-# Convert and run model-training notebook
-system(paste("python -m nbconvert --to python --execute", model_training_ipynb))
 
 # Convert and run model-prediction notebook
 system(paste("python -m nbconvert --to python --execute", model_prediction_ipynb))
