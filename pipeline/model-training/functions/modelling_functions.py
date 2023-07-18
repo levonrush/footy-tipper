@@ -65,8 +65,18 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
         pipeline_steps.append(('feature_elimination', RFECV(estimator=estimator, cv=num_folds, scoring=opt_metric)))
 
     # Add hyperparameter tuning step
-    pipeline_steps.append(('hyperparamtuning', GASearchCV(estimator=estimator, param_grid=param_grid, cv=num_folds, scoring=opt_metric, n_jobs=-1,
-    population_size=50, generations=5, crossover_probability=0.5, mutation_probability=0.2, verbose=1)))
+    pipeline_steps.append(('hyperparamtuning', GASearchCV(
+        estimator=estimator, 
+        param_grid=param_grid, 
+        cv=num_folds, 
+        scoring=opt_metric, 
+        n_jobs=-1,
+        population_size=100, 
+        generations=2000, 
+        crossover_probability=0.5, 
+        mutation_probability=0.2, 
+        verbose=False
+        )))
 
     pipeline = Pipeline(pipeline_steps)
     return pipeline
