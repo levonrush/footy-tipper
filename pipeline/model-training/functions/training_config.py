@@ -1,7 +1,7 @@
 # training params
 opt_metric = "accuracy" # ROC, F1 or accuracy
 num_folds = 5
-use_rfe = True
+use_rfe = False
 
 # outcome variable
 outcome_var = "home_team_result"

@@ -72,10 +72,10 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
         scoring=opt_metric, 
         n_jobs=-1,
         population_size=100, 
-        generations=1000, 
+        generations=10, 
         crossover_probability=0.5, 
         mutation_probability=0.2, 
-        verbose=False
+        verbose=True
         )))
 
     pipeline = Pipeline(pipeline_steps)

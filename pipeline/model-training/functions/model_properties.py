@@ -11,8 +11,6 @@ def get_feature_importance(pipeline, column_names):
     Returns:
         DataFrame: The DataFrame containing feature names and their corresponding importance.
     """
-
-
     # Get the final step ('hyperparamtuning' in your case) estimator from the pipeline
     final_estimator = pipeline.named_steps['hyperparamtuning'].best_estimator_
 
@@ -30,10 +28,17 @@ def get_feature_importance(pipeline, column_names):
         # Get the names of the features selected by RFE
         column_names = [col for (col, mask) in zip(column_names, support_mask) if mask]
 
-    # If you've used OneHotEncoder
+    # If you've used OneHotEncoder inside a ColumnTransformer
     if 'one_hot_encoder' in pipeline.named_steps:
+        # Get the ColumnTransformer
+        column_transformer = pipeline.named_steps['one_hot_encoder']
+        # Find the OneHotEncoder inside the ColumnTransformer
+        for name, transformer, columns in column_transformer.transformers_:
+            if isinstance(transformer, OneHotEncoder):
+                one_hot_encoder = transformer
+                break
         # Get the feature names from the one-hot encoder
-        one_hot_features = pipeline.named_steps['one_hot_encoder'].get_feature_names(input_features=column_names)
+        one_hot_features = one_hot_encoder.get_feature_names(input_features=column_names)
         column_names = one_hot_features.tolist()
 
     # Create a DataFrame of feature importances
@@ -47,3 +52,4 @@ def get_feature_importance(pipeline, column_names):
     feature_importances.sort_values(by='Importance', ascending=False, inplace=True)
 
     return feature_importances
+
