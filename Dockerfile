@@ -1,17 +1,15 @@
-# Use an official R runtime as a parent image
-FROM r-base:4.2.3
+# Use an official Python runtime as a parent image
+FROM python:3.11
 
-# Install system libraries
+# Install system libraries required for R and Python
 RUN apt-get update && apt-get install -y \
     libfontconfig1-dev \
     libfreetype6-dev \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev \
-    python3-venv \
-    python3-pip \
-    python3-dev \
-    build-essential
+    build-essential \
+    r-base
 
 # Install pandoc
 RUN apt-get update \
@@ -36,7 +34,7 @@ RUN Rscript install.R
 # Make port 80 available to the world outside this container
 EXPOSE 80
 
-# when running in container set DOCKER variable to be true
+# When running in container set DOCKER variable to be true
 ENV DOCKER true
 
 # Add a new argument for which process to run
@@ -45,6 +43,5 @@ ARG PROCESS
 # Use the PROCESS argument to set an environment variable
 ENV PROCESS=${PROCESS}
 
-# Run appropriate R script based on PROCESS when the container launches
-CMD ["Rscript", "${PROCESS}.R"]
-
+# Run appropriate Python script based on PROCESS when the container launches
+CMD ["python", "${PROCESS}.py"]
