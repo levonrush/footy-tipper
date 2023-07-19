@@ -35,15 +35,15 @@ Throughout these processes, SQL plays a vital role in data management and transi
 
 3. To build the Docker image for the model building process:
     ```
-    docker build --build-arg PROCESS=model_building -t my-footy-tipper-building .
+    docker build --build-arg PROCESS=model_building -t footy-tipper-building .
     ```
 
 4. To build the Docker image for the model prediction process:
     ```
-    docker build --build-arg PROCESS=model_prediction -t my-footy-tipper-prediction .
+    docker build --build-arg PROCESS=model_prediction -t footy-tipper-prediction .
     ```
 
-5. Run the Docker container, replacing `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000), and `<image>` with the Docker image you want to run (`my-footy-tipper-building` or `my-footy-tipper-prediction`).
+5. Run the Docker container, replacing `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000), and `<image>` with the Docker image you want to run (`footy-tipper-building` or `footy-tipper-prediction`).
     ```
     docker run -p <your_host_port>:80 <image>
     ```
