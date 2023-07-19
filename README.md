@@ -6,15 +6,11 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 
 ## How it Works
 
-Footy-Tipper operates by harnessing freely available NRL data and implementing a series of scripts and notebooks in a systematic pipeline. The journey commences with the `data-prep.R` script, situated in the 'data-prep' folder. This script is charged with data cleaning and feature engineering, furthering our grasp of Rugby League behaviors.
+**Model Building:** This process starts with the `data-prep.R` script, situated in the 'data-prep' folder, which is responsible for data cleaning and feature engineering. Following the data preparation, the model development phase is executed in the `model-training.ipynb` notebook situated in the 'model-training' folder. Python, renowned for its flexibility and extensive suite of machine learning libraries, is used for constructing robust predictive models from the preprocessed data.
 
-Subsequent to the data preparation, the pipeline moves forward to the model development phase. This is executed in the `model-training.ipynb` notebook situated in the 'model-training' folder. Python, renowned for its flexibility and extensive suite of machine learning libraries, is utilized for constructing robust predictive models from the preprocessed data.
+**Model Prediction:** This process begins again with the `data-prep.R` script to ensure that the most recent data is used. It then proceeds to the `model-prediction.ipynb` and `send_predictions.ipynb` notebooks in the 'model-prediction' and 'use-predictions' folders respectively. Here, the model's predictions are generated, uploaded to Google Drive, and dispatched via automated emails.
 
-Upon successful model training, the pipeline proceeds to the `send_predictions.ipynb` notebook in the 'use-predictions' folder. Here, the model's predictions are generated and uploaded to Google Drive. In a unique twist, an email synopsis, crafted in the persona of Reg Regan, is generated using OpenAI's language model. These predictions, embellished with Reg Regan's characteristic flair, are dispatched via automated emails, ensuring all recipients receive the latest forecasts with an enjoyable twist.
-
-In addition to the operational pipeline, Footy-Tipper also houses an extensive body of research that was integral to its development. This research, stored in the 'research' folder, encompasses various preliminary analyses, data explorations, and experimental model iterations. These research artifacts serve a dual purpose - they are a testament to the methodical process of building Footy-Tipper and also act as a resource for future enhancements. By maintaining transparency and retaining a rich record of the project's development journey, we ensure that Footy-Tipper remains open to continuous evolution and improvement, driven by the latest advances in predictive analytics and machine learning research.
-
-Throughout this pipeline, SQL plays a vital role in data management and transition across various platforms and environments. Furthermore, Docker encapsulates the entire pipeline, ensuring portability and facilitating easy deployment. In essence, the synergy of R, Python, SQL, and Docker, coupled with the entertaining narrative of Reg Regan, coalesce to create the compelling prediction engine that is Footy-Tipper.
+Throughout these processes, SQL plays a vital role in data management and transition across various platforms and environments. Docker encapsulates both processes, ensuring portability and facilitating easy deployment.
 
 ## Prerequisites
 
@@ -37,21 +33,31 @@ Throughout this pipeline, SQL plays a vital role in data management and transiti
     cd footy-tipper
     ```
 
-3. Build the Docker image.
+3. To build the Docker image for the model building process:
     ```
-    docker build -t footy-tipper .
+    docker build --build-arg PROCESS=model_building -t my-footy-tipper-building .
     ```
 
-4. Run the Docker container, replacing `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000).
+4. To build the Docker image for the model prediction process:
     ```
-    docker run -p <your_host_port>:80 footy-tipper
+    docker build --build-arg PROCESS=model_prediction -t my-footy-tipper-prediction .
+    ```
+
+5. Run the Docker container, replacing `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000), and `<image>` with the Docker image you want to run (`my-footy-tipper-building` or `my-footy-tipper-prediction`).
+    ```
+    docker run -p <your_host_port>:80 <image>
     ```
 
 ### For Development and Debugging
 
-1. Open the project in R Studio or Visual Studio Code.
-2. Set the environment variables in a `.env` file or manually in your R session.
-3. Run the pipeline by executing `footy-tipper.R`.
+1. Open the project in your preferred code editor.
+2. If needed, set environment variables in a `.env` file or manually in your Python or R session.
+3. Run the `data-prep.R` script located in the 'data-prep' folder for data cleaning and feature engineering.
+4. For model building, open and execute the `model-training.ipynb` notebook situated in the 'model-training' folder.
+5. For model prediction, execute the `model-prediction.ipynb` notebook in the 'model-prediction' folder, followed by the `send_predictions.ipynb` notebook in the 'use-predictions' folder. The latter notebook sends out the model's predictions.
+6. If Docker is used, ensure to build and run the Docker image as necessary.
+
+Note: Ensure your Python and R environments have all necessary packages installed to run the scripts and notebooks.
 
 ## Contributing
 

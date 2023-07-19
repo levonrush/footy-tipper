@@ -1,241 +1,226 @@
-# sklearn
-from sklearn.preprocessing import LabelEncoder
-from sklearn.feature_selection import RFECV
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import accuracy_score, make_scorer, roc_auc_score, f1_score
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.utils import class_weight
-from sklearn_genetic import GASearchCV
-from sklearn_genetic.space import Continuous, Categorical, Integer
-
-# Other libraries
-import xgboost as xgb
 import pandas as pd
-import numpy as np
+import sqlite3
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.feature_selection import RFECV
+import xgboost as xgb
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn_genetic import GASearchCV
+from sklearn_genetic.space import Integer, Continuous, Categorical
+from joblib import dump
+import dill as pickle
 
-# This function first one-hot encodes the categorical variables in the dataset. 
-# It then splits the dataset into training and inference datasets based on certain conditions.
-# The function also extracts game_id for the inference set.
-def one_hot_encode_and_split(data, predictors, outcome_var):
-
-    # One hot encode categorical variables
-    X = data[predictors].copy()
-    object_columns = X.select_dtypes(include=['object']).columns
-    X = pd.get_dummies(X, columns=object_columns)
+def get_training_data(db_path, sql_file):
+    """
+    Retrieve training data from an SQLite database.
     
-    # Getting updated predictors
-    updated_predictors = X.columns.tolist()
-
-    # Encode the label if it's a categorical variable
-    y = data[outcome_var].copy()
-    label_encoder = None
-    if y.dtype == 'object':
-        label_encoder = LabelEncoder()
-        y = label_encoder.fit_transform(y)
+    Args:
+        db_path (Path): The path to the SQLite database.
+        sql_file (str): The path to the SQL file that contains the query.
+        
+    Returns:
+        DataFrame: The DataFrame containing training data.
+    """
     
-    # Compute minimum competition_year
-    min_competition_year = data['competition_year'].min()
+    # Connect to the SQLite database
+    con = sqlite3.connect(str(db_path))
 
-    # Split the dataset into train and inference
-    train_mask = ((data['game_state_name'] == 'Final') & 
-                  (data['competition_year'] != min_competition_year) &
-                  (data['team_head_to_head_odds_away'].notna()))
+    # Read SQL query from external SQL file
+    with open(sql_file, 'r') as file:
+        query = file.read()
+
+    training_data = pd.read_sql_query(query, con)
+
+    # Close the connection
+    con.close()
     
-    X_train = X[train_mask]
-    y_train = y[train_mask]
+    return training_data
 
-    # Compute minimum round_id for the remaining set
-    remaining_set = data[data['game_state_name'] == 'Pre Game']
-    if not remaining_set.empty:
-        min_round_id = remaining_set['round_id'].min()
-        inference_mask = ((data['game_state_name'] == 'Pre Game') & 
-                          (data['round_id'] == min_round_id))
-        X_inference = X[inference_mask]
-    else:
-        X_inference = pd.DataFrame(columns=X.columns)  # empty DataFrame with same columns
 
-    # Extract game_id for the inference set
-    game_id_inference = data.loc[X_inference.index, 'game_id']
-
-    # Return game_id_inference as well
-    return X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference
-
-# This function performs Recursive Feature Elimination (RFE) using cross-validation on the training set.
-# The goal of RFE is to select features by recursively considering smaller and smaller sets of features.
-def feature_selection(estimator, X, y, num_folds, opt_metric):
-
-    # Scoring metric
-    if opt_metric == 'ROC':
-        scoring = make_scorer(roc_auc_score, multi_class="ovr", needs_proba=True)
-    elif opt_metric == 'F1':
-        scoring = 'f1'
-    else:
-        scoring = 'accuracy'
-
-    cv=StratifiedKFold(num_folds)
-
-    # Recursive Feature Elimination with cross-validation
-    rfecv = RFECV(estimator=estimator, step=1, n_jobs=-1, cv=cv, scoring=scoring)
-    rfecv.fit(X, y)
-
-    # Optimal set of predictors (one-hot encoded)
-    optimal_features = np.array(X.columns)[rfecv.support_]
-
-    # Return the one-hot encoded data and the optimal features
-    return X, y, optimal_features
-
-# This function performs hyperparameter tuning using Genetic Search and Cross Validation on the training set.
-# The function takes as input the machine learning estimator, parameter grid, training set, optimal features 
-# obtained from RFE, number of folds for cross-validation, the optimization metric, and a seed for random state.
-def train_tune_model(estimator, param_grid, X, y, optimal_features, num_folds=5, opt_metric='ROC', seed=69):
+def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_cols):
+    """
+    Create a pipeline that includes pre-processing, feature selection and hyperparameter tuning.
     
-    # Scoring metric
-    if opt_metric == 'ROC':
-        scoring = make_scorer(roc_auc_score, multi_class="ovr", needs_proba=True)
-    elif opt_metric == 'F1':
-        scoring = 'f1'
-    else:
-        scoring = 'accuracy'
+    Args:
+        estimator (object): The estimator algorithm to use.
+        param_grid (dict): The hyperparameters to tune for the estimator.
+        use_rfe (bool): Whether to use recursive feature elimination.
+        num_folds (int): The number of cross-validation folds.
+        opt_metric (str): The metric to optimize.
+        cat_cols (list): The categorical columns in the data.
+        
+    Returns:
+        pipeline (Pipeline): The constructed pipeline.
+    """
+    # Create a list of pipeline steps
+    pipeline_steps = []
 
-    # Select only the optimal features from X
-    X_optimal = X[optimal_features]
+    # Add one-hot encoding step
+    preprocessor = ColumnTransformer(transformers=[('encoder', OneHotEncoder(handle_unknown='ignore'), cat_cols)], remainder='passthrough')
+    pipeline_steps.append(('one_hot_encoder', preprocessor))
 
-    cv = StratifiedKFold(n_splits=num_folds, shuffle=True)
-   
-    # Genetic Search with cross-validation    
-    evolved_estimator = GASearchCV(
-        estimator=estimator,
-        cv=cv,
-        scoring=scoring,
-        population_size=20,
-        generations=200,
-        tournament_size=5,
-        elitism=True,
-        crossover_probability=0.7,
-        mutation_probability=0.3,
-        param_grid=param_grid,
-        criteria='max',
-        algorithm='eaMuPlusLambda',
-        n_jobs=-1,
-        verbose=False,
-        keep_top_k=5
-    )
-    
-    evolved_estimator.fit(X_optimal, y)
-    
-    # Print results
-    print(evolved_estimator.best_params_)
-    print(evolved_estimator.best_score_)
-
-    return evolved_estimator
-
-# This function is a pipeline for training a machine learning model. 
-# It first one-hot encodes and splits the data, performs Recursive Feature Elimination (if specified), 
-# and then trains and tunes the model.
-def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, use_rfe=False, num_folds=5, opt_metric='ROC', seed=69):
-
-    print(f"Training model: {type(estimator).__name__}")
-    
-    # Step 1: One-hot encode and split the dataset
-    X_train, y_train, X_inference, updated_predictors, label_encoder, game_id_inference = one_hot_encode_and_split(data, predictors, outcome_var)
-    
-    # Step 2: Perform Recursive Feature Elimination (RFE) if required
+    # If use_rfe is True, add feature elimination step
     if use_rfe:
-        _, _, optimal_features = feature_selection(estimator, X_train, y_train, num_folds, opt_metric)
-        print(f"Number of features selected: {len(optimal_features)} out of {len(updated_predictors)}")
-    else:
-        optimal_features = updated_predictors
-    
-    # Step 3: Hyperparameter tuning
-    tuned_model = train_tune_model(estimator, param_grid, X_train, y_train, optimal_features, num_folds, opt_metric, seed)
-    
-    # Return tuned model as well as X_inference and label encoder for making predictions
-    return tuned_model, X_inference[optimal_features], label_encoder, game_id_inference
+        pipeline_steps.append(('feature_elimination', RFECV(estimator=estimator, cv=num_folds, scoring=opt_metric)))
 
-# This function trains and tunes multiple models specified in 'models_and_params' 
-# and selects the best model based on the specified optimization metric.
+    # Add hyperparameter tuning step
+    pipeline_steps.append(('hyperparamtuning', GASearchCV(
+        estimator=estimator, 
+        param_grid=param_grid, 
+        cv=num_folds, 
+        scoring=opt_metric, 
+        n_jobs=-1,
+        population_size=100, 
+        generations=75, 
+        crossover_probability=0.5, 
+        mutation_probability=0.2, 
+        verbose=True
+        )))
+
+    pipeline = Pipeline(pipeline_steps)
+    return pipeline
+
+def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, use_rfe, num_folds, opt_metric):
+    """
+    Train the model using the given pipeline.
+    
+    Args:
+        data (DataFrame): The dataset to train on.
+        predictors (list): The feature columns in the data.
+        outcome_var (str): The target variable.
+        estimator (object): The estimator algorithm to use.
+        param_grid (dict): The hyperparameters to tune for the estimator.
+        use_rfe (bool): Whether to use recursive feature elimination.
+        num_folds (int): The number of cross-validation folds.
+        opt_metric (str): The metric to optimize.
+        
+    Returns:
+        le (LabelEncoder): The label encoder.
+        pipeline (Pipeline): The trained pipeline.
+    """
+
+    # Print the type of model that's been trained
+    print(f"\nModel training: {type(estimator).__name__}")
+
+    # Split the data into features (X) and target (y)
+    X = data[predictors].copy()
+    y = data[outcome_var].copy()
+
+    # Create and fit a LabelEncoder
+    le = LabelEncoder()
+    y = le.fit_transform(y)
+
+    # Detect categorical columns
+    cat_cols = X.select_dtypes(include=['object']).columns.tolist()
+
+    # Create a pipeline
+    pipeline = create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_cols)
+
+    # Fit the pipeline
+    pipeline.fit(X, y)
+    
+    if use_rfe:
+        # Print the number of features selected
+        num_features_selected = pipeline.named_steps['feature_elimination'].n_features_
+        print(f"Number of features selected: {num_features_selected}")
+    
+    # Print the best parameters and best score
+    print(f"Best parameters: {pipeline.named_steps['hyperparamtuning'].best_params_}")
+    print(f"Best score: {pipeline.named_steps['hyperparamtuning'].best_score_}\n")
+
+    return  le, pipeline
+
+
 def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_folds, opt_metric):
+    """
+    Train multiple models and select the best one.
+    
+    Args:
+        data (DataFrame): The dataset to train on.
+        predictors (list): The feature columns in the data.
+        outcome_var (str): The target variable.
+        use_rfe (bool): Whether to use recursive feature elimination.
+        num_folds (int): The number of cross-validation folds.
+        opt_metric (str): The metric to optimize.
+        
+    Returns:
+        best_pipeline (Pipeline): The best model pipeline.
+        best_label_encoder (LabelEncoder): The label encoder used for the best model.
+    """
+
     # Define your models and parameter grids
     models_and_params = [
         (xgb.XGBClassifier(n_jobs=-1), {
-            'n_estimators': Integer(50, 250),
-            'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
-            'max_depth': Integer(3, 5),
-            'subsample': Continuous(0.8, 1.0, distribution='uniform'),
-            'colsample_bytree': Continuous(0.3, 0.7, distribution='uniform'),
-            'gamma': Continuous(0, 0.2, distribution='uniform'),
+            'n_estimators': Integer(20, 150),
+            'learning_rate': Continuous(0.01, 0.2),
+            'max_depth': Integer(2, 8),
+            'subsample': Continuous(0.5, 1.0),
+            'colsample_bytree': Continuous(0.5, 0.95),
+            'gamma': Continuous(0, 0.8),
         }),
         (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
-            'n_estimators': Integer(50, 250),
+            'n_estimators': Integer(150, 350),
             'max_features': Categorical(['sqrt', 'log2']),
-            'max_depth': Integer(10, 30),
+            'max_depth': Integer(5, 25),
             'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 4),
+            'min_samples_leaf': Integer(1, 5),
             'bootstrap': Categorical([True, False]),
         }),
         (GradientBoostingClassifier(), {
-            'n_estimators': Integer(50, 250),
-            'learning_rate': Continuous(0.01, 0.2, distribution='uniform'),
-            'max_depth': Integer(3, 5),
+            'n_estimators': Integer(100, 350),
+            'learning_rate': Continuous(0.001, 0.2),
+            'max_depth': Integer(3, 10),
             'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 4),
-            'subsample': Continuous(0.8, 1.0, distribution='uniform'),
+            'min_samples_leaf': Integer(1, 6),
+            'subsample': Continuous(0.8, 1.0),
             'max_features': Categorical(['sqrt', 'log2']),
         })
     ]
     
-    best_model = None
+    best_pipeline = None
     best_score = -float('inf')
     best_label_encoder = None
-    best_X_inference = None
-    best_game_id_inference = None
     
     # Train each model and keep track of the best one
     for estimator, param_grid in models_and_params:
-        tuned_model, X_inference, label_encoder, game_id_inference = train_model_pipeline(
+        label_encoder, pipeline = train_model_pipeline(
             data, predictors, outcome_var,
             estimator, param_grid,
             use_rfe=use_rfe, num_folds=num_folds,
             opt_metric=opt_metric
         )
 
-        score = tuned_model.best_score_
+        score = pipeline.named_steps['hyperparamtuning'].best_score_
 
         # Update best_model, best_score, etc.
         if score > best_score:
-            best_model = tuned_model
+            best_pipeline = pipeline
             best_score = score
             best_label_encoder = label_encoder
-            best_X_inference = X_inference
-            best_game_id_inference = game_id_inference
+
+    # Print the best model and its score at the end
+    print(f"Best overall model: {type(best_pipeline.named_steps['hyperparamtuning'].estimator).__name__}")
+    print(f"Best overall score: {best_pipeline.named_steps['hyperparamtuning'].best_score_}")
             
-    return best_model, best_X_inference, best_label_encoder, best_game_id_inference
+    return best_pipeline, best_label_encoder
 
-# This function takes as input a trained model, inference dataset, label encoder, and game_id for the inference set. 
-# It outputs the predictions made by the model on the inference set, and returns a dataframe with game_id, predicted outcome, 
-# and the probability estimates for each outcome.
-def model_predictions(tuned_model, X_inference, label_encoder, game_id_inference):
+def save_models(label_encoder, pipeline, project_root):
+    """
+    Save the LabelEncoder and the Pipeline objects for future use.
     
-    # Make predictions
-    predictions = tuned_model.predict(X_inference)
+    Args:
+        label_encoder (LabelEncoder): The trained LabelEncoder.
+        pipeline (Pipeline): The trained Pipeline.
+        project_root (Path): The root path of the project.
+        
+    Returns:
+        None
+    """
+
+    # Save the LabelEncoder
+    dump(label_encoder, project_root / "models" / 'label_encoder.pkl')
     
-    # Get probability estimates
-    probability_estimates = tuned_model.predict_proba(X_inference)
-
-    # Convert integer labels back to original class labels
-    original_class_labels = label_encoder.inverse_transform(predictions)
-
-    # Split probability estimates into separate columns
-    home_team_win_prob = probability_estimates[:, 1]
-    home_team_lose_prob = probability_estimates[:, 0]
-
-    # Create a DataFrame with the results
-    results = pd.DataFrame({
-        'game_id': game_id_inference.values,
-        'home_team_result': original_class_labels,
-        'home_team_win_prob': home_team_win_prob,
-        'home_team_lose_prob': home_team_lose_prob
-    })
-    
-    # Return the DataFrame
-    return results
+    # Save the pipeline
+    with open(project_root / "models" / 'footy_tipper.pkl', 'wb') as f:
+        pickle.dump(pipeline, f)
