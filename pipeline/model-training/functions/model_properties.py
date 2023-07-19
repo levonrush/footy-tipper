@@ -39,7 +39,7 @@ def get_feature_importance(pipeline, column_names):
                 one_hot_encoder = transformer
                 break
         # Get the feature names from the one-hot encoder
-        one_hot_features = one_hot_encoder.get_feature_names(input_features=column_names)
+        one_hot_features = one_hot_encoder.get_feature_names_out(input_features=column_names)
         column_names = one_hot_features.tolist()
 
     # Create a DataFrame of feature importances
@@ -53,4 +53,3 @@ def get_feature_importance(pipeline, column_names):
     feature_importances.sort_values(by='Importance', ascending=False, inplace=True)
 
     return feature_importances
-

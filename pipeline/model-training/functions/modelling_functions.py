@@ -72,7 +72,7 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
         scoring=opt_metric, 
         n_jobs=-1,
         population_size=100, 
-        generations=10, 
+        generations=75, 
         crossover_probability=0.5, 
         mutation_probability=0.2, 
         verbose=True
@@ -100,6 +100,9 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
         pipeline (Pipeline): The trained pipeline.
     """
 
+    # Print the type of model that's been trained
+    print(f"\nModel training: {type(estimator).__name__}")
+
     # Split the data into features (X) and target (y)
     X = data[predictors].copy()
     y = data[outcome_var].copy()
@@ -116,9 +119,6 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
 
     # Fit the pipeline
     pipeline.fit(X, y)
-
-    # Print the type of model that's been trained
-    print(f"\nModel trained: {type(estimator).__name__}")
     
     if use_rfe:
         # Print the number of features selected
@@ -152,27 +152,27 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
     # Define your models and parameter grids
     models_and_params = [
         (xgb.XGBClassifier(n_jobs=-1), {
-            'n_estimators': Integer(25, 250),
-            'learning_rate': Continuous(0.01, 0.5),
+            'n_estimators': Integer(20, 150),
+            'learning_rate': Continuous(0.01, 0.2),
             'max_depth': Integer(2, 8),
-            'subsample': Continuous(0.8, 1.0),
-            'colsample_bytree': Continuous(0.3, 0.7),
-            'gamma': Continuous(0, 0.5),
+            'subsample': Continuous(0.5, 1.0),
+            'colsample_bytree': Continuous(0.5, 0.95),
+            'gamma': Continuous(0, 0.8),
         }),
         (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
-            'n_estimators': Integer(50, 250),
+            'n_estimators': Integer(150, 350),
             'max_features': Categorical(['sqrt', 'log2']),
-            'max_depth': Integer(10, 30),
+            'max_depth': Integer(5, 25),
             'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 4),
+            'min_samples_leaf': Integer(1, 5),
             'bootstrap': Categorical([True, False]),
         }),
         (GradientBoostingClassifier(), {
-            'n_estimators': Integer(50, 250),
-            'learning_rate': Continuous(0.01, 0.2),
-            'max_depth': Integer(3, 5),
+            'n_estimators': Integer(100, 350),
+            'learning_rate': Continuous(0.001, 0.2),
+            'max_depth': Integer(3, 10),
             'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 4),
+            'min_samples_leaf': Integer(1, 6),
             'subsample': Continuous(0.8, 1.0),
             'max_features': Categorical(['sqrt', 'log2']),
         })
