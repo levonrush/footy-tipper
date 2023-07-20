@@ -1,4 +1,5 @@
 # Set the project directory to 'pipeline/data-prep/data-prep.R'
+library(here)
 i_am("pipeline/data-prep/data-prep.R")
 
 # Find and load all helper functions located in 'pipeline/data-prep/functions' directory
