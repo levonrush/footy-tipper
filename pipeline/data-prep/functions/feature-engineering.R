@@ -46,6 +46,53 @@ fixture_result <- function(data, pipeline){
 
 }
 
+# Function to get previous match result
+get_prev_match_result <- function(data) {
+  data %>%
+    arrange(team, competition_year, round_id) %>%
+    group_by(team, competition_year) %>%
+    mutate(prev_result_diff = lag(team_final_score_diff, default = NA)) %>%
+    ungroup()
+}
+
+# Function to apply on the dataset
+get_previous_results <- function(data){
+  
+  # Add score difference column
+  data <- data %>%
+    mutate(team_final_score_diff = team_final_score_home - team_final_score_away)
+  
+  # Apply the function to home team and away team data
+  home_data <- data %>%
+    select(game_id, round_id, competition_year, team = team_home, team_final_score_diff) %>%
+    get_prev_match_result() %>%
+    select(-team_final_score_diff)
+  
+  away_data <- data %>%
+    select(game_id, round_id, competition_year, team = team_away, team_final_score_diff) %>%
+    get_prev_match_result() %>%
+    select(-team_final_score_diff)
+  
+  # Join the datasets back together
+  data <- data %>%
+    left_join(home_data, by = c("game_id", "round_id", "competition_year", "team_home" = "team")) %>%
+    rename(home_prev_result_diff = prev_result_diff) %>%
+    left_join(away_data, by = c("game_id", "round_id", "competition_year", "team_away" = "team")) %>%
+    rename(away_prev_result_diff = prev_result_diff)
+  
+  # also find the difference between these two new values
+  data <- data %>%
+    mutate(prev_result_diff = home_prev_result_diff - away_prev_result_diff)
+  
+  # Clean up all the results at the beginning of the year
+  data <- data %>%
+    replace_na(list(prev_result_diff = 0, 
+                    home_prev_result_diff = 0, 
+                    away_prev_result_diff = 0))
+  
+  return(data)
+}
+
 # Function to calculate turnaround times between games for each team
 turn_around <- function(data){
   
@@ -77,10 +124,24 @@ turn_around <- function(data){
 # Function to create a feature indicating whether the game is a state of origin game
 state_of_origin <- function(data){
   
+  # Determine state of origin rounds
+  round_data <- data %>%
+    group_by(round_id, competition_year) %>%
+    summarise(state_of_origin = ifelse(any(str_detect(round_name, "Round") & n() <= 5), 1, 0), .groups = "drop") %>%
+    arrange(competition_year, round_id)
+  
+  # Determine post-origin rounds
+  round_data <- round_data %>%
+    group_by(competition_year) %>%
+    mutate(post_origin = lag(state_of_origin, default = 0)) %>%
+    ungroup()
+  
+  # Join back to game-level data
   data <- data %>%
-    mutate(state_of_origin = ifelse(str_detect(round_name, "Round") & n() <= 5, 1, 0))  # If the round name contains "Round" and there are 5 or less records, set state_of_origin to 1, else 0
-
-  return(data)  # Return the modified dataset
+    left_join(round_data, by = c("round_id", "competition_year"))
+  
+  return(data)
+  
 }
 
 # This function adds new columns to the data which could be useful for further analysis or prediction
@@ -254,7 +315,8 @@ feature_engineering <- function(data, form_period){
     easy_pickings() %>%
     turn_around() %>%
     matchup_form(form_period = form_period) %>%
-    state_of_origin()
+    state_of_origin() %>%
+    get_previous_results()
 
   return(data)
 

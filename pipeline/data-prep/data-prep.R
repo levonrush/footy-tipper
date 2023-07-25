@@ -30,8 +30,7 @@ inference_data <- pipeline_data[["inference_data"]]
 # Connect to the SQLite database located in '/data/footy-tipper-db.sqlite'
 con <- dbConnect(SQLite(), paste0(here(), "/data/footy-tipper-db.sqlite"))
 
-# Write the processed data into the SQLite database, 
-# overwrite the table if it already exists
+# Write the processed data into the SQLite database, overwriting the existing tables
 dbWriteTable(con, "footy_tipping_data", footy_tipping_data, overwrite = T)
 dbWriteTable(con, "training_data", training_data, overwrite = T)
 dbWriteTable(con, "inference_data", inference_data, overwrite = T)

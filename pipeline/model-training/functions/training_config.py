@@ -51,6 +51,10 @@ predictors = [
     , "elo_prob_diff"
     , "elo_draw_prob"
     , "state_of_origin"
+    , "post_origin"
     , "home_ground_advantage"
     , "turn_around_diff"
+    , "home_prev_result_diff"
+    , "away_prev_result_diff" 
+    , "prev_result_diff"
 ]

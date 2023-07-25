@@ -1,0 +1,115 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+library(here)
+library(skimr)
+
+i_am('research/last-ditch-effort.Rmd')
+
+data_prep_functions <- list.files(
+    paste0(here(), "/pipeline/data-prep/functions"),
+    pattern = "*.R$",  # Search for R scripts
+    full.names = TRUE, # Return the full path
+    ignore.case = TRUE # Case-insensitive
+)
+
+# Source each function into the Global Environment for use
+sapply(data_prep_functions, source, .GlobalEnv)
+
+load_dot_env(paste0(here(), "/secrets.env"))
+
+# Run the data pipeline function (defined in one of the helper files) with specified parameters
+pipeline_data <- data_pipeline(
+    year_span, pipeline = "binomial",
+    form_period, carry_over, k_val,
+    elo_init, use_odds
+)
+
+footy_tipping_data <- pipeline_data[["footy_tipping_data"]]
+
+skim(footy_tipping_data)
+```
+
+```{r}
+state_of_origin <- function(data){
+  
+  data <- data %>%
+    group_by(round_id, competition_year) %>%
+    mutate(state_of_origin = ifelse(str_detect(round_name, "Round") & n() <= 5, 1, 0)) %>%  # If the round name contains "Round" and there are 5 or less records, set state_of_origin to 1, else 0 %>%
+    arrange(start_time_utc) %>%  # Order by competition_year and round_name
+    mutate(post_origin = lag(state_of_origin, default = 0)) %>%  # Create a new column `post_origin` equal to `state_of_origin` of the previous round
+    mutate(post_origin = ifelse(state_of_origin == 1, 0, post_origin)) %>%  # If the current round's `state_of_origin` is 1, replace `post_origin` with 0
+    ungroup()
+
+  return(data)  # Return the modified dataset
+}
+
+state_of_origin <- function(data){
+  
+  data <- data %>%
+    group_by(round_id, competition_year) %>%
+    mutate(state_of_origin = ifelse(str_detect(round_name, "Round") & n() <= 5, 1, 0)) %>%
+    ungroup() %>%
+    arrange(competition_year, round_id) %>% 
+    group_by(competition_year) %>%
+    mutate(prev_round_origin = lag(max(state_of_origin), default = 0)) %>%
+    ungroup()
+
+  return(data)
+}
+
+
+footy_tipping_data %>%
+  state_of_origin() %>%
+  filter(prev_round_origin == 1)
+
+
+footy_tipping_data %>%
+  state_of_origin() %>%
+  filter(competition_year == 2021) %>%
+  select(start_time_utc, round_name, state_of_origin, post_origin) %>%
+  arrange(start_time_utc) %>%
+  print(n = Inf)
+```
+
+
+
+```{r}
+footy_tipping_data <- footy_tipping_data %>%
+  select(-state_of_origin)
+
+state_of_origin <- function(data){
+  
+  # Determine state of origin rounds
+  round_data <- data %>%
+    group_by(round_id, competition_year) %>%
+    summarise(state_of_origin = ifelse(any(str_detect(round_name, "Round") & n() <= 5), 1, 0), .groups = "drop") %>%
+    arrange(competition_year, round_id)
+  
+  # Determine post-origin rounds
+  round_data <- round_data %>%
+    group_by(competition_year) %>%
+    mutate(post_origin = lag(state_of_origin, default = 0)) %>%
+    ungroup()
+  
+  # Join back to game-level data
+  data <- data %>%
+    left_join(round_data, by = c("round_id", "competition_year"))
+  
+  return(data)
+}
+
+footy_tipping_data <- state_of_origin(footy_tipping_data)
+
+footy_tipping_data %>%
+  filter(competition_year == 2021) %>%
+  select(round_id, state_of_origin, post_origin) %>%
+  arrange(round_id) %>%
+  print(n = Inf)
+```
+
