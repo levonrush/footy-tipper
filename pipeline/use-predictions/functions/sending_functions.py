@@ -33,7 +33,7 @@ def get_tipper_picks(predictions, prod_run=False):
     
     # Concatenate the home and away picks and filter rows where 'price' is more than 15% of 'price_min'.
     tipper_picks = pd.concat([home_picks, away_picks])
-    tipper_picks = tipper_picks[tipper_picks['price'] > (tipper_picks['price_min'] * 1.15)]
+    tipper_picks = tipper_picks[tipper_picks['price'] > (tipper_picks['price_min'] * 1.05)]
 
     return tipper_picks
 
