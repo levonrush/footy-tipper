@@ -56,12 +56,13 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
     # Create a list of pipeline steps
     pipeline_steps = []
 
-    # Add one-hot encoding step
-    preprocessor = ColumnTransformer(transformers=[('encoder', OneHotEncoder(handle_unknown='ignore'), cat_cols)], remainder='passthrough')
-    pipeline_steps.append(('one_hot_encoder', preprocessor))
+    # Add one-hot encoding step only if not XGBoost with enable_categorical=True
+    if not (isinstance(estimator, xgb.XGBClassifier) and getattr(estimator, 'enable_categorical', False)):
+        preprocessor = ColumnTransformer(transformers=[('encoder', OneHotEncoder(handle_unknown='ignore'), cat_cols)], remainder='passthrough')
+        pipeline_steps.append(('one_hot_encoder', preprocessor))
 
     # If use_rfe is True, add feature elimination step
-    if use_rfe:
+    if not (isinstance(estimator, xgb.XGBClassifier) and getattr(estimator, 'enable_categorical', False)):
         pipeline_steps.append(('feature_elimination', RFECV(estimator=estimator, cv=num_folds, scoring=opt_metric)))
 
     # Add hyperparameter tuning step
@@ -151,7 +152,7 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
 
     # Define your models and parameter grids
     models_and_params = [
-        (xgb.XGBClassifier(n_jobs=-1), {
+        (xgb.XGBClassifier(n_jobs=-1, enable_categorical=True), {
             'n_estimators': Integer(20, 150),
             'learning_rate': Continuous(0.01, 0.2),
             'max_depth': Integer(2, 8),
