@@ -5,6 +5,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import RFECV
 import xgboost as xgb
+from lightgbm import LGBMClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn_genetic import GASearchCV
 from sklearn_genetic.space import Integer, Continuous, Categorical
@@ -71,8 +72,8 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
         cv=num_folds, 
         scoring=opt_metric, 
         n_jobs=-1,
-        population_size=100, 
-        generations=75, 
+        population_size=75, # 100 
+        generations=15, # was 75 
         crossover_probability=0.5, 
         mutation_probability=0.2, 
         verbose=True
@@ -175,13 +176,20 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             'min_samples_leaf': Integer(1, 6),
             'subsample': Continuous(0.8, 1.0),
             'max_features': Categorical(['sqrt', 'log2']),
+        }),
+        (LGBMClassifier(n_jobs=-1, verbose=-1), {
+        'n_estimators': Integer(20, 150),
+        'learning_rate': Continuous(0.01, 0.2),
+        'max_depth': Integer(2, 8),
+        'num_leaves': Integer(20, 50),
+        'min_child_samples': Integer(20, 50),
+        'subsample': Continuous(0.5, 1.0),
+        'colsample_bytree': Continuous(0.5, 1.0),
         })
     ]
     
-    best_pipeline = None
-    best_score = -float('inf')
-    best_label_encoder = None
-    
+    best_models = []  # Store the best models here
+
     # Train each model and keep track of the best one
     for estimator, param_grid in models_and_params:
         label_encoder, pipeline = train_model_pipeline(
@@ -191,19 +199,9 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             opt_metric=opt_metric
         )
 
-        score = pipeline.named_steps['hyperparamtuning'].best_score_
+        best_models.append((pipeline, label_encoder))  # Append the best model and its label encoder to the list
 
-        # Update best_model, best_score, etc.
-        if score > best_score:
-            best_pipeline = pipeline
-            best_score = score
-            best_label_encoder = label_encoder
-
-    # Print the best model and its score at the end
-    print(f"Best overall model: {type(best_pipeline.named_steps['hyperparamtuning'].estimator).__name__}")
-    print(f"Best overall score: {best_pipeline.named_steps['hyperparamtuning'].best_score_}")
-            
-    return best_pipeline, best_label_encoder
+    return best_models
 
 def save_models(label_encoder, pipeline, project_root):
     """
