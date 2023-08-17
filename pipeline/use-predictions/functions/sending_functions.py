@@ -115,6 +115,7 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
         Accompany the tips with some smart arsed comments about the teams playing.
         Remember to link everyone to the tips folder: {folder_url}
         Also, tell everyone to bring back the biff at the end of the email.
+        Also also your favorite team is the Newcastle Knights.
         Always sign off the email as Reg Reagan.
         """
 
