@@ -159,23 +159,23 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
             'colsample_bytree': Continuous(0.5, 0.95),
             'gamma': Continuous(0, 0.8),
         }),
-        (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
-            'n_estimators': Integer(150, 350),
-            'max_features': Categorical(['sqrt', 'log2']),
-            'max_depth': Integer(5, 25),
-            'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 5),
-            'bootstrap': Categorical([True, False]),
-        }),
-        (GradientBoostingClassifier(), {
-            'n_estimators': Integer(100, 350),
-            'learning_rate': Continuous(0.001, 0.2),
-            'max_depth': Integer(3, 10),
-            'min_samples_split': Integer(2, 10),
-            'min_samples_leaf': Integer(1, 6),
-            'subsample': Continuous(0.8, 1.0),
-            'max_features': Categorical(['sqrt', 'log2']),
-        })
+        # (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
+        #     'n_estimators': Integer(150, 350),
+        #     'max_features': Categorical(['sqrt', 'log2']),
+        #     'max_depth': Integer(5, 25),
+        #     'min_samples_split': Integer(2, 10),
+        #     'min_samples_leaf': Integer(1, 5),
+        #     'bootstrap': Categorical([True, False]),
+        # }),
+        # (GradientBoostingClassifier(), {
+        #     'n_estimators': Integer(100, 350),
+        #     'learning_rate': Continuous(0.001, 0.2),
+        #     'max_depth': Integer(3, 10),
+        #     'min_samples_split': Integer(2, 10),
+        #     'min_samples_leaf': Integer(1, 6),
+        #     'subsample': Continuous(0.8, 1.0),
+        #     'max_features': Categorical(['sqrt', 'log2']),
+        # })
     ]
     
     best_pipeline = None
@@ -219,7 +219,8 @@ def save_models(label_encoder, pipeline, project_root):
     """
 
     # Save the LabelEncoder
-    dump(label_encoder, project_root / "models" / 'label_encoder.pkl')
+    with open(project_root / "models" / 'label_encoder.pkl', 'wb') as f:
+        pickle.dump(label_encoder, f)
     
     # Save the pipeline
     with open(project_root / "models" / 'footy_tipper.pkl', 'wb') as f:

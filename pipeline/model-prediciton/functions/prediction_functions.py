@@ -44,7 +44,8 @@ def load_models(project_root):
     """
 
     # Load the LabelEncoder
-    label_encoder = load(project_root / "models" / 'label_encoder.pkl')
+    with open(project_root / "models" / 'label_encoder.pkl', 'rb') as f:
+        label_encoder = pickle.load(f)
     
     # Load the pipeline
     with open(project_root / "models" / 'footy_tipper.pkl', 'rb') as f:
