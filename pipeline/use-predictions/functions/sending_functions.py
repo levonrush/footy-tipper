@@ -63,13 +63,13 @@ def upload_df_to_drive(df, json_path, folder_id, filename):
     os.remove(filename)
 
 # The 'generate_reg_regan_email' function generates an email content with the help of an AI language model (OpenAI). The email contains a synopsis of NRL games and some value tips.
-def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
+def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, temperature):
 
     # Set up the OpenAI model using provided API key and model parameters
     llm = OpenAI(openai_api_key=api_key,
-                 model_name="gpt-3.5-turbo-16k",
-                 max_tokens=15000,
-                 temperature=1.1)
+                 model_name="gpt-4",
+                 max_tokens=7000,
+                 temperature=temperature)
 
     # Generate input_predictions string by iterating over 'predictions' dataframe and formatting data into string
     input_predictions = ""
@@ -115,7 +115,7 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url):
         Accompany the tips with some smart arsed comments about the teams playing.
         Remember to link everyone to the tips folder: {folder_url}
         Also, tell everyone to bring back the biff at the end of the email.
-        Also also your favorite team is the Newcastle Knights.
+        Also also your favorite team is the Newcastle Knights and you hate Manly.
         Always sign off the email as Reg Reagan.
         """
 
