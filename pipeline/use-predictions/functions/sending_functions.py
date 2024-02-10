@@ -105,6 +105,8 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, tem
         * Away Team: the away team
         * Away Team Position: the away team's position on the NRL ladder
         * Away Team Head to Head Price: the price bookies are offering for an away win
+
+        This is the grand final edition of the Footy Tipper, so give us a big run down of each of the teams with some comments around who they are, where they are from and comments on their performance when you used to play against them.
         
         It also comes up with some good value tips for those interested in a punt in \n{input_picks}\n. If it is empty there isn't much value for punting in the round. The description of the columns of interest is:
         

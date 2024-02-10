@@ -1,8 +1,8 @@
 # data params
-year_span <- 2012:2023
+year_span <- 2012:2024
 form_period <- 5
 pipeline <- "binomial"
-use_odds <- TRUE
+use_odds <- FALSE
 
 # elo params
 elo_init <- 1500
