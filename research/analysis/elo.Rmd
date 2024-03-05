@@ -1,0 +1,144 @@
+---
+title: "Elo and how to improve it"
+output: html_notebook
+---
+
+# Set up analysis
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(here)
+library(skimr)
+library(janitor)
+library(MLmetrics)
+
+i_am("research/elo.Rmd")
+
+helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
+                               full.names = TRUE, ignore.case = TRUE)
+
+sapply(helper_functions, source, .GlobalEnv)
+```
+
+```{r}
+elo_data <- get_data(year_span = year_span) %>%
+  clean_data() %>%
+  feature_engineering(form_period = form_period, pipeline = pipeline)
+```
+
+# Show the elo function
+
+```{r}
+elo_variables
+```
+
+
+```{r}
+matches <- elo_data %>%
+  elo_variables() %>%
+  filter(competition_year > 2015) %>%
+  select(start_time_utc, team_home, team_away, home_team_result, home_prob, draw_prob, away_prob) %>%
+  mutate(home_win = ifelse(home_team_result == 'Win', 1, 0),       # Include new columns which show the true outcome of the match
+         draw = ifelse(home_team_result == 'Draw', 1, 0),
+         away_win = ifelse(home_team_result == 'Loss', 0, 1))
+
+MultiLogLoss(
+  y_pred = matches[,c("home_prob", "draw_prob", "away_prob")] %>% as.matrix(),
+  y_true = matches[,c("home_win", "draw", "away_win")] %>% as.matrix()
+)
+```
+
+# tune carry_over and k_val
+
+```{r}
+log_loss_dfs <- vector(mode = "list")
+
+
+    for (k in 1:50) {
+      
+
+      k_new = k + 20
+      
+      matches <- elo_data %>%
+        elo_variables(carry_over = 0.5, k_val = k_new, elo_init = 1500) %>%
+        filter(competition_year != min(competition_year)) %>%
+        select(start_time_utc, team_home, team_away, home_team_result, home_prob, draw_prob, away_prob, home_elo, away_elo) %>%
+        mutate(home_win = ifelse(home_team_result == 'Win', 1, 0),
+               draw = ifelse(home_team_result == 'Draw', 1, 0),
+               away_win = ifelse(home_team_result == 'Loss', 0, 1))
+      
+      log_loss <- MultiLogLoss(
+        y_pred = matches[,c("home_prob", "draw_prob", "away_prob")] %>% as.matrix(),
+        y_true = matches[,c("home_win", "draw", "away_win")] %>% as.matrix()
+      )
+      
+      rf <- randomForest(home_team_result ~ home_elo + away_elo + home_prob + draw_prob + away_prob, data = matches, ntree = 100)
+      
+      log_loss_dfs[[k]] <- tibble(
+        elo_init = 1500,
+        carry_over = 0.5,
+        k_val = k_new,
+        log_loss = log_loss,
+        kappa = confusionMatrix(rf$confusion[,-4])$overall[['Kappa']]
+      )
+  
+    }
+
+elo_tune_results <- bind_rows(log_loss_dfs)
+
+elo_tune_results %>% filter(kappa == max(kappa))
+```
+
+```{r}
+range(elo_tune_results$kappa)
+```
+
+
+```{r}
+data <- elo_data
+
+#function(data, marg.max = 80, marg.min = -80, carry_over = 0.5, k_val = 10, elo_init = 1500){
+  
+  carry_over <- carry_over
+  k_val <- k_val
+  hga <- data %>%
+    mutate(home_points_diff = team_final_score_home - team_final_score_away) %>%
+    summarise(mean = mean(home_points_diff)) %>% .[['mean']]
+  
+  elo_model <- elo.run(
+    map_margin_to_outcome(team_final_score_home - team_final_score_away) ~
+      adjust(team_home, hga) +
+      team_away +
+      #regress(competition_year, elo_init, carry_over) +
+      group(round_name)
+    ,
+    k = k_val,
+    data = data
+  )
+  
+  elo_results <- elo_model %>% as.data.frame()
+  
+  draw_rates <- data.frame(win_prob = elo_model$elos[,3],
+                           win_loss_draw = elo_model$elos[,4]) %>%
+    mutate(prob_bucket = abs(round((win_prob)*20)) / 20) %>%
+    group_by(prob_bucket) %>%
+    summarise(draw_prob = sum(ifelse(win_loss_draw == 0.5, 1, 0)) / n())
+  
+  data <- data %>%
+    mutate(home_elo = elo_results$elo.A - elo_results$update.A,
+           away_elo = elo_results$elo.B - elo_results$update.B,
+           home_prob = elo_results$p.A,
+           away_prob = 1 - home_prob) %>%
+    mutate(prob_bucket = round(20*home_prob)/20) %>%
+    left_join(draw_rates, by = "prob_bucket") %>%
+    select(-prob_bucket)
+  
+  data <- data %>% 
+    mutate(home_prob = home_prob - home_prob * draw_prob,
+           away_prob = away_prob - away_prob * draw_prob)
+  
+#   return(data)
+#   
+# }
+```
+

@@ -1,0 +1,77 @@
+---
+title: "Home Ground Advantage"
+output: html_notebook
+---
+
+
+
+```{r}
+library(here)
+library(randomForest)
+library(lubridate)
+
+helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
+                               full.names = TRUE, ignore.case = TRUE)
+
+sapply(helper_functions, source, .GlobalEnv)
+
+footy_tipping_data <- get_data(year_span = year_span) %>%
+  clean_data() %>%
+  fixture_result(pipeline = pipeline) %>%
+  group_by(game_state_name) %>%
+  group_split() %>% .[[1]]
+```
+
+```{r}
+footy_tipping_data <- footy_tipping_data %>%
+  mutate(points_diff = team_final_score_home - team_final_score_away)
+
+footy_tipping_data %>% with(hist(points_diff))
+```
+
+```{r}
+footy_tipping_data <- footy_tipping_data %>%
+  mutate(points_diff = team_final_score_home - team_final_score_away,
+         game_hour = hour(start_time),
+         game_day = weekdays(start_time))
+
+rf <- randomForest(points_diff ~ city + team_home + team_away + game_hour + game_day + round_id + competition_year, data = footy_tipping_data %>% filter(!is.na(team_head_to_head_odds_away)))
+
+rf
+```
+
+```{r}
+home_ground_advantage <- function(data){
+  
+  data <- data %>%
+    mutate(points_diff = team_final_score_home - team_final_score_away,
+           game_hour = hour(start_time),
+           game_day = weekdays(start_time))
+  
+  rf <- randomForest(points_diff ~ city + team_home + team_away + game_hour + game_day + round_id + competition_year, 
+                     data = data %>% filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)))
+  
+  train_data <- data %>%
+    filter(game_state_name == 'Final' & !is.na(team_head_to_head_odds_away)) %>%
+    mutate(home_ground_advantage = rf$predicted) %>%
+    select(game_id, home_ground_advantage)
+  
+  inference_data <- data %>%
+    filter(game_state_name != 'Final') %>%
+    mutate(home_ground_advantage = predict(rf, .)) %>%
+    select(game_id, home_ground_advantage)
+  
+  hga_data <- bind_rows(train_data, inference_data)
+  
+  data <- data %>%
+    left_join(hga_data, by = c("game_id"))
+           
+  return(data)
+  
+}
+
+footy_tipping_data <- footy_tipping_data %>%
+  home_ground_advantage()
+
+glm(home_team_result ~ home_ground_advantage, data = footy_tipping_data %>% filter(game_state_name == 'Final'), family = "binomial") %>% summary()
+```

@@ -1,0 +1,107 @@
+---
+title: "does the crowd effect who wins nrl games?"
+output: html_notebook
+---
+
+```{r}
+library(here)
+i_am("research/crowd-effects.Rmd")
+library(mice)
+
+helper_functions <- list.files(paste0(here(), "/R"), pattern = "*.R$", 
+                               full.names = TRUE, ignore.case = TRUE)
+
+sapply(helper_functions, source, .GlobalEnv)
+
+footy_tipping_data <- get_data(year_span = year_span) %>%
+  clean_data() %>%
+  fixture_result(pipeline = pipeline) %>%
+  group_by(game_state_name) %>%
+  group_split() %>% .[[1]]
+```
+
+```{r}
+crowd_glm <- glm(home_team_result ~ crowd, data = footy_tipping_data, family = "binomial")
+summary(crowd_glm)
+```
+
+```{r}
+footy_tipping_data %>% with(table(is.na(crowd), competition_year))
+```
+
+```{r}
+randomForest(crowd ~ team_home + team_away + position_home + round_name + city + venue_name + competition_year, 
+                     data = footy_tipping_data %>% filter(!is.na(crowd), competition_year >= 2018))
+```
+
+```{r}
+ignore = ifelse(footy_tipping_data$game_state_name != 'Final', T, F)
+
+
+mice(footy_tipping_data, m = 2, ignore = ignore, print = T, seed = 69)
+```
+ 
+```{r}
+thing <- footy_tipping_data %>%
+    mutate(imputed_crowd = is.na(crowd),
+           crowd = case_when(
+             competition_year %in% 2020:2021 & is.na(crowd)    ~ 0,
+             !(competition_year %in% 2020:2021) & is.na(crowd) ~ predict(rf, footy_tipping_data)
+             
+           ))
+           
+           
+           crowd = ifelse(competition_year %in% 2020:2021 & is.na(crowd), 0, crowd),
+           crowd = predict(rf, footy_tipping_data))
+```
+ 
+```{r}
+mice_impute_crowd <- functiondata){
+  
+  # this is the stuff i want to use for imputing
+  imp_vars <- c(ip_lat, ip_long, rainfall, min_temperature, max_temperature, solar_exposure, obvs_date)
+  
+  # this is the DF to impute for
+  impute_DF <- Data %>%
+    select(imp_vars)
+  
+  # this is the DF to leave
+  leave_DF <- Data %>%
+    select(-imp_vars)
+  
+  # impute values using mice for the BOM stuff
+  imputed_data <- mice(test, m = 5, maxit = 5, meth = 'rf', seed = 69, printFlag = F)
+  impute_DF <- complete(imputed_Data)
+  
+  # bind it back together
+  Data <- cbind(leave_DF, impute_DF)
+  
+  return(Data)
+  
+}
+```
+
+
+```{r}
+crowd <- function(data){
+  
+  rf <- randomForest(crowd ~ team_home + team_away + position_home + round_name + city + venue_name + competition_year, 
+                     data = footy_tipping_data %>% filter(!is.na(crowd), competition_year >= 2018))
+  
+  data <- data %>%
+    mutate(imputed_crowd = is.na(crowd),
+           crowd = case_when(
+             competition_year %in% 2020:2021 ~ ~replace_na(.x, 0),
+             TRUE ~ predict(rf, data %>% filter(is.na(crowd)))
+             )
+           )
+  
+  return(data)
+  
+}
+
+data %>% crowd() %>% select(imputed_crowd, crowd, competition_year)
+```
+
+
+
