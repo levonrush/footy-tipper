@@ -25,7 +25,6 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 
 **Send Predictions:** The `send.py` script is responsible for distributing the model's predictions. It not only automates the process of sending predictions to Google Drive but also takes charge of emailing the registered subscribers. To add a personal touch and maintain the spirit of the game, the emails are crafted to mimic the style of Reg Reagan, the iconic rugby league personality known for his humor and passion for the sport. This not only keeps the recipients engaged but also strengthens the brand identity of The Footy-Tipper as a source of not only predictions but also entertainment. With the help of ChatGPT's language model fine-tuned to Reg Reagan's linguistic flair, the emails carry a distinctive tone that resonates with rugby fans, making the arrival of predictions something to look forward to each week.
 
-
 Throughout these processes, SQL plays a vital role in data management and transition across various platforms and environments. Docker encapsulates both processes, ensuring portability and facilitating easy deployment.
 
 ## Prerequisites
