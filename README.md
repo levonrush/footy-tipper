@@ -2,6 +2,8 @@
 
 The Footy-Tipper is an open-source Rugby League prediction engine designed to predict the outcomes of National Rugby League (NRL) matches. This project artfully blends the capabilities of R, Python, and SQL to develop a wholistic data science product. R is used for constructing data pipelines and researching Rugby League behaviors, Python for machine learning modeling, and SQL for efficient data management across platforms.
 
+![Footy Tipper Logo](/images/footy-tipper-logo.jpg)
+
 A development blog, titled "The Footy Tipper," provides detailed insights into the progress and findings of this project. You can read the first edition of the blog [here](https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292).
 
 ## Workflow
@@ -10,6 +12,8 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 2. **Commonizing Code**: As models mature, reusable components such as functions and configurations are abstracted and moved to the `pipeline/common` directory. This ensures that both development and production benefit from a single source of truth for these elements.
 
 3. **Model Production**: The refined functions from the `common` directory are then utilized within `pipeline` to structure robust training (`train.py`), inference (`inference.py`) and send (`send.py`) scripts that serve production workflows.
+
+![Workflow Pattern](/images/workflow-pattern.jpg)
 
 ## How it Works
 
