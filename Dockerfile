@@ -1,8 +1,7 @@
 # Use an official Python runtime as a parent image
 FROM python:3.11
 
-# Install R, which is necessary for running R scripts
-# Install system libraries required for R and Python
+# Install R and system libraries required for R and Python
 RUN apt-get update && apt-get install -y \
     libfontconfig1-dev \
     libfreetype6-dev \
@@ -18,17 +17,15 @@ RUN apt-get update && apt-get install -y \
 # Set the working directory in the container to /footy-tipper
 WORKDIR /footy-tipper
 
-# Copy the current directory contents into the container at /footy-tipper
+# Copy the project files except the ones defined in .dockerignore
 COPY . /footy-tipper
 
 # Create a Python virtual environment and install Python packages
-# Note: requirements.txt is assumed to be at the root of the project
 RUN python3 -m venv footyenv
 ENV PATH="/footy-tipper/footyenv/bin:$PATH"
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install any needed packages specified in install.R
-# Note: install.R is assumed to be at the root of the project
 RUN Rscript install.R
 
 # Make port 80 available to the world outside this container

@@ -4,18 +4,31 @@ The Footy-Tipper is an open-source Rugby League prediction engine designed to pr
 
 A development blog, titled "The Footy Tipper," provides detailed insights into the progress and findings of this project. You can read the first edition of the blog [here](https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292).
 
+## Workflow
+1. **Model Development and EDA**: Developers work within the `research` folder, creating and iterating on Jupyter or Rmarkdown notebooks to develop and refine models.
+
+2. **Commonizing Code**: As models mature, reusable components such as functions and configurations are abstracted and moved to the `pipeline/common` directory. This ensures that both development and production benefit from a single source of truth for these elements.
+
+3. **Model Production**: The refined functions from the `common` directory are then utilized within `pipeline` to structure robust training (`train.py`), inference (`inference.py`) and send (`send.py`) scripts that serve production workflows.
+
 ## How it Works
 
-**Model Building:** This process starts with the `data-prep.R` script, situated in the 'data-prep' folder, which is responsible for data cleaning and feature engineering. Following the data preparation, the model development phase is executed in the `model-training.ipynb` notebook situated in the 'model-training' folder. Python, renowned for its flexibility and extensive suite of machine learning libraries, is used for constructing robust predictive models from the preprocessed data.
+**Data Collection and Transformation:** This process starts with the `data-prep.R` script, which is responsible for scraping, data cleaning and feature engineering. Finally, the data is stored in a SQL database to be used by the rest of the pipeline.
 
-**Model Prediction:** This process begins again with the `data-prep.R` script to ensure that the most recent data is used. It then proceeds to the `model-prediction.ipynb` and `send_predictions.ipynb` notebooks in the 'model-prediction' and 'use-predictions' folders respectively. Here, the model's predictions are generated, uploaded to Google Drive, and dispatched via automated emails.
+**Model Training:**  Following the data preparation, the model development phase is executed in the `train.py`. Python, renowned for its flexibility and extensive suite of machine learning libraries, is used for constructing robust predictive models from the preprocessed data.
+
+**Model Prediction:** It then proceeds to the `inference.py`. Here, the model's predictions are generated.
+
+**Send Predictions:** The `send.py` is responsible for sending the model's predictions to Google Drive the intended recipients. This process is automated and ensures that the predictions are delivered promptly.
 
 Throughout these processes, SQL plays a vital role in data management and transition across various platforms and environments. Docker encapsulates both processes, ensuring portability and facilitating easy deployment.
 
 ## Prerequisites
 
 - Docker installed and running on your machine.
-- Google service account for Google Drive authentication (`service-account-token.json`).
+- The project secrets:
+  - The secrets file (`secrets.env`).
+  - Google service account for Google Drive authentication (`service-account-credentials.json`).
 - (Optional) R, Python and Visual Studio Code, if you want to develop or debug locally.
 - (Optional) Google Cloud Platform account for computation.
 
@@ -23,39 +36,38 @@ Throughout these processes, SQL plays a vital role in data management and transi
 
 ### Using Docker
 
-1. Clone this repository.
-    ```
+1. **Clone this repository.**
+    ```bash
     git clone https://github.com/levonrush/footy-tipper.git
     ```
 
-2. Navigate to the project's directory.
-    ```
+2. **Navigate to the project's directory.**
+    ```bash
     cd footy-tipper
     ```
 
-3. To build the Docker image for the model building process:
-    ```
-    docker build --build-arg PROCESS=model_building -t footy-tipper-building .
-    ```
-
-4. To build the Docker image for the model prediction process:
-    ```
-    docker build --build-arg PROCESS=model_prediction -t footy-tipper-prediction .
+3. **Build the Docker image.** There's no longer a need to specify a `PROCESS` argument since the Dockerfile has been updated to run a series of scripts automatically.
+    ```bash
+    docker build -t footy-tipper .
     ```
 
-5. Run the Docker container, replacing `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000), and `<image>` with the Docker image you want to run (`footy-tipper-building` or `footy-tipper-prediction`).
+4. **Prepare your environment file and service account token.** Ensure you have a `secrets.env` file and a `service-account-token.json` ready in your project directory but excluded from version control via `.gitignore`.
+
+5. **Run the Docker container.** Replace `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000). Use the `-v` option to securely mount `service-account-token.json` and the `--env-file` option to specify environment variables from `secrets.env`.
+    ```bash
+    docker run -p <your_host_port>:80 --env-file ./secrets.env -v $(pwd)/service-account-token.json:/footy-tipper/service-account-token.json footy-tipper
     ```
-    docker run -p <your_host_port>:80 <image>
-    ```
+
+This sequence ensures that your Docker usage is secure, efficient, and aligns with best practices for handling sensitive information. Remember to keep your `secrets.env` and any sensitive files securely managed and out of version control.
+
 
 ### For Development and Debugging
 
 1. Open the project in your preferred code editor.
 2. If needed, set environment variables in a `.env` file or manually in your Python or R session.
 3. Run the `data-prep.R` script located in the 'data-prep' folder for data cleaning and feature engineering.
-4. For model building, open and execute the `model-training.ipynb` notebook situated in the 'model-training' folder.
-5. For model prediction, execute the `model-prediction.ipynb` notebook in the 'model-prediction' folder, followed by the `send_predictions.ipynb` notebook in the 'use-predictions' folder. The latter notebook sends out the model's predictions.
-6. If Docker is used, ensure to build and run the Docker image as necessary.
+4. For pipeline development, open and execute the `model-training.ipynb` notebook situated in the 'research' folder.
+5. If Docker is used, ensure to build and run the Docker image as necessary.
 
 Note: Ensure your Python and R environments have all necessary packages installed to run the scripts and notebooks.
 

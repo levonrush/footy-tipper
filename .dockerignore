@@ -1,0 +1,7 @@
+.git/
+.gitignore
+.dockerignore
+**/*.md
+node_modules/
+secrets.env
+service-account-token.json
