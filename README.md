@@ -53,9 +53,12 @@ Throughout these processes, SQL plays a vital role in data management and transi
 
 4. **Prepare your environment file and service account token.** Ensure you have a `secrets.env` file and a `service-account-token.json` ready in your project directory but excluded from version control via `.gitignore`.
 
-5. **Run the Docker container.** Replace `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000). Use the `-v` option to securely mount `service-account-token.json` and the `--env-file` option to specify environment variables from `secrets.env`.
+5. **Run the Docker container.** Replace `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000). Use the `-v` option to securely mount `secrets.env` and `service-account-token.json` into the Docker container.
     ```bash
-    docker run -p <your_host_port>:80 --env-file ./secrets.env -v $(pwd)/service-account-token.json:/footy-tipper/service-account-token.json footy-tipper
+    docker run -p <your_host_port>:80 \
+      -v $(pwd)/secrets.env:/footy-tipper/secrets.env \
+      -v $(pwd)/service-account-token.json:/footy-tipper/service-account-token.json \
+      footy-tipper
     ```
 
 This sequence ensures that your Docker usage is secure, efficient, and aligns with best practices for handling sensitive information. Remember to keep your `secrets.env` and any sensitive files securely managed and out of version control.
