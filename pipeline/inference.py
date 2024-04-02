@@ -1,4 +1,5 @@
 # Description: This script is used to make predictions using the model and save the predictions to the database.
+print("Running the inference.py script...")
 
 # import libraries
 import os

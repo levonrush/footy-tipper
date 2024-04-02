@@ -1,4 +1,5 @@
 # Description: This script is used to train the model and save it to the models directory
+print("Running the train.py script...")
 
 # import libraries
 import os

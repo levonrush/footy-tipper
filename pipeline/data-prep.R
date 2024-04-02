@@ -1,8 +1,9 @@
-print("Beginning data preparation...")
+# Description: This script is responsible for running the data preparation pipeline.
+print("Running the data-prep.R script...")
 
-# Set the project directory to 'pipeline/data-prep/data-prep.R'
+# Set the project directory using here, assuming that the Docker WORKDIR is the project root
 library(here)
-i_am("pipeline/data-prep.R")
+# i_am("pipeline/data-prep.R") # Comment out this line, as Docker WORKDIR should set the root
 
 # Find and load all helper functions located in 'pipeline/data-prep/functions' directory
 print("Finding helper functions...")
@@ -18,7 +19,8 @@ print("Sourcing helper functions...")
 sapply(data_prep_functions, source, .GlobalEnv)
 
 print("Loading environment variables...")
-load_dot_env(paste0(here(), "/secrets.env"))
+# Make sure to use the correct path to secrets.env relative to the Docker WORKDIR
+load_dot_env(here("secrets.env"))
 
 # Run the data pipeline function (defined in one of the helper files) with specified parameters
 print("Running the data pipeline...")
