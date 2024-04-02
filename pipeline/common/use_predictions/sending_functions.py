@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import sqlite3
 
 # for google
 from google.oauth2 import service_account
@@ -9,12 +10,31 @@ import gspread
 from google.oauth2 import service_account
 
 # for reg
-from langchain.llms import OpenAI
+# from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
 
 # for emails
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+# The 'get_predictions' function reads the predictions from the SQLite database and returns them as a pandas DataFrame.
+def get_predictions(db_path, project_root):
+
+    # Connect to the SQLite database
+    con = sqlite3.connect(str(db_path))
+
+    # Read SQL query from external SQL file
+    with open(project_root / 'pipeline/common' / 'sql/prediction_table.sql', 'r') as file:
+        query = file.read()
+
+    # Execute the query and fetch the results into a data frame
+    predictions = pd.read_sql_query(query, con)
+
+    # Disconnect from the SQLite database
+    con.close()
+
+    return predictions
 
 # The 'get_tipper_picks' function calculates the odds threshold for both home and away teams and then selects the home and away teams based on their predicted results.
 def get_tipper_picks(predictions, prod_run=False):
@@ -66,11 +86,11 @@ def upload_df_to_drive(df, json_path, folder_id, filename):
 def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, temperature):
 
     # Set up the OpenAI model using provided API key and model parameters
-    llm = OpenAI(openai_api_key=api_key,
-                 model_name="gpt-4-0125-preview",
-                #  model_name="gpt-4",
-                 max_tokens=4000,
-                 temperature=temperature)
+    llm = ChatOpenAI(openai_api_key=api_key,
+                     model_name="gpt-4-0125-preview",
+                     #  model_name="gpt-4",
+                     max_tokens=4000,
+                     temperature=temperature)
 
     # Generate input_predictions string by iterating over 'predictions' dataframe and formatting data into string
     input_predictions = ""
