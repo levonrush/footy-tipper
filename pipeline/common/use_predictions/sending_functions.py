@@ -67,8 +67,9 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, tem
 
     # Set up the OpenAI model using provided API key and model parameters
     llm = OpenAI(openai_api_key=api_key,
-                 model_name="gpt-4",
-                 max_tokens=7000,
+                 model_name="gpt-4-0125-preview",
+                #  model_name="gpt-4",
+                 max_tokens=4000,
                  temperature=temperature)
 
     # Generate input_predictions string by iterating over 'predictions' dataframe and formatting data into string
@@ -105,8 +106,6 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, tem
         * Away Team: the away team
         * Away Team Position: the away team's position on the NRL ladder
         * Away Team Head to Head Price: the price bookies are offering for an away win
-
-        This is the grand final edition of the Footy Tipper, so give us a big run down of each of the teams with some comments around who they are, where they are from and comments on their performance when you used to play against them.
         
         It also comes up with some good value tips for those interested in a punt in \n{input_picks}\n. If it is empty there isn't much value for punting in the round. The description of the columns of interest is:
         
@@ -118,7 +117,7 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, tem
         Remember to link everyone to the tips folder: {folder_url}
         Also, tell everyone to bring back the biff at the end of the email.
         Also also your favorite team is the Newcastle Knights and you hate Manly.
-        Always sign off the email as Reg Reagan.
+        Also also also, tell them that if they are in tipping comps at either the Seven Seas Hotel in Carrington or the Ship Inn on Hunter St then they aren't allowed to use the tips.
         """
 
     # Use the AI model to generate the email content based on the prompt
