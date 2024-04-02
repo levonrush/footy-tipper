@@ -21,9 +21,10 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 
 **Model Training:**  Following the data preparation, the model development phase is executed in the `train.py`. Python, renowned for its flexibility and extensive suite of machine learning libraries, is used for constructing robust predictive models from the preprocessed data.
 
-**Model Prediction:** It then proceeds to the `inference.py`. Here, the model's predictions are generated.
+**Model Prediction:** It then proceeds to the `inference.py`. Here, the model's predictions are generated and stored in the SQL database.
 
-**Send Predictions:** The `send.py` is responsible for sending the model's predictions to Google Drive the intended recipients. This process is automated and ensures that the predictions are delivered promptly.
+**Send Predictions:** The `send.py` script is responsible for distributing the model's predictions. It not only automates the process of sending predictions to Google Drive but also takes charge of emailing the registered subscribers. To add a personal touch and maintain the spirit of the game, the emails are crafted to mimic the style of Reg Reagan, the iconic rugby league personality known for his humor and passion for the sport. This not only keeps the recipients engaged but also strengthens the brand identity of The Footy-Tipper as a source of not only predictions but also entertainment. With the help of ChatGPT's language model fine-tuned to Reg Reagan's linguistic flair, the emails carry a distinctive tone that resonates with rugby fans, making the arrival of predictions something to look forward to each week.
+
 
 Throughout these processes, SQL plays a vital role in data management and transition across various platforms and environments. Docker encapsulates both processes, ensuring portability and facilitating easy deployment.
 
