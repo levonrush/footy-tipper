@@ -38,4 +38,4 @@ EXPOSE 80
 ENV DOCKER=true
 
 # Adjust the CMD command to run scripts from the pipeline directory
-CMD Rscript pipeline/data-prep.R && python pipeline/train.py && python pipeline/inference.py
+CMD Rscript pipeline/data-prep.R && python pipeline/train.py && python pipeline/inference.py && python pipeline/send.py
