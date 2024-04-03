@@ -11,7 +11,7 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 
 2. **Commonizing Code**: Reusable functions and configurations identified during model development are centralized in the `pipeline/common` directory to streamline code management and ensure uniformity across development and production.
 
-3. **Model Production**: Production scripts in the `pipeline` utilize the common functions for efficient model training (`train.py`), prediction (`inference.py`
+3. **Model Production**: Production scripts in the `pipeline` utilize the common functions for efficient model training (`train.py`), prediction (`inference.py`), and result dissemination (`send.py`), automating the end-to-end process from data to delivery.
 
 ![Workflow Pattern](/images/workflow-pattern.jpg)
 
