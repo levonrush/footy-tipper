@@ -4,7 +4,7 @@ The Footy-Tipper, an open-source Rugby League prediction engine, artfully merges
 
 ![Footy Tipper Logo](/images/footy-tipper-logo.jpg)
 
-A development blog, titled "The Footy Tipper," provides detailed insights into the progress and findings of this project. [You can read the first edition of the blog on Medium](https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292).
+A development blog, titled "The Footy Tipper," provides detailed insights into the progress and findings of this project. [You can read the Footy Tipper blog here on Medium!](https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292)
 
 ## Workflow
 1. **Model Development and EDA**: In the `research` folder, Jupyter and Rmarkdown notebooks facilitate exploratory data analysis and initial model prototyping, enabling swift experimentation and model iteration.
