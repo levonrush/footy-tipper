@@ -13,7 +13,7 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 
 3. **Model Production**: Production scripts in the `pipeline` utilize the common functions for efficient model training (`train.py`), prediction (`inference.py`), and result dissemination (`send.py`), automating the end-to-end process from data to delivery.
 
-![Workflow Pattern](/images/workflow-pattern.png)
+![Workflow Pattern](/images/workflow.png)
 
 ## How it Works
 
