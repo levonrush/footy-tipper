@@ -2,7 +2,6 @@ scikit-learn
 xgboost
 pandas
 numpy
-jupyter
 google
 python-dotenv
 gspread
@@ -16,3 +15,4 @@ langchain
 oauth2client
 sklearn-genetic-opt
 dill
+joblib

@@ -1,4 +1,5 @@
 # Description: This script is used to send the predictions to the email list
+print("Running the send.py script...")
 
 # import libraries
 import os
