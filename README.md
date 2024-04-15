@@ -67,7 +67,6 @@ Throughout these processes, SQL plays a vital role in data management and transi
 
 This sequence ensures that your Docker usage is secure, efficient, and aligns with best practices for handling sensitive information. Remember to keep your `secrets.env` and any sensitive files securely managed and out of version control.
 
-
 ### For Development and Debugging
 
 1. Open the project in your preferred code editor.

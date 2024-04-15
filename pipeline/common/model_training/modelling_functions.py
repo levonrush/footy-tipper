@@ -71,8 +71,8 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
         cv=num_folds, 
         scoring=opt_metric, 
         n_jobs=-1,
-        population_size=150,
-        generations=75, 
+        population_size=200,
+        generations=100, 
         crossover_probability=0.5, 
         mutation_probability=0.2, 
         verbose=True
@@ -152,9 +152,9 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
     # Define your models and parameter grids
     models_and_params = [
         (xgb.XGBClassifier(n_jobs=-1), {
-            'n_estimators': Integer(20, 350),
-            'learning_rate': Continuous(0.01, 0.5),
-            'max_depth': Integer(2, 15),
+            'n_estimators': Integer(20, 500),
+            'learning_rate': Continuous(0.01, 0.9),
+            'max_depth': Integer(2, 20),
             'subsample': Continuous(0.1, 1.0),
             'colsample_bytree': Continuous(0.1, 0.99),
             'gamma': Continuous(0, 0.9),
