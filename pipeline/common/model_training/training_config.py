@@ -1,10 +1,11 @@
 # training params
 opt_metric = "accuracy" # ROC, F1 or accuracy
-num_folds = 5
+num_folds = 3
 use_rfe = True
 
 # outcome variable
-outcome_variables = ["home_team_result", "match_points_difference"]
+main_outcome = "home_team_result"
+base_outcomes = ["home_team_result", "match_points_difference", "team_final_score_home", "team_final_score_away"]
 positive = "Win"
 
 # predictors
