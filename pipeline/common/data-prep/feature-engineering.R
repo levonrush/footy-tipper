@@ -5,6 +5,7 @@ fixture_result <- function(data, pipeline){
   if (pipeline == 'binomial'){
     
     data <- data %>%
+      mutate(match_points_difference = team_final_score_home - team_final_score_away) %>%
       mutate(home_team_result = ifelse(team_final_score_home >= team_final_score_away,
                                        "Win", "Loss") %>% as.factor())
     

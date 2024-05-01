@@ -4,7 +4,7 @@ num_folds = 5
 use_rfe = True
 
 # outcome variable
-outcome_var = "home_team_result"
+outcome_variables = ["home_team_result", "match_points_difference"]
 positive = "Win"
 
 # predictors
