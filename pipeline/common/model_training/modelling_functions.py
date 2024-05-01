@@ -4,6 +4,7 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import RFECV
+from sklearn.utils.multiclass import type_of_target
 import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn_genetic import GASearchCV
@@ -72,7 +73,7 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
         scoring=opt_metric, 
         n_jobs=-1,
         population_size=200,
-        generations=100, 
+        generations=100,
         crossover_probability=0.5, 
         mutation_probability=0.2, 
         verbose=True
@@ -131,7 +132,6 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
 
     return  le, pipeline
 
-
 def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_folds, opt_metric):
     """
     Train multiple models and select the best one.
@@ -149,40 +149,58 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
         best_label_encoder (LabelEncoder): The label encoder used for the best model.
     """
 
-    # Define your models and parameter grids
-    models_and_params = [
-        (xgb.XGBClassifier(n_jobs=-1), {
-            'n_estimators': Integer(20, 500),
-            'learning_rate': Continuous(0.01, 0.9),
-            'max_depth': Integer(2, 20),
-            'subsample': Continuous(0.1, 1.0),
-            'colsample_bytree': Continuous(0.1, 0.99),
-            'gamma': Continuous(0, 0.9),
-        }),
-        # (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
-        #     'n_estimators': Integer(150, 350),
-        #     'max_features': Categorical(['sqrt', 'log2']),
-        #     'max_depth': Integer(5, 25),
-        #     'min_samples_split': Integer(2, 10),
-        #     'min_samples_leaf': Integer(1, 5),
-        #     'bootstrap': Categorical([True, False]),
-        # }),
-        # (GradientBoostingClassifier(), {
-        #     'n_estimators': Integer(100, 350),
-        #     'learning_rate': Continuous(0.001, 0.2),
-        #     'max_depth': Integer(3, 10),
-        #     'min_samples_split': Integer(2, 10),
-        #     'min_samples_leaf': Integer(1, 6),
-        #     'subsample': Continuous(0.8, 1.0),
-        #     'max_features': Categorical(['sqrt', 'log2']),
-        # })
-    ]
-    
+    # Determine if the target variable is for classification or regression
+    target_type = type_of_target(data[outcome_var])
+    is_regression = target_type in ['continuous', 'multiclass']
+
+    if is_regression:
+        models_and_params = [
+            (xgb.XGBRegressor(n_jobs=-1), {
+                'n_estimators': Integer(20, 500),
+                'learning_rate': Continuous(0.01, 0.9),
+                'max_depth': Integer(2, 20),
+                'subsample': Continuous(0.1, 1.0),
+                'colsample_bytree': Continuous(0.1, 0.99),
+                'gamma': Continuous(0, 0.9),
+            }),
+            # Add other regression models and parameters as needed
+        ]
+        opt_metric = 'neg_mean_squared_error'  # Example regression metric
+    else:
+        models_and_params = [
+            (xgb.XGBClassifier(n_jobs=-1), {
+                'n_estimators': Integer(20, 500),
+                'learning_rate': Continuous(0.01, 0.9),
+                'max_depth': Integer(2, 20),
+                'subsample': Continuous(0.1, 1.0),
+                'colsample_bytree': Continuous(0.1, 0.99),
+                'gamma': Continuous(0, 0.9),
+            }),
+            # Add other classification models and parameters as needed
+            # (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
+            #     'n_estimators': Integer(150, 350),
+            #     'max_features': Categorical(['sqrt', 'log2']),
+            #     'max_depth': Integer(5, 25),
+            #     'min_samples_split': Integer(2, 10),
+            #     'min_samples_leaf': Integer(1, 5),
+            #     'bootstrap': Categorical([True, False]),
+            # }),
+            # (GradientBoostingClassifier(), {
+            #     'n_estimators': Integer(100, 350),
+            #     'learning_rate': Continuous(0.001, 0.2),
+            #     'max_depth': Integer(3, 10),
+            #     'min_samples_split': Integer(2, 10),
+            #     'min_samples_leaf': Integer(1, 6),
+            #     'subsample': Continuous(0.8, 1.0),
+            #     'max_features': Categorical(['sqrt', 'log2']),
+            # })
+        ]
+        opt_metric = 'accuracy'  # Example classification metric
+
     best_pipeline = None
     best_score = -float('inf')
     best_label_encoder = None
     
-    # Train each model and keep track of the best one
     for estimator, param_grid in models_and_params:
         label_encoder, pipeline = train_model_pipeline(
             data, predictors, outcome_var,
@@ -193,16 +211,11 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
 
         score = pipeline.named_steps['hyperparamtuning'].best_score_
 
-        # Update best_model, best_score, etc.
         if score > best_score:
             best_pipeline = pipeline
             best_score = score
             best_label_encoder = label_encoder
 
-    # Print the best model and its score at the end
-    print(f"Best overall model: {type(best_pipeline.named_steps['hyperparamtuning'].estimator).__name__}")
-    print(f"Best overall score: {best_pipeline.named_steps['hyperparamtuning'].best_score_}")
-            
     return best_pipeline, best_label_encoder
 
 def save_models(label_encoder, pipeline, project_root):
