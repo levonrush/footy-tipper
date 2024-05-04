@@ -3,7 +3,7 @@ print("Running the data-prep.R script...")
 
 # Set the project directory using here, assuming that the Docker WORKDIR is the project root
 library(here)
-# i_am("pipeline/data-prep.R") # Comment out this line, as Docker WORKDIR should set the root
+i_am("pipeline/data-prep.R") # Comment out this line, as Docker WORKDIR should set the root
 
 # Find and load all helper functions located in 'pipeline/data-prep/functions' directory
 print("Finding helper functions...")
