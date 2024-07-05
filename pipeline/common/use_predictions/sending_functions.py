@@ -58,7 +58,7 @@ def get_tipper_picks(predictions, prod_run=False):
     return tipper_picks
 
 # The 'upload_df_to_drive' function uploads a pandas DataFrame to Google Drive as a CSV file.
-def upload_df_to_drive(df, json_path, folder_id, filename):
+def upload_df_to_drive(df, json_path, parent_folder_id, filename):
 
     # Load the credentials from the service_account.json
     creds = service_account.Credentials.from_service_account_file(json_path)
@@ -66,13 +66,56 @@ def upload_df_to_drive(df, json_path, folder_id, filename):
     # Build the Google Drive service
     drive_service = build('drive', 'v3', credentials=creds)
 
+    # Extract competition year
+    competition_year = str(df['competition_year'].unique()[0])
+
+    # Check if the folder for the competition year exists, if not, create it
+    def get_or_create_folder(service, folder_name, parent_folder_id):
+        query = f"'{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and name='{folder_name}'"
+        results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+        items = results.get('files', [])
+        
+        if not items:
+            # Folder does not exist, create it
+            file_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [parent_folder_id]
+            }
+            folder = service.files().create(body=file_metadata, fields='id').execute()
+            return folder.get('id')
+        else:
+            # Folder exists, return the id
+            return items[0]['id']
+    
+    competition_year_folder_id = get_or_create_folder(drive_service, competition_year, parent_folder_id)
+
     # Save your dataframe to CSV
     df.to_csv(filename, index=False)
 
+    # Prepare file metadata
+    file_name = f"round{df['round_id'].unique()[0]}_{df['competition_year'].unique()[0]}.csv"
+
+    # Check if a file with the same name exists in the target folder
+    def get_existing_file_id(service, folder_id, file_name):
+        query = f"'{folder_id}' in parents and name='{file_name}' and trashed=false"
+        results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+        items = results.get('files', [])
+        
+        if items:
+            return items[0]['id']
+        return None
+    
+    existing_file_id = get_existing_file_id(drive_service, competition_year_folder_id, file_name)
+
+    # If the file exists, delete it
+    if existing_file_id:
+        drive_service.files().delete(fileId=existing_file_id).execute()
+
     # Upload the file
     file_metadata = {
-        'name': f"round{df['round_id'].unique()[0]}_{df['competition_year'].unique()[0]}.csv",
-        'parents': [folder_id]
+        'name': file_name,
+        'parents': [competition_year_folder_id]
     }
     media = MediaFileUpload(filename, mimetype='text/csv')
     file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
@@ -87,9 +130,8 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, tem
 
     # Set up the OpenAI model using provided API key and model parameters
     llm = ChatOpenAI(openai_api_key=api_key,
-                     model_name="gpt-4-0125-preview",
-                     #  model_name="gpt-4",
-                     max_tokens=4000,
+                     model_name="gpt-4",
+                     max_tokens=7000,
                      temperature=temperature)
 
     # Generate input_predictions string by iterating over 'predictions' dataframe and formatting data into string
