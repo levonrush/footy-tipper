@@ -59,29 +59,24 @@ def get_predictions(db_path, sql_file):
 
     predictions
 
-def load_models(project_root):
+def load_models(model, project_root):
     """
-    Load the LabelEncoder and Pipeline objects from files.
+    Load the Pipeline objects from files.
     
     Args:
+        model (str): The name of the model to load.
         project_root (Path): The root path of the project.
         
     Returns:
-        label_encoder (LabelEncoder): The loaded LabelEncoder.
         pipeline (Pipeline): The loaded Pipeline.
     """
-
-    # Load the LabelEncoder
-    print("Loading models...")
-    label_encoder = load(project_root / "models" / 'label_encoder.pkl')
-    print("Label encoder loaded")
     
     # Load the pipeline
-    with open(project_root / "models" / 'footy_tipper.pkl', 'rb') as f:
+    with open(project_root / "models" / f'{model}.pkl', 'rb') as f:
         pipeline = pickle.load(f)
-    print("Model pipeline loaded")
+    print(f"{model} model pipeline loaded")
         
-    return label_encoder, pipeline
+    return pipeline
 
 def model_predictions(pipeline, inference_data, label_encoder):
     """
