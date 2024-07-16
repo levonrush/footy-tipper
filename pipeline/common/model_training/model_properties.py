@@ -152,14 +152,16 @@ def evaluate_models(home_model, away_model, test_data, predictors, n_simulations
     fpr = dict()
     tpr = dict()
     roc_auc = dict()
-    for i, label in enumerate(labels):
-        fpr[label], tpr[label], _ = roc_curve(result_df['actual_outcome'] == label, result_df['predicted_outcome'] == label)
-        roc_auc[label] = auc(fpr[label], tpr[label])
+    for label in labels:
+        if any(result_df['actual_outcome'] == label):
+            fpr[label], tpr[label], _ = roc_curve(result_df['actual_outcome'] == label, result_df['predicted_outcome'] == label)
+            roc_auc[label] = auc(fpr[label], tpr[label])
     
     # Plot ROC curves
     plt.figure()
     for label in labels:
-        plt.plot(fpr[label], tpr[label], lw=2, label=f'ROC curve of class {label} (area = {roc_auc[label]:.2f})')
+        if label in fpr and label in tpr:
+            plt.plot(fpr[label], tpr[label], lw=2, label=f'ROC curve of class {label} (area = {roc_auc[label]:.2f})')
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])

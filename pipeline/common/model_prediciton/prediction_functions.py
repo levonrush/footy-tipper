@@ -101,7 +101,7 @@ def predict_match_outcome_and_scoreline(home_model, away_model, inference_data, 
     results = []
     for index, row in inference_data.iterrows():
         probabilities, predicted_scoreline = simulate_game(row['home_goals_avg'], row['away_goals_avg'], n_simulations)
-        home_team_result = 'Win' if (probabilities['home_win_prob'] + probabilities['draw_prob']) > probabilities['away_win_prob'] else 'Loss' if (probabilities['away_win_prob'] + probabilities['draw_prob']) > probabilities['home_win_prob'] else 'Draw'
+        home_team_result = 'Win' if (probabilities['home_win_prob']) > probabilities['away_win_prob'] else 'Loss' if (probabilities['away_win_prob']) > probabilities['home_win_prob'] else 'Draw'
         
         result = {
             'game_id': row['game_id'],
