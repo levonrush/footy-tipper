@@ -3,6 +3,7 @@ import dill as pickle
 import pandas as pd
 import sqlite3
 import pandas as pd
+from scipy.stats import poisson
 
 def get_inference_data(db_path, sql_file):
     """
@@ -31,6 +32,96 @@ def get_inference_data(db_path, sql_file):
     con.close()
     
     return inference_data
+
+def predict_scores(model, data):
+    """
+    Predict the expected scores using the trained model.
+    
+    Args:
+        model (Pipeline): The trained model.
+        data (DataFrame): The input data for predictions.
+        
+    Returns:
+        np.array: The predicted scores.
+    """
+    return model.predict(data)
+
+def simulate_game(home_score_avg, away_score_avg, n_simulations=100000):
+    """
+    Simulate a number of games and calculate the probabilities of each outcome.
+    
+    Args:
+        home_score_avg (float): The expected score for the home team.
+        away_score_avg (float): The expected score for the away team.
+        n_simulations (int): The number of simulations to run.
+        
+    Returns:
+        dict: The probabilities of home win, away win, and draw.
+        tuple: The predicted scoreline (home_goals, away_goals).
+    """
+    home_goals_sim = poisson.rvs(home_score_avg, size=n_simulations)
+    away_goals_sim = poisson.rvs(away_score_avg, size=n_simulations)
+    
+    home_wins = (home_goals_sim > away_goals_sim).sum()
+    away_wins = (home_goals_sim < away_goals_sim).sum()
+    draws = (home_goals_sim == away_goals_sim).sum()
+    
+    total_games = n_simulations
+    probabilities = {
+        'home_win_prob': home_wins / total_games,
+        'away_win_prob': away_wins / total_games,
+        'draw_prob': draws / total_games
+    }
+    
+    # Determine the most frequent scoreline
+    scorelines = list(zip(home_goals_sim, away_goals_sim))
+    predicted_scoreline = max(set(scorelines), key=scorelines.count)
+    
+    return probabilities, predicted_scoreline
+
+def predict_match_outcome_and_scoreline(home_model, away_model, inference_data, predictors, n_simulations=100000):
+    """
+    Predict match outcomes and scorelines for the inference data.
+    
+    Args:
+        home_model (Pipeline): The trained model for home team scores.
+        away_model (Pipeline): The trained model for away team scores.
+        inference_data (DataFrame): The data for which predictions are to be made.
+        predictors (list): The list of predictor columns.
+        n_simulations (int): The number of simulations to run for each game.
+        
+    Returns:
+        DataFrame: The inference data with predicted probabilities, outcomes, and scorelines.
+    """
+    # Predict the expected scores
+    inference_data['home_goals_avg'] = predict_scores(home_model, inference_data[predictors])
+    inference_data['away_goals_avg'] = predict_scores(away_model, inference_data[predictors])
+    
+    # Simulate the games and calculate probabilities and scorelines
+    results = []
+    for index, row in inference_data.iterrows():
+        probabilities, predicted_scoreline = simulate_game(row['home_goals_avg'], row['away_goals_avg'], n_simulations)
+        home_team_result = 'Win' if (probabilities['home_win_prob'] + probabilities['draw_prob']) > probabilities['away_win_prob'] else 'Loss' if (probabilities['away_win_prob'] + probabilities['draw_prob']) > probabilities['home_win_prob'] else 'Draw'
+        
+        result = {
+            'game_id': row['game_id'],
+            'home_team_win_prob': probabilities['home_win_prob'],
+            'home_team_lose_prob': probabilities['away_win_prob'],
+            'draw_prob': probabilities['draw_prob'],
+            'predicted_home_score': predicted_scoreline[0],
+            'predicted_away_score': predicted_scoreline[1],
+            'predicted_margin': (predicted_scoreline[0] - predicted_scoreline[1]),
+            'home_team_result': home_team_result
+        }
+        results.append(result)
+    
+    results_df = pd.DataFrame(results)
+    
+    # Select the required columns
+    outcome_df = results_df[['game_id', 'home_team_result', 'home_team_win_prob', 'home_team_lose_prob', 'draw_prob']]
+    margin_df = results_df[['game_id', 'predicted_home_score', 'predicted_away_score', 'predicted_margin']]
+
+    return outcome_df, margin_df
 
 def get_predictions(db_path, sql_file):
     """
@@ -77,41 +168,6 @@ def load_models(model, project_root):
     print(f"{model} model pipeline loaded")
         
     return pipeline
-
-def model_predictions(pipeline, inference_data, label_encoder):
-    """
-    Make predictions using the trained model.
-
-    Args:
-        tuned_model (Pipeline): The trained model.
-        inference_data (DataFrame): The data to make predictions on.
-        label_encoder (LabelEncoder): The LabelEncoder object.
-
-    Returns:
-        results (DataFrame): The predictions and probability estimates.
-    """
-    
-    print("Making predictions...")
-
-    # Make predictions
-    encoded_predictions = pipeline.predict(inference_data)
-
-    # Get probability estimates
-    probability_estimates = pipeline.predict_proba(inference_data)
-
-    # Reverse transform the predictions to get the original labels
-    predictions = label_encoder.inverse_transform(encoded_predictions)
-
-    # Put everything into a DataFrame
-    results = pd.DataFrame({
-        'game_id': inference_data["game_id"],
-        'home_team_result': predictions,
-        'home_team_win_prob': probability_estimates[:, 1],
-        'home_team_lose_prob': probability_estimates[:, 0]
-    })
-    
-    # Return the DataFrame
-    return results
 
 def save_predictions_to_db(predictions_df, db_path, create_table_sql_file, insert_into_table_sql_file):
     """

@@ -16,6 +16,7 @@ sys.path.insert(0, parent_dir)
 
 # import functions from common like this:
 from pipeline.common.model_prediciton import prediction_functions as pf
+from pipeline.common.model_training import training_config as tc
 
 # Get to the root directory
 project_root = pathlib.Path().absolute()
@@ -24,18 +25,22 @@ project_root = pathlib.Path().absolute()
 db_path = project_root / "data" / "footy-tipper-db.sqlite"
 
 # Load the model
-label_encoder, footy_tipper = pf.load_models(project_root)
+home_model = pf.load_models('home_model', project_root)
+away_model = pf.load_models('away_model', project_root)
 
 # Get the inference data
 inference_data = pf.get_inference_data(db_path, project_root / 'pipeline/common/sql/inference_data.sql')
 
 # Make predictions
-predictions_df = pf.model_predictions(footy_tipper, inference_data, label_encoder)
+# Predict match outcomes and scorelines for the inference data
+outcomes, margins = pf.predict_match_outcome_and_scoreline(home_model, away_model, inference_data, tc.predictors)
 
 # Save the predictions
 pf.save_predictions_to_db(
-    predictions_df, 
+    outcomes, 
     db_path, 
     project_root / 'pipeline/common/sql/create_table.sql', 
     project_root / 'pipeline/common/sql/insert_into_table.sql'
     )
+
+print("Predictions saved to the database!")

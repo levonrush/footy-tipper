@@ -33,16 +33,25 @@ training_data = mf.get_training_data(
     )
 
 # Train the model
-print("Run Model Training Module")
-footy_tipper, label_encoder = mf.train_and_select_best_model(
-    training_data, tc.predictors, tc.outcome_var,
+print("Training the model for home team scores")
+home_model = mf.train_and_select_best_model(
+    training_data, tc.predictors, 'team_final_score_home',
     tc.use_rfe, tc.num_folds, tc.opt_metric
 )
+home_model
+
+print("Training the model for away team scores")
+away_model = mf.train_and_select_best_model(
+    training_data, tc.predictors, 'team_final_score_away',
+    tc.use_rfe, tc.num_folds, tc.opt_metric
+)
+away_model
 print("Model training complete!")
 
 # Save the model
-print("Save the model")
-mf.save_models(label_encoder, footy_tipper, project_root)
-print("Model saved!")
+print("Save the models")
+mf.save_models(home_model, 'home_model', project_root)
+mf.save_models(away_model, 'away_model', project_root)
+print("Models saved!")
 
 print("Model training complete!")   

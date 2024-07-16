@@ -16,11 +16,11 @@ The Footy-Tipper leverages advanced machine learning techniques to predict the o
 
 The model training process begins with setting up pipelines that include data preprocessing, feature selection, and hyperparameter tuning. Separate Poisson models are created for predicting the scores of the home team and the away team. These models are trained using extensive data to ensure they generalize well to unseen matches. Multiple models are trained with different configurations, and the best-performing models for the home and away teams are selected based on performance metrics.
 
-### Inference and Simulation
+### Simulation and Inference
 
 Once the Poisson models for both the home and away teams are trained, they are used to predict the expected scores for each team based on the input data. Simulations are then run to calculate the probabilities of each outcome (home win, away win, and draw) by modeling the distribution of scores. This involves generating numerous simulated matches to derive win probabilities and expected scorelines, providing a probabilistic view of match outcomes.
 
-### Example Visualization
+### Example
 
 To illustrate the prediction process, the following example shows a simulated distribution of scores and win probabilities for a match:
 
