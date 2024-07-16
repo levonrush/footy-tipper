@@ -6,6 +6,28 @@ The Footy-Tipper, an open-source Rugby League prediction engine, artfully merges
 
 A development blog, titled "The Footy Tipper," provides detailed insights into the progress and findings of this project. [You can read the Footy Tipper blog here on Medium!](https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292)
 
+## Modeling and Simulation Process
+
+### Overview
+
+The Footy-Tipper leverages advanced machine learning techniques to predict the outcomes and scorelines of NRL matches. This involves creating pipelines for model training, performing simulations to forecast match results, and using statistical methods to derive win probabilities. Below is an overview of the key functions involved in this process.
+
+### Model Training
+
+The model training process begins with setting up pipelines that include data preprocessing, feature selection, and hyperparameter tuning. Separate Poisson models are created for predicting the scores of the home team and the away team. These models are trained using extensive data to ensure they generalize well to unseen matches. Multiple models are trained with different configurations, and the best-performing models for the home and away teams are selected based on performance metrics.
+
+### Inference and Simulation
+
+Once the Poisson models for both the home and away teams are trained, they are used to predict the expected scores for each team based on the input data. Simulations are then run to calculate the probabilities of each outcome (home win, away win, and draw) by modeling the distribution of scores. This involves generating numerous simulated matches to derive win probabilities and expected scorelines, providing a probabilistic view of match outcomes.
+
+### Example Visualization
+
+To illustrate the prediction process, the following example shows a simulated distribution of scores and win probabilities for a match:
+
+![Prediction Example](/images/example_simulation.png)
+
+In this example, the left graph shows the distribution of simulated scores for the home and away teams, while the right graph shows the win probabilities.
+
 ## Workflow
 1. **Model Development and EDA**: In the `research` folder, Jupyter and Rmarkdown notebooks facilitate exploratory data analysis and initial model prototyping, enabling swift experimentation and model iteration.
 
@@ -19,9 +41,9 @@ A development blog, titled "The Footy Tipper," provides detailed insights into t
 
 **Data Collection and Transformation:** `data-prep.R` kick-starts the process with data scraping, cleaning, and feature engineering, ensuring that the latest rugby league data is analysis-ready. The data is then stored in a SQL database for downstream processing.
 
-**Model Training:** The `train.py` script takes over to train predictive models using Python's extensive machine learning libraries. It focuses on optimizing model accuracy and performance based on the preprocessed data.
+**Model Training:** The `train.py` script takes over to train predictive Poisson models for both the home and away teams using Python's extensive machine learning libraries. It focuses on optimizing model accuracy and performance based on the preprocessed data.
 
-**Model Prediction:** In the `inference.py` script, the trained models generate match predictions, which are then stored in the SQL database, transforming processed data into valuable insights for rugby league followers.
+**Model Prediction and Simulation:** In the `inference.py` script, the trained models generate expected scores for both the home and away teams. Game simulations are then performed to calculate win probabilities and predicted scorelines, transforming processed data into valuable insights for rugby league followers.
 
 **Send Predictions:** Finally, `send.py` automates the delivery of predictions through Google Drive and emails. The emails are stylized to emulate Reg Reagan's voice, combining predictions with engaging content, thanks to ChatGPT’s linguistic capabilities.
 
