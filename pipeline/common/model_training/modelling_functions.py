@@ -1,6 +1,6 @@
 import pandas as pd
 import sqlite3
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import RFECV
@@ -71,8 +71,8 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
         cv=num_folds, 
         scoring=opt_metric, 
         n_jobs=-1,
-        population_size=200,
-        generations=100, 
+        population_size=100,
+        generations=25,
         crossover_probability=0.5, 
         mutation_probability=0.2, 
         verbose=True
@@ -96,7 +96,6 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
         opt_metric (str): The metric to optimize.
         
     Returns:
-        le (LabelEncoder): The label encoder.
         pipeline (Pipeline): The trained pipeline.
     """
 
@@ -106,10 +105,6 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
     # Split the data into features (X) and target (y)
     X = data[predictors].copy()
     y = data[outcome_var].copy()
-
-    # Create and fit a LabelEncoder
-    le = LabelEncoder()
-    y = le.fit_transform(y)
 
     # Detect categorical columns
     cat_cols = X.select_dtypes(include=['object']).columns.tolist()
@@ -129,7 +124,7 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
     print(f"Best parameters: {pipeline.named_steps['hyperparamtuning'].best_params_}")
     print(f"Best score: {pipeline.named_steps['hyperparamtuning'].best_score_}\n")
 
-    return  le, pipeline
+    return  pipeline
 
 
 def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_folds, opt_metric):
@@ -146,45 +141,26 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
         
     Returns:
         best_pipeline (Pipeline): The best model pipeline.
-        best_label_encoder (LabelEncoder): The label encoder used for the best model.
     """
 
     # Define your models and parameter grids
     models_and_params = [
-        (xgb.XGBClassifier(n_jobs=-1), {
+        (xgb.XGBRegressor(objective='count:poisson', n_jobs=-1), {
             'n_estimators': Integer(20, 500),
             'learning_rate': Continuous(0.01, 0.9),
             'max_depth': Integer(2, 20),
             'subsample': Continuous(0.1, 1.0),
             'colsample_bytree': Continuous(0.1, 0.99),
             'gamma': Continuous(0, 0.9),
-        }),
-        # (RandomForestClassifier(n_jobs=-1, class_weight='balanced'), {
-        #     'n_estimators': Integer(150, 350),
-        #     'max_features': Categorical(['sqrt', 'log2']),
-        #     'max_depth': Integer(5, 25),
-        #     'min_samples_split': Integer(2, 10),
-        #     'min_samples_leaf': Integer(1, 5),
-        #     'bootstrap': Categorical([True, False]),
-        # }),
-        # (GradientBoostingClassifier(), {
-        #     'n_estimators': Integer(100, 350),
-        #     'learning_rate': Continuous(0.001, 0.2),
-        #     'max_depth': Integer(3, 10),
-        #     'min_samples_split': Integer(2, 10),
-        #     'min_samples_leaf': Integer(1, 6),
-        #     'subsample': Continuous(0.8, 1.0),
-        #     'max_features': Categorical(['sqrt', 'log2']),
-        # })
+        })
     ]
     
     best_pipeline = None
     best_score = -float('inf')
-    best_label_encoder = None
     
     # Train each model and keep track of the best one
     for estimator, param_grid in models_and_params:
-        label_encoder, pipeline = train_model_pipeline(
+        pipeline = train_model_pipeline(
             data, predictors, outcome_var,
             estimator, param_grid,
             use_rfe=use_rfe, num_folds=num_folds,
@@ -197,32 +173,27 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
         if score > best_score:
             best_pipeline = pipeline
             best_score = score
-            best_label_encoder = label_encoder
 
     # Print the best model and its score at the end
     print(f"Best overall model: {type(best_pipeline.named_steps['hyperparamtuning'].estimator).__name__}")
     print(f"Best overall score: {best_pipeline.named_steps['hyperparamtuning'].best_score_}")
             
-    return best_pipeline, best_label_encoder
+    return best_pipeline
 
-def save_models(label_encoder, pipeline, project_root):
+def save_models(pipeline, name, project_root):
     """
-    Save the LabelEncoder and the Pipeline objects for future use.
+    Save the Pipeline objects for future use.
     
     Args:
-        label_encoder (LabelEncoder): The trained LabelEncoder.
         pipeline (Pipeline): The trained Pipeline.
+        name (str): The name to save the Pipeline as.
         project_root (Path): The root path of the project.
         
     Returns:
         None
     """
-
-    # Save the LabelEncoder
-    dump(label_encoder, project_root / "models" / 'label_encoder.pkl')
-    print("LabelEncoder saved to models/label_encoder.pkl")
     
     # Save the pipeline
-    with open(project_root / "models" / 'footy_tipper.pkl', 'wb') as f:
+    with open(project_root / "models" / f'{name}.pkl', 'wb') as f:
         pickle.dump(pipeline, f)
-    print("Pipeline saved to models/footy_tipper.pkl")
+    print(f"Pipeline saved to models/{name}.pkl")

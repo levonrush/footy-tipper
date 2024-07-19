@@ -1,11 +1,9 @@
-# training params
-opt_metric = "accuracy" # ROC, F1 or accuracy
-num_folds = 5
-use_rfe = True
+from sklearn.metrics import make_scorer, mean_poisson_deviance
 
-# outcome variable
-outcome_var = "home_team_result"
-positive = "Win"
+# modelling parameters
+opt_metric = make_scorer(mean_poisson_deviance, greater_is_better=False)
+num_folds = 3
+use_rfe = False
 
 # predictors
 predictors = [
