@@ -1,20 +1,8 @@
 import pandas as pd
+import numpy as np
 from sklearn.preprocessing import OneHotEncoder
 from pipeline.common.model_prediciton import prediction_functions as pf
-from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-
-from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-
+from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc, mean_absolute_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import poisson
@@ -173,55 +161,195 @@ def evaluate_models(home_model, away_model, test_data, predictors, n_simulations
     
     return result_df
 
-def get_feature_importance(pipeline, column_names):
+def evaluate_score_predictions(result_df):
     """
-    Extracts feature importances from a fitted scikit-learn pipeline.
+    Evaluate the predicted scores against the actual scores and plot the results.
     
     Args:
-        pipeline (Pipeline): The fitted pipeline.
-        column_names (list): List of original column names.
+        result_df (DataFrame): The DataFrame containing actual and predicted scores.
         
     Returns:
-        DataFrame: The DataFrame containing feature names and their corresponding importance.
+        dict: A dictionary with evaluation metrics.
     """
-    # Get the final step ('hyperparamtuning' in your case) estimator from the pipeline
-    final_estimator = pipeline.named_steps['hyperparamtuning'].best_estimator_
+    metrics = {}
 
-    # Check if the final_estimator has the feature_importances_ attribute
-    if hasattr(final_estimator, 'feature_importances_'):
-        # Extract the feature importances
-        importances = final_estimator.feature_importances_
-    else:
-        raise AttributeError(f"The final estimator doesn't have 'feature_importances_' attribute")
+    # Mean Absolute Error
+    metrics['mae_home'] = mean_absolute_error(result_df['team_final_score_home'], result_df['predicted_home_goals'])
+    metrics['mae_away'] = mean_absolute_error(result_df['team_final_score_away'], result_df['predicted_away_goals'])
 
-    # If you've used 'RFECV' for feature selection
-    if 'feature_elimination' in pipeline.named_steps:
-        # Get the support mask
-        support_mask = pipeline.named_steps['feature_elimination'].support_
-        # Get the names of the features selected by RFE
-        column_names = [col for (col, mask) in zip(column_names, support_mask) if mask]
+    # Root Mean Squared Error
+    metrics['rmse_home'] = np.sqrt(mean_squared_error(result_df['team_final_score_home'], result_df['predicted_home_goals']))
+    metrics['rmse_away'] = np.sqrt(mean_squared_error(result_df['team_final_score_away'], result_df['predicted_away_goals']))
 
-    # If you've used OneHotEncoder inside a ColumnTransformer
-    if 'one_hot_encoder' in pipeline.named_steps:
-        # Get the ColumnTransformer
-        column_transformer = pipeline.named_steps['one_hot_encoder']
-        # Find the OneHotEncoder inside the ColumnTransformer
-        for name, transformer, columns in column_transformer.transformers_:
-            if isinstance(transformer, OneHotEncoder):
-                one_hot_encoder = transformer
-                break
-        # Get the feature names from the one-hot encoder
-        one_hot_features = one_hot_encoder.get_feature_names_out(input_features=column_names)
-        column_names = one_hot_features.tolist()
+    # R-squared
+    metrics['r2_home'] = r2_score(result_df['team_final_score_home'], result_df['predicted_home_goals'])
+    metrics['r2_away'] = r2_score(result_df['team_final_score_away'], result_df['predicted_away_goals'])
 
-    # Create a DataFrame of feature importances
-    feature_importances = pd.DataFrame(
-        {
-            'Feature': column_names,
-            'Importance': importances
+    # Plotting the differences between predicted and actual scores
+    result_df['home_diff'] = result_df['team_final_score_home'] - result_df['predicted_home_goals']
+    result_df['away_diff'] = result_df['team_final_score_away'] - result_df['predicted_away_goals']
+
+    plt.figure(figsize=(14, 6))
+
+    # Histogram of the differences
+    plt.subplot(1, 2, 1)
+    sns.histplot(result_df['home_diff'], kde=True, color='blue', label='Home Score Difference')
+    sns.histplot(result_df['away_diff'], kde=True, color='red', label='Away Score Difference')
+    plt.xlabel('Difference')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of Score Differences')
+    plt.legend()
+
+    # Scatter plot of predicted vs actual scores
+    plt.subplot(1, 2, 2)
+    plt.scatter(result_df['team_final_score_home'], result_df['predicted_home_goals'], color='blue', label='Home')
+    plt.scatter(result_df['team_final_score_away'], result_df['predicted_away_goals'], color='red', label='Away')
+    plt.plot([0, max(result_df['team_final_score_home'].max(), result_df['team_final_score_away'].max())], 
+             [0, max(result_df['predicted_home_goals'].max(), result_df['predicted_away_goals'].max())], 
+             color='green', linestyle='--', label='Perfect Prediction')
+    plt.xlabel('Actual Score')
+    plt.ylabel('Predicted Score')
+    plt.title('Predicted vs Actual Scores')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+    return metrics
+
+def evaluate_models_with_scores(home_model, away_model, test_data, predictors, n_simulations=100000):
+    """
+    Evaluate the models on the test data and calculate accuracy and other metrics.
+    
+    Args:
+        home_model (Pipeline): The trained model for home team scores.
+        away_model (Pipeline): The trained model for away team scores.
+        test_data (DataFrame): The test dataset.
+        predictors (list): The list of predictor columns.
+        n_simulations (int): The number of simulations to run for each game.
+        
+    Returns:
+        DataFrame: The test data with predicted probabilities and actual outcomes.
+    """
+    # Predict the expected scores
+    test_data['home_goals_avg'] = pf.predict_scores(home_model, test_data[predictors])
+    test_data['away_goals_avg'] = pf.predict_scores(away_model, test_data[predictors])
+    
+    # Simulate the games and calculate probabilities
+    results = []
+    for index, row in test_data.iterrows():
+        probabilities, predicted_scoreline = pf.simulate_game(row['home_goals_avg'], row['away_goals_avg'], n_simulations)
+        result = {
+            'home_win_prob': probabilities['home_win_prob'],
+            'away_win_prob': probabilities['away_win_prob'],
+            'draw_prob': probabilities['draw_prob'],
+            'predicted_home_goals_sim': predicted_scoreline[0],
+            'predicted_away_goals_sim': predicted_scoreline[1],
         }
+        results.append(result)
+    
+    probabilities_df = pd.DataFrame(results)
+    result_df = pd.concat([test_data.reset_index(drop=True), probabilities_df], axis=1)
+    
+    # Determine the predicted outcomes
+    result_df['predicted_outcome'] = result_df.apply(
+        lambda row: 'home_win' if row['home_win_prob'] > max(row['away_win_prob'], row['draw_prob']) else
+                    ('away_win' if row['away_win_prob'] > max(row['home_win_prob'], row['draw_prob']) else 'draw'),
+        axis=1
     )
-    # Sort the DataFrame by importance in descending order
-    feature_importances.sort_values(by='Importance', ascending=False, inplace=True)
+    
+    # Determine the actual outcomes
+    result_df['actual_outcome'] = result_df.apply(
+        lambda row: 'home_win' if row['team_final_score_home'] > row['team_final_score_away'] else
+                    ('away_win' if row['team_final_score_home'] < row['team_final_score_away'] else 'draw'),
+        axis=1
+    )
+    
+    # Calculate accuracy
+    accuracy = (result_df['predicted_outcome'] == result_df['actual_outcome']).mean()
+    print(f"Accuracy: {accuracy:.2f}")
+    
+    # Print classification report
+    labels = ['home_win', 'away_win', 'draw']
+    print("\nClassification Report:")
+    print(classification_report(result_df['actual_outcome'], result_df['predicted_outcome'], labels=labels, target_names=labels, zero_division=0))
+    
+    # Confusion matrix
+    cm = confusion_matrix(result_df['actual_outcome'], result_df['predicted_outcome'], labels=labels)
+    plt.figure(figsize=(10,7))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.title('Confusion Matrix')
+    plt.show()
+    
+    # ROC curves and AUC for each class
+    fpr = dict()
+    tpr = dict()
+    roc_auc = dict()
+    for label in labels:
+        if any(result_df['actual_outcome'] == label):
+            fpr[label], tpr[label], _ = roc_curve(result_df['actual_outcome'] == label, result_df['predicted_outcome'] == label)
+            roc_auc[label] = auc(fpr[label], tpr[label])
+    
+    # Plot ROC curves
+    plt.figure()
+    for label in labels:
+        if label in fpr and label in tpr:
+            plt.plot(fpr[label], tpr[label], lw=2, label=f'ROC curve of class {label} (area = {roc_auc[label]:.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve')
+    plt.legend(loc="lower right")
+    plt.show()
+    
+    # Evaluate score predictions
+    result_df['predicted_home_goals'] = result_df['home_goals_avg']
+    result_df['predicted_away_goals'] = result_df['away_goals_avg']
+    metrics_poisson = evaluate_score_predictions(result_df)
+    
+    result_df['predicted_home_goals'] = result_df['predicted_home_goals_sim']
+    result_df['predicted_away_goals'] = result_df['predicted_away_goals_sim']
+    metrics_simulation = evaluate_score_predictions(result_df)
+    
+    print("\nPoisson Model Metrics:")
+    print(metrics_poisson)
+    
+    print("\nSimulation Model Metrics:")
+    print(metrics_simulation)
+    
+    return result_df, metrics_poisson, metrics_simulation
 
-    return feature_importances
+def get_feature_importances(pipeline, feature_names):
+    """
+    Get feature importances from the trained pipeline.
+    
+    Args:
+        pipeline (Pipeline): The trained pipeline.
+        feature_names (list): The list of feature names.
+        
+    Returns:
+        DataFrame: A DataFrame with the top 20 features and their importance values.
+    """
+    # Get the model from the pipeline
+    model = pipeline.named_steps['hyperparamtuning'].best_estimator_
+    
+    # Get feature importances
+    feature_importances = model.feature_importances_
+    
+    # Create a DataFrame
+    feature_importance_df = pd.DataFrame({
+        'feature': feature_names,
+        'importance': feature_importances
+    })
+    
+    # Sort by importance
+    feature_importance_df = feature_importance_df.sort_values(by='importance', ascending=False)
+    
+    # Get the top 20 features
+    top_20_features = feature_importance_df.head(20)
+    
+    return top_20_features
