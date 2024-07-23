@@ -1,15 +1,22 @@
 import pandas as pd
 import sqlite3
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import RFECV
 import xgboost as xgb
+import lightgbm as lgb
+from sklearn.neural_network import MLPRegressor
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn_genetic import GASearchCV
 from sklearn_genetic.space import Integer, Continuous, Categorical
 from joblib import dump
 import dill as pickle
+import warnings
+from sklearn.exceptions import ConvergenceWarning
+
+# Suppress warnings
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 def get_training_data(db_path, sql_file):
     """
@@ -59,6 +66,10 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
     # Add one-hot encoding step
     preprocessor = ColumnTransformer(transformers=[('encoder', OneHotEncoder(handle_unknown='ignore'), cat_cols)], remainder='passthrough')
     pipeline_steps.append(('one_hot_encoder', preprocessor))
+
+    # Add standard scaling step for MLPRegressor
+    if isinstance(estimator, MLPRegressor):
+        pipeline_steps.append(('scaler', StandardScaler()))
 
     # If use_rfe is True, add feature elimination step
     if use_rfe:
@@ -126,7 +137,6 @@ def train_model_pipeline(data, predictors, outcome_var, estimator, param_grid, u
 
     return  pipeline
 
-
 def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_folds, opt_metric):
     """
     Train multiple models and select the best one.
@@ -145,13 +155,31 @@ def train_and_select_best_model(data, predictors, outcome_var, use_rfe, num_fold
 
     # Define your models and parameter grids
     models_and_params = [
-        (xgb.XGBRegressor(objective='count:poisson', n_jobs=-1), {
+        # (MLPRegressor(max_iter=10000), {  # Further increased max_iter
+        #     'hidden_layer_sizes': Categorical([(50,), (100,), (50, 50), (100, 50)]),
+        #     'activation': Categorical(['relu', 'tanh']),
+        #     'solver': Categorical(['adam']),  # Changed solvers
+        #     'alpha': Continuous(0.0001, 0.1),
+        #     'learning_rate': Categorical(['constant', 'invscaling', 'adaptive']),
+        #     'learning_rate_init': Continuous(0.0001, 0.01),  # Added learning rate initialization
+        # }),
+        # (xgb.XGBRegressor(objective='count:poisson', n_jobs=-1), {
+        #     'n_estimators': Integer(20, 500),
+        #     'learning_rate': Continuous(0.01, 0.9),
+        #     'max_depth': Integer(2, 20),
+        #     'subsample': Continuous(0.1, 1.0),
+        #     'colsample_bytree': Continuous(0.1, 0.99),
+        #     'gamma': Continuous(0, 0.9),
+        # }),
+        (lgb.LGBMRegressor(objective='poisson', n_jobs=-1, verbose=-1), {
             'n_estimators': Integer(20, 500),
             'learning_rate': Continuous(0.01, 0.9),
             'max_depth': Integer(2, 20),
+            'num_leaves': Integer(2, 100),
             'subsample': Continuous(0.1, 1.0),
             'colsample_bytree': Continuous(0.1, 0.99),
-            'gamma': Continuous(0, 0.9),
+            'reg_alpha': Continuous(0, 1),
+            'reg_lambda': Continuous(0, 1),
         })
     ]
     
