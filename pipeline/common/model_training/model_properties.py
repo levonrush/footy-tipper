@@ -353,3 +353,97 @@ def get_feature_importances(pipeline, feature_names):
     top_20_features = feature_importance_df.head(20)
     
     return top_20_features
+
+def calculate_bayes_factor_home_vs_away(probabilities):
+    """
+    Calculate the Bayes factor for home win versus away win.
+    
+    Args:
+        probabilities (dict): Dictionary containing probabilities of home win, away win, and draw.
+        
+    Returns:
+        float: Bayes factor for home win versus away win.
+    """
+    home_win_prob = probabilities['home_win_prob']
+    away_win_prob = probabilities['away_win_prob']
+    
+    # Calculate Bayes factor for home win vs away win
+    bayes_factor_home_vs_away = home_win_prob / away_win_prob if away_win_prob != 0 else np.inf
+    
+    return bayes_factor_home_vs_away
+
+def map_bayes_factor_to_evidence(bayes_factor):
+    """
+    Map Bayes factor to evidence strength category.
+    
+    Args:
+        bayes_factor (float): Bayes factor for home win versus away win.
+        
+    Returns:
+        str: Evidence strength category.
+    """
+    if bayes_factor < 1:
+        return "Negative evidence"
+    elif 1 <= bayes_factor < 3:
+        return "Anecdotal evidence"
+    elif 3 <= bayes_factor < 10:
+        return "Moderate evidence"
+    elif 10 <= bayes_factor < 30:
+        return "Strong evidence"
+    elif 30 <= bayes_factor < 100:
+        return "Very strong evidence"
+    else:
+        return "Decisive evidence"
+
+def predict_match_outcome_and_scoreline_with_bayes(home_model, away_model, inference_data, predictors, n_simulations=100000):
+    """
+    Predict match outcomes and scorelines for the inference data, including Bayes factors.
+    
+    Args:
+        home_model (Pipeline): The trained model for home team scores.
+        away_model (Pipeline): The trained model for away team scores.
+        inference_data (DataFrame): The data for which predictions are to be made.
+        predictors (list): The list of predictor columns.
+        n_simulations (int): The number of simulations to run for each game.
+        
+    Returns:
+        DataFrame: The inference data with predicted probabilities, outcomes, scorelines, and Bayes factors.
+    """
+    # Predict the expected scores
+    inference_data['home_goals_avg'] = predict_scores(home_model, inference_data[predictors])
+    inference_data['away_goals_avg'] = predict_scores(away_model, inference_data[predictors])
+    
+    # Simulate the games and calculate probabilities and scorelines
+    results = []
+    for index, row in inference_data.iterrows():
+        probabilities, predicted_scoreline = simulate_game(row['home_goals_avg'], row['away_goals_avg'], n_simulations)
+        home_team_result = 'Win' if (probabilities['home_win_prob']) > probabilities['away_win_prob'] else 'Loss'
+        
+        bayes_factor_home_vs_away = calculate_bayes_factor_home_vs_away(probabilities)
+        evidence_strength = map_bayes_factor_to_evidence(bayes_factor_home_vs_away)
+        
+        result = {
+            'game_id': row['game_id'],
+            'home_team_win_prob': probabilities['home_win_prob'],
+            'home_team_lose_prob': probabilities['away_win_prob'],
+            'draw_prob': probabilities['draw_prob'],
+            'predicted_home_score': predicted_scoreline[0],
+            'predicted_away_score': predicted_scoreline[1],
+            'predicted_margin': (predicted_scoreline[0] - predicted_scoreline[1]),
+            'home_team_result': home_team_result,
+            'bayes_home_vs_away': bayes_factor_home_vs_away,
+            'evidence_strength': evidence_strength
+        }
+        results.append(result)
+    
+    results_df = pd.DataFrame(results)
+    
+    # Select the required columns
+    outcome_df = results_df[['game_id', 'home_team_result', 'home_team_win_prob', 'home_team_lose_prob', 'draw_prob', 'bayes_home_vs_away', 'evidence_strength']]
+    margin_df = results_df[['game_id', 'predicted_home_score', 'predicted_away_score', 'predicted_margin']]
+
+    return outcome_df, margin_df
+
+# Example usage
+# Assuming you have already loaded your models and data:
+# outcome_df, margin_df = predict_match_outcome_and_scoreline_with_bayes(home_model, away_model, inference_data, predictors)

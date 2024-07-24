@@ -5,6 +5,7 @@ print("Running the inference.py script...")
 import os
 import sys
 import pathlib
+import pandas as pd
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -33,11 +34,12 @@ inference_data = pf.get_inference_data(db_path, project_root / 'pipeline/common/
 
 # Make predictions
 # Predict match outcomes and scorelines for the inference data
-outcomes, margins = pf.predict_match_outcome_and_scoreline(home_model, away_model, inference_data, tc.predictors)
+outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(home_model, away_model, inference_data, tc.predictors)
+outcome_df = pd.merge(outcomes, margins, on='game_id')
 
 # Save the predictions
 pf.save_predictions_to_db(
-    outcomes, 
+    outcome_df, 
     db_path, 
     project_root / 'pipeline/common/sql/create_table.sql', 
     project_root / 'pipeline/common/sql/insert_into_table.sql'
