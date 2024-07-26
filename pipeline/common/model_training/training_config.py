@@ -13,151 +13,340 @@ use_rfe = False
 
 # predictors
 predictors = [
-    "round_id"
-    , "round_name"
-    , "game_number"
-    , "venue_name"
-    , "city"
-    , "team_home"
-    # , "punt_odds_diff"
-    # , "line_amount_diff"
-    # , "recent_form_diff"
-    , "team_away"
-    , "competition_year"
-    , "broadcast_channel1"
-    , "broadcast_channel2"
-    , "broadcast_channel3"
-    , "recent_form_home"
-    # , "players_used_diff"
-    # , "average_winning_margin_diff"
-    # , "average_losing_margin_diff"
-    # , "win_rate_diff"
-    # , "loss_rate_diff"
-    # , "draw_rate_diff"
-    # , "competition_point_rate_diff"
-    # , "avg_points_for_diff"
-    # , "avg_points_against_diff"
-    # , "avg_points_difference_diff"
-    , "home_win_rate_home"         
-    , "home_draw_rate_home"
-    , "home_loss_rate_home"
-    , "away_win_rate_home"
-    , "away_loss_rate_home"
-    , "avg_tries_for_home"
-    , "avg_tries_conceded_home"    
-    , "avg_goals_for_home"
-    , "avg_goals_conceded_home"      
-    # , "position_diff"
-    , "start_hour"
-    , "game_day"                   
-    , "matchup_form"    
-    # , "elo_diff"           
-    # , "elo_prob_diff"
-    , "elo_draw_prob"
-    , "state_of_origin"
-    , "post_origin"
-    , "home_ground_advantage"
-    # , "turn_around_diff"
-    # , "home_prev_result_diff"
-    # , "away_prev_result_diff" 
-    # , "prev_result_diff"
-    , "close_game_rate_home"     
-    , "wins_away"
-    , "draws_away"
-    , "losses_away"                
-    , "byes_away"
-    , "competition_points_away"
-    , "points_for_away"            
-    , "points_against_away"
-    , "points_difference_away"
-    , "home_wins_away"             
-    , "home_draws_away"
-    , "home_losses_away"
-    , "away_wins_away"             
-    , "away_draws_away"
-    , "away_losses_away"
-    , "recent_form_away"           
-    , "season_form_away"
-    , "tries_for_away"
-    , "tries_conceded_away"        
-    , "goals_for_away"
-    , "goals_conceded_away"
-    , "field_goals_for_away"       
-    , "field_goals_conceded_away"
-    , "players_used_away"
-    , "average_winning_margin_away"
-    , "average_losing_margin_away"
-    , "close_games_away"
-    , "win_rate_away"              
-    , "draw_rate_away"
-    , "loss_rate_away"
-    , "competition_point_rate_away"
-    , "avg_points_for_away"
-    , "avg_points_against_away"
-    , "avg_points_difference_away" 
-    , "home_win_rate_away"
-    , "home_draw_rate_away"
-    , "home_loss_rate_away"        
-    , "away_win_rate_away"
-    , "away_loss_rate_away"
-    , "avg_tries_for_away"         
-    , "avg_tries_conceded_away"
-    , "avg_goals_for_away"
-    , "avg_goals_conceded_away"    
-    , "close_game_rate_away"   
-    , "home_elo"
-    , "away_elo"    
-    , "home_elo_prob"
-    , "away_elo_prob"
-    , "turn_around_home"
-    , "turn_around_away"
+    # General Information
+    "round_id",
+    "round_name",
+    "game_number",
+    "venue_name",
+    "city",
+    "team_home",
+    # "punt_odds_diff",
+    # "line_amount_diff",
+    # "recent_form_diff",
+    "team_away",
+    "competition_year",
+    "start_hour",
+    "game_day",
+    "state_of_origin",
+    "post_origin",
+    "home_ground_advantage",
 
+    # Broadcast Information
+    "broadcast_channel1",
+    "broadcast_channel2",
+    "broadcast_channel3",
 
-    , "avg_points_for_home"    
-    , "avg_points_against_home"
-    , "avg_points_difference_home"
+    # Elo Ratings
+    "elo_draw_prob",
+    "home_elo",
+    "away_elo",
+    "home_elo_prob",
+    "away_elo_prob",
 
-    , "competition_point_rate_home"
+    # Home Team Statistics
+    "recent_form_home",
+    "home_win_rate_home",
+    "home_draw_rate_home",
+    "home_loss_rate_home",
+    "away_win_rate_home",
+    "away_loss_rate_home",
+    "avg_tries_for_home",
+    "avg_tries_conceded_home",
+    "avg_goals_for_home",
+    "avg_goals_conceded_home",
+    # "position_diff",
+    "matchup_form",
+    # "elo_diff",
+    # "elo_prob_diff",
+    # "turn_around_diff",
+    # "home_prev_result_diff",
+    # "away_prev_result_diff",
+    # "prev_result_diff",
+    "close_game_rate_home",
+    "average_winning_margin_home",
+    "average_losing_margin_home",
+    "season_form_home",
+    "tries_for_home",
+    "tries_conceded_home",
+    "goals_for_home",
+    "goals_conceded_home",
+    "field_goals_for_home",
+    "field_goals_conceded_home",
+    "players_used_home",
+    "competition_point_rate_home",
+    "avg_points_for_home",
+    "avg_points_against_home",
+    "avg_points_difference_home",
+    "close_games_home",
+    "win_rate_home",
+    "draw_rate_home",
+    "loss_rate_home",
+    "wins_home",
+    "draws_home",
+    "losses_home",
+    "byes_home",
+    "competition_points_home",
+    "points_for_home",
+    "points_against_home",
+    "points_difference_home",
+    "home_wins_home",
+    "home_draws_home",
+    "home_losses_home",
+    "away_wins_home",
+    "away_draws_home",
+    "away_losses_home",
 
-    , "close_games_home"
-    , "win_rate_home"
-    , "draw_rate_home"             
-    , "loss_rate_home"
+    # Away Team Statistics
+    "recent_form_away",
+    "wins_away",
+    "draws_away",
+    "losses_away",
+    "byes_away",
+    "competition_points_away",
+    "points_for_away",
+    "points_against_away",
+    "points_difference_away",
+    "home_wins_away",
+    "home_draws_away",
+    "home_losses_away",
+    "away_wins_away",
+    "away_draws_away",
+    "away_losses_away",
+    "average_winning_margin_away",
+    "average_losing_margin_away",
+    "season_form_away",
+    "tries_for_away",
+    "tries_conceded_away",
+    "goals_for_away",
+    "goals_conceded_away",
+    "field_goals_for_away",
+    "field_goals_conceded_away",
+    "players_used_away",
+    "competition_point_rate_away",
+    "avg_points_for_away",
+    "avg_points_against_away",
+    "avg_points_difference_away",
+    "close_games_away",
+    "win_rate_away",
+    "draw_rate_away",
+    "loss_rate_away",
+    "close_game_rate_away",
+    "home_win_rate_away",
+    "home_draw_rate_away",
+    "home_loss_rate_away",
+    "away_win_rate_away",
+    "away_loss_rate_away",
+    "avg_tries_for_away",
+    "avg_tries_conceded_away",
+    "avg_goals_for_away",
+    "avg_goals_conceded_away",
 
-    , "average_winning_margin_home"
-    , "average_losing_margin_home" 
+    # Turnaround Information
+    "turn_around_home",
+    "turn_around_away",
 
-    , "season_form_home"
-    , "tries_for_home"
-    , "tries_conceded_home"
-    , "goals_for_home"             
-    , "goals_conceded_home"
-    , "field_goals_for_home"
-    , "field_goals_conceded_home"  
-    , "players_used_home"
+    # Home Team Additional Metrics
+    "sin_bin_home",
+    "conversion_made_home",
+    "conversion_missed_home",
+    "tackle_made_home",
+    "tackle_missed_home",
+    "possession_home",
+    "territory_home",
+    "offloads_home",
+    "tackle_break_home",
+    "linebreak_home",
+    "lb_assist_home",
+    "kicks_home",
+    "kicks_occur_home",
+    "try_assist_home",
+    "error_home",
+    "try_home",
+    "penalty_shot_made_home",
+    "penalty_shot_missed_home",
+    "field_goal_made_home",
+    "field_goal_missed_home",
+    "points_home",
+    "kick_return_home",
+    "dh_run_home",
+    "dh_run_occur_home",
+    "x40_20_kick_home",
+    "kick_bomb_home",
+    "try_assists_and_involvements_home",
+    "line_break_assists_and_involvements_home",
+    "shifts_home",
+    "shortsides_home",
+    "captains_challenge_success_percent_home",
+    "x20_att_gl_possession_seconds_home",
+    "marker_tackle_home",
+    "trebles_home",
+    "markers_home",
+    "shortside_left_home",
+    "shortside_right_home",
+    "charge_downs_home",
+    "kick_charged_down_home",
+    "decoys_home",
+    "ineffective_tackle_home",
+    "intercept_home",
+    "pass_intercepted_home",
+    "one_on_one_steal_home",
+    "on_report_home",
+    "one_on_one_lost_home",
+    "one_on_one_tackle_home",
+    "bomb_kicks_defused_home",
+    "bomb_kicks_not_defused_home",
+    "kick_defused_home",
+    "kick_not_defused_home",
+    "line_dropout_home",
+    "supports_home",
+    "try_cause_home",
+    "try_saver_tackle_home",
+    "conversion_attempted_home",
+    "field_goal_attempted_home",
+    "half_break_home",
+    "kick_chip_home",
+    "kick_crossfield_home",
+    "kick_grubber_home",
+    "line_engaged_home",
+    "penalties_home",
+    "penalty_shot_attempted_home",
+    "receipts_home",
+    "play_the_ball_home",
+    "all_goals_made_home",
+    "all_goals_attempted_home",
+    "all_goals_missed_home",
+    "all_run_metres_home",
+    "all_runs_home",
+    "doubles_home",
+    "dummy_pass_home",
+    "handling_errors_home",
+    "kick_forces_dropout_home",
+    "kick_pressures_home",
+    "long_kicks_finding_space_home",
+    "post_contact_metres_home",
+    "shifts_left_home",
+    "shifts_right_home",
+    "goal_conversion_rate_home",
+    "set_completion_rate_home",
+    "passes_per_run_home",
+    "field_goal_conversion_rate_home",
+    "effective_tackle_percentage_home",
+    "foul_play_penalties_home",
+    "offside_penalties_home",
+    "captains_challenge_upheld_home",
+    "captains_challenge_overturned_home",
+    "ruck_infringement_home",
+    "one_point_field_goal_home",
+    "attacking_kicks_home",
+    "one_point_field_goal_missed_home",
+    "two_point_field_goal_missed_home",
+    "one_point_field_goal_attempted_home",
+    "two_point_field_goal_attempted_home",
+    "set_restart_conceded10m_offside_home",
+    "try_involvement_home",
+    "ptb_in_opposition_20_home",
+    "linebreak_involvement_home",
+    "short_dropout_home",
 
-    , "wins_home"                  
-    , "draws_home"                  
-    , "losses_home"
-    , "byes_home"                  
-    , "competition_points_home"
-    , "points_for_home"             
-    , "points_against_home"        
-    , "points_difference_home"
-    , "home_wins_home"
-    , "home_draws_home"            
-    , "home_losses_home"
-    , "away_wins_home"
-    , "away_draws_home"            
-    , "away_losses_home"
-
-    , "position_away"
-    , "team_head_to_head_odds_away" 
-    , "team_line_odds_away"
-    , "team_line_amount_away"
-
-    , "team_head_to_head_odds_home" 
-    , "team_line_odds_home" 
-    , "team_line_amount_home"
-    , "position_home"
+    # Away Team Additional Metrics
+    "sin_bin_away",
+    "conversion_made_away",
+    "conversion_missed_away",
+    "tackle_made_away",
+    "tackle_missed_away",
+    "possession_away",
+    "territory_away",
+    "offloads_away",
+    "tackle_break_away",
+    "linebreak_away",
+    "lb_assist_away",
+    "kicks_away",
+    "kicks_occur_away",
+    "try_assist_away",
+    "error_away",
+    "try_away",
+    "penalty_shot_made_away",
+    "penalty_shot_missed_away",
+    "field_goal_made_away",
+    "field_goal_missed_away",
+    "kick_return_away",
+    "dh_run_away",
+    "dh_run_occur_away",
+    "x40_20_kick_away",
+    "kick_bomb_away",
+    "try_assists_and_involvements_away",
+    "line_break_assists_and_involvements_away",
+    "shifts_away",
+    "shortsides_away",
+    "captains_challenge_success_percent_away",
+    "x20_att_gl_possession_seconds_away",
+    "marker_tackle_away",
+    "trebles_away",
+    "markers_away",
+    "shortside_left_away",
+    "shortside_right_away",
+    "charge_downs_away",
+    "kick_charged_down_away",
+    "decoys_away",
+    "ineffective_tackle_away",
+    "intercept_away",
+    "pass_intercepted_away",
+    "one_on_one_steal_away",
+    "on_report_away",
+    "one_on_one_lost_away",
+    "one_on_one_tackle_away",
+    "bomb_kicks_defused_away",
+    "bomb_kicks_not_defused_away",
+    "kick_defused_away",
+    "kick_not_defused_away",
+    "line_dropout_away",
+    "supports_away",
+    "try_cause_away",
+    "try_saver_tackle_away",
+    "conversion_attempted_away",
+    "field_goal_attempted_away",
+    "half_break_away",
+    "kick_chip_away",
+    "kick_crossfield_away",
+    "kick_grubber_away",
+    "line_engaged_away",
+    "penalties_away",
+    "penalty_shot_attempted_away",
+    "receipts_away",
+    "play_the_ball_away",
+    "all_goals_made_away",
+    "all_goals_attempted_away",
+    "all_goals_missed_away",
+    "all_run_metres_away",
+    "all_runs_away",
+    "doubles_away",
+    "dummy_pass_away",
+    "handling_errors_away",
+    "kick_forces_dropout_away",
+    "kick_pressures_away",
+    "long_kicks_finding_space_away",
+    "post_contact_metres_away",
+    "shifts_left_away",
+    "shifts_right_away",
+    "goal_conversion_rate_away",
+    "set_completion_rate_away",
+    "passes_per_run_away",
+    "field_goal_conversion_rate_away",
+    "effective_tackle_percentage_away",
+    "foul_play_penalties_away",
+    "offside_penalties_away",
+    "captains_challenge_upheld_away",
+    "captains_challenge_overturned_away",
+    "ruck_infringement_away",
+    "one_point_field_goal_away",
+    "attacking_kicks_away",
+    "one_point_field_goal_missed_away",
+    "two_point_field_goal_missed_away",
+    "one_point_field_goal_attempted_away",
+    "two_point_field_goal_attempted_away",
+    "set_restart_conceded10m_offside_away",
+    "try_involvement_away",
+    "ptb_in_opposition_20_away",
+    "linebreak_involvement_away",
+    "short_dropout_away"
 ]
