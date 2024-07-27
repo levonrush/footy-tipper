@@ -16,3 +16,4 @@ oauth2client
 sklearn-genetic-opt
 dill
 joblib
+lightgbm
