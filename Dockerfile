@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc \
     && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/"
 
-# Install R and system libraries required for R and Python
+# Install R and system libraries required for R and Python, including cmake
 RUN apt-get update && apt-get install -y \
     libfontconfig1-dev \
     libfreetype6-dev \
@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     r-base \
     pandoc \
+    cmake \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
@@ -38,5 +39,5 @@ EXPOSE 80
 # Set an environment variable to indicate that the application is running in Docker
 ENV DOCKER=true
 
-# Run the footy-tipper.py script
-CMD ["python", "footy-tipper.py"]
+# Default command for the container
+CMD ["echo", "Specify a script to run: footy-tipper-train.py or footy-tipper-predict.py"]

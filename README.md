@@ -14,11 +14,11 @@ The Footy-Tipper leverages advanced machine learning techniques to predict the o
 
 ### Model Training
 
-The model training process begins with setting up pipelines that include data preprocessing, feature selection, and hyperparameter tuning. Separate Poisson models are created for predicting the scores of the home team and the away team. These models are trained using extensive data to ensure they generalize well to unseen matches. Multiple models are trained with different configurations, and the best-performing models for the home and away teams are selected based on performance metrics.
+The model training process begins with setting up pipelines that include data preprocessing, feature selection, and hyperparameter tuning. Separate Poisson models are created for predicting the scores of the home team and the away team. These models are trained using extensive data to ensure they generalize well to unseen matches. Multiple models are trained with different configurations, and the best-performing models for the home and away teams are selected based on performance metrics. The training job (`footy-tipper-train.py`) runs the data preparation and model training scripts.
 
 ### Simulation and Inference
 
-Once the Poisson models for both the home and away teams are trained, they are used to predict the expected scores for each team based on the input data. Simulations are then run to calculate the probabilities of each outcome (home win, away win, and draw) by modeling the distribution of scores. This involves generating numerous simulated matches to derive win probabilities and expected scorelines, providing a probabilistic view of match outcomes.
+Once the Poisson models for both the home and away teams are trained, they are used to predict the expected scores for each team based on the input data. Simulations are then run to calculate the probabilities of each outcome (home win, away win, and draw) by modeling the distribution of scores. This involves generating numerous simulated matches to derive win probabilities and expected scorelines, providing a probabilistic view of match outcomes. The prediction job (`footy-tipper-predict.py`) handles data preparation again (to update time dependant variables), inference, and sending predictions.
 
 ### Example
 
@@ -79,12 +79,20 @@ Throughout these processes, SQL plays a vital role in data management and transi
 
 4. **Prepare your environment file and service account token.** Ensure you have a `secrets.env` file and a `service-account-token.json` ready in your project directory but excluded from version control via `.gitignore`.
 
-5. **Run the Docker container.** Replace `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000). Use the `-v` option to securely mount `secrets.env` and `service-account-token.json` into the Docker container.
+5. **Run the Docker container for training.** Replace `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000). Use the `-v` option to securely mount `secrets.env` and `service-account-token.json` into the Docker container.
     ```bash
     docker run -p <your_host_port>:80 \
       -v $(pwd)/secrets.env:/footy-tipper/secrets.env \
       -v $(pwd)/service-account-token.json:/footy-tipper/service-account-token.json \
-      footy-tipper
+      footy-tipper python footy-tipper-train.py
+    ```
+
+6. **Run the Docker container for prediction.** Replace `<your_host_port>` with the port number you want to use on your host machine (e.g., 4000). Use the `-v` option to securely mount `secrets.env` and `service-account-token.json` into the Docker container.
+    ```bash
+    docker run -p <your_host_port>:80 \
+      -v $(pwd)/secrets.env:/footy-tipper/secrets.env \
+      -v $(pwd)/service-account-token.json:/footy-tipper/service-account-token.json \
+      footy-tipper python footy-tipper-predict.py
     ```
 
 This sequence ensures that your Docker usage is secure, efficient, and aligns with best practices for handling sensitive information. Remember to keep your `secrets.env` and any sensitive files securely managed and out of version control.

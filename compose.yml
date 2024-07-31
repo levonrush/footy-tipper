@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  train-job:
+    build: .
+    command: python footy-tipper-train.py
+    deploy:
+      restart_policy:
+        condition: on-failure
+    # Scheduling for Tuesday
+    labels:
+      - "com.docker.compose.job.schedule=cron(0 0 * * 2)"
+
+  predict-job:
+    build: .
+    command: python footy-tipper-predict.py
+    deploy:
+      restart_policy:
+        condition: on-failure
+    # Scheduling for Thursday at 3 PM
+    labels:
+      - "com.docker.compose.job.schedule=cron(0 15 * * 4)"
