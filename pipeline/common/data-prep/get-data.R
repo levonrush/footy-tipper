@@ -128,6 +128,66 @@ get_year_ladder <- function(password, year){
   
 }
 
+get_year_performance <- function(password, year){
+  
+  password <- Sys.getenv("PASSWORD")
+  base_url <- Sys.getenv("BASE_URL")
+  performance_ext <- Sys.getenv("NRL_PERFORMANCE_EXTENTION")
+  
+  year_performance <- vector(mode = "list")  # Initialize the list to store performance data for each round
+  
+  for (round in 1:40){
+    
+    performance_xml <- tryCatch(read_xml(paste0("http://", password, base_url, performance_ext, year, "/", round)),
+                                error = function(e){NA})
+    
+    if (is.na(performance_xml)) break
+    
+    seasonId <- xml_attr(performance_xml, "seasonId")
+    competitionId <- xml_attr(performance_xml, "competitionId")
+    competitionName <- xml_attr(performance_xml, "competitionName")
+    roundNumber <- xml_attr(performance_xml, "roundNumber")
+    
+    stats <- xml_find_all(performance_xml, "//leaderboardStat")
+    
+    flattened_data <- stats %>%
+      map_df(function(stat) {
+        entries <- xml_find_all(stat, "leaderboardEntry")
+        data.frame(
+          seasonId = seasonId,
+          competitionId = competitionId,
+          competitionName = competitionName,
+          roundNumber = roundNumber,
+          statID = xml_attr(stat, "ID"),
+          statName = xml_attr(stat, "statName"),
+          TeamID = xml_attr(entries, "TeamID"),
+          TeamName = xml_attr(entries, "TeamName"),
+          TeamAbbrev = xml_attr(entries, "TeamAbbrev"),
+          Value = as.numeric(xml_attr(entries, "Value")),  # Ensure numeric values are correctly typed
+          Rank = as.integer(xml_attr(entries, "Rank")),    # Ensure integer values are correctly typed
+          Appearances = as.integer(xml_attr(entries, "Appearances")),  # Ensure integer values are correctly typed
+          stringsAsFactors = FALSE
+        )
+      })
+    
+    pivoted_data <- flattened_data %>%
+      select(seasonId, roundNumber, TeamName, statName, Value) %>%
+      pivot_wider(names_from = statName, values_from = Value) %>% type.convert()
+    
+    pivoted_data <- pivoted_data %>%
+      mutate(across(where(is.numeric), ~replace_na(., 0)))
+    
+    year_performance[[round]] <- pivoted_data %>%
+      mutate(round_id = round,
+             competition_year = year)
+  }
+
+  year_performance <- bind_rows(year_performance) %>% # Combine all rounds' data for the year
+    rename(team = TeamName) # Rename column to ensure consistency
+
+  return(year_performance)
+}
+
 # A function to extract all ladder data within a specific year span
 get_ladders <- function(password, year_span){
   
@@ -144,6 +204,25 @@ get_ladders <- function(password, year_span){
   ladder_df <- bind_rows(every_ladder)
   
   return(ladder_df)
+  
+}
+
+# A function to extract all performance data within a specific year span
+get_performance <- function(password, year_span){
+  
+  every_performance <- vector(mode = "list")
+  
+  for (year in year_span){
+    
+    # Get the performance data for each year and store it in the 'every_performance' list
+    table <- get_year_performance(password, year)
+    every_performance[[year]] <- table
+    
+  }
+  
+  performance_df <- bind_rows(every_performance)
+  
+  return(performance_df)
   
 }
 
@@ -177,6 +256,7 @@ get_data <- function(year_span){
   
   fixtures_df <- bind_rows(all_fixtures) %>% clean_names() %>% type_convert()
   
+  print("Get Data: Fetching ladder data...")
   # Get the ladder data for each year, shift data to the previous round, and clean names and types
   ladders_df <- get_ladders(password, year_span) %>% clean_names() %>% type_convert() %>%
     arrange(competition_year, round_id) %>%
@@ -184,7 +264,6 @@ get_data <- function(year_span){
     mutate_at(vars(-team, -round_id, -competition_year), lag) %>%
     ungroup()
   
-  print("Get Data: Fetching ladder data...")
   # Perform some data cleaning and feature engineering
   ladders_df <- ladders_df %>%
     select(-c(day_record, night_record, current_streak)) %>%
@@ -214,7 +293,26 @@ get_data <- function(year_span){
   print("Get Data: Merging fixture and ladder data...")
   footy_tipper_df <- fixtures_df %>%
     left_join(ladders_df, by = c("competition_year", "round_id", "team_home" = "team")) %>%
-    left_join(ladders_df, by = c("competition_year", "round_id", "team_away" = "team"), suffix = c("_home", "_away"))
+    left_join(ladders_df, by = c("competition_year", "round_id", "team_away" = "team"), suffix = c("_home_ladder", "_away_ladder"))
+  
+  print("Get Data: Fetching performance data...")
+  performance_df <- get_performance(password, year_span) %>%
+    clean_names() %>% type_convert()
+
+  # Ensure all necessary columns are numeric before merging
+  numeric_cols <- names(performance_df)[sapply(performance_df, is.numeric)]
+  performance_df[numeric_cols] <- lapply(performance_df[numeric_cols], as.numeric)
+  
+  performance_df <- performance_df %>% 
+    arrange(competition_year, round_id) %>%
+    group_by(team, competition_year) %>%
+    mutate_at(vars(-team, -round_id, -competition_year), lag) %>%
+    ungroup() %>% mutate_at(vars(-team, -round_id, -competition_year), list(~ replace_na(., 0)))
+  
+  print("Get Data: Merging match and performance data...")
+  footy_tipper_df <- footy_tipper_df %>%
+    left_join(performance_df, by = c("competition_year", "round_id", "team_home" = "team")) %>%
+    left_join(performance_df, by = c("competition_year", "round_id", "team_away" = "team"), suffix = c("_home_performance", "_away_performance"))
   
   return(footy_tipper_df)
   

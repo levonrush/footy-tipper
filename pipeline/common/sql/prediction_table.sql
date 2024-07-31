@@ -7,10 +7,10 @@ WITH min_round_id AS (
 SELECT CAST(ft.game_id AS INTEGER) AS game_id
     , p.home_team_result
     , ft.team_home
-    , CAST(ft.position_home AS INTEGER) AS position_home
+    , CAST(ft.position_home_ladder AS INTEGER) AS position_home
     , ft.team_head_to_head_odds_home
     , ft.team_away
-    , CAST(ft.position_away AS INTEGER) AS position_away
+    , CAST(ft.position_away_ladder AS INTEGER) AS position_away
     , ft.team_head_to_head_odds_away
     , p.home_team_win_prob
     , p.home_team_lose_prob

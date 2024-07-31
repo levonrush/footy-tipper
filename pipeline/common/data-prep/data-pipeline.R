@@ -26,9 +26,6 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
         k_val = k_val, elo_init = elo_init
       )
 
-    footy_tipping_data <- footy_tipping_data %>%
-      home_ground_advantage()
-
     print("Data Pipeline: Filtering data...")
     footy_tipping_data <- footy_tipping_data %>%
       filter(competition_year != min(competition_year))

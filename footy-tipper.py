@@ -3,9 +3,9 @@ import subprocess
 # Define the scripts to run in sequence
 scripts = [
     "Rscript pipeline/data-prep.R",
-    "python3 pipeline/train.py",
-    "python3 pipeline/inference.py",
-    "python3 pipeline/send.py"
+    # "python3 pipeline/train.py",
+    # "python3 pipeline/inference.py",
+    # "python3 pipeline/send.py"
 ]
 
 def run_script(command):
