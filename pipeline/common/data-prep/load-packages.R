@@ -4,7 +4,6 @@ pkg <- c(
   , "tidyr"
   , "lubridate"
   , "elo"
-  , "randomForest"
   , "here"
   , "xml2"
   , "janitor"

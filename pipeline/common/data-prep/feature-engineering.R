@@ -149,31 +149,13 @@ easy_pickings <- function(data){
   
   data <- data %>%
     # Calculate the difference in positions between home and away teams
-    mutate(position_diff = position_home - position_away,
+    mutate(position_diff = position_home_ladder - position_away_ladder,
            # Flag if the season is the 2020 season, which was affected by the Covid-19 pandemic
            corona_season = ifelse(competition_year == 2020, T, F),
            # Extract the start hour of the game from the start_time column
            start_hour = hour(start_time),
            # Determine the day of the week the game is played on
-           game_day = weekdays(as.Date(start_time)) %>% as.factor(),
-           # Find differences between average stats as variables
-           punt_odds_diff = (1/team_head_to_head_odds_home) - (1/team_head_to_head_odds_away),
-           line_amount_diff = team_line_amount_home - team_line_amount_away,
-           recent_form_diff = recent_form_home - recent_form_away,
-           win_rate_diff = win_rate_home - win_rate_away,
-           loss_rate_diff = loss_rate_home - loss_rate_away,
-           draw_rate_diff = loss_rate_home - loss_rate_away,
-           players_used_diff = players_used_home - players_used_away,
-           average_winning_margin_diff = average_winning_margin_home - average_winning_margin_away,
-           average_losing_margin_diff = average_losing_margin_home - average_losing_margin_away,
-           competition_point_rate_diff = competition_point_rate_home - competition_point_rate_away,
-           avg_points_for_diff = avg_points_for_home - avg_points_for_away,
-           avg_points_against_diff = avg_points_against_home - avg_points_against_away,
-           avg_points_difference_diff = avg_points_difference_home - avg_points_difference_away,
-           avg_tries_for_diff = avg_tries_for_home - avg_tries_for_away,
-           avg_tries_conceded_diff = avg_tries_conceded_home - avg_tries_conceded_away,
-           close_game_rate_diff = close_game_rate_home - close_game_rate_away
-           )
+           game_day = weekdays(as.Date(start_time)) %>% as.factor())
 
   # Return the modified dataset
   return(data)

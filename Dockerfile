@@ -1,13 +1,11 @@
 # Use an official Python runtime as a parent image
-# FROM python:3.11
-FROM python:3.9.6
+FROM python:3.11
 
-# # Add CRAN repository for newer R versions and add keys
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     software-properties-common dirmngr gnupg \
-#     && wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc \
-#     && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/"
-
+# Add CRAN repository for newer R versions and add keys
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common dirmngr gnupg \
+    && wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc \
+    && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/"
 
 # Install R and system libraries required for R and Python
 RUN apt-get update && apt-get install -y \
@@ -22,19 +20,13 @@ RUN apt-get update && apt-get install -y \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-# Install R separately without specifying a CRAN repository
-# Note: This installs the version of R available in Debian Bullseye's repositories
-RUN apt-get update && apt-get install -y r-base
-
 # Set the working directory in the container to /footy-tipper
 WORKDIR /footy-tipper
 
 # Copy the project files except the ones defined in .dockerignore
 COPY . /footy-tipper
 
-# Create a Python virtual environment and install Python packages
-RUN python3 -m venv footyenv
-ENV PATH="/footy-tipper/footyenv/bin:$PATH"
+# Install Python packages
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install any needed packages specified in install.R

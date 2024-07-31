@@ -1,5 +1,5 @@
 # data params
-year_span <- 2012:2024
+year_span <- 2018:2024
 form_period <- 5
 pipeline <- "binomial"
 use_odds <- TRUE

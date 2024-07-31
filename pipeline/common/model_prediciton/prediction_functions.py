@@ -196,23 +196,25 @@ def get_predictions(db_path, sql_file):
 
     predictions
 
-def load_models(model, project_root):
+def load_models(model_name, project_root):
     """
     Load the Pipeline objects from files.
     
     Args:
-        model (str): The name of the model to load.
+        model_name (str): The name of the model to load.
         project_root (Path): The root path of the project.
         
     Returns:
         pipeline (Pipeline): The loaded Pipeline.
     """
-    
-    # Load the pipeline
-    with open(project_root / "models" / f'{model}.pkl', 'rb') as f:
-        pipeline = pickle.load(f)
-    print(f"{model} model pipeline loaded")
-        
+    model_path = project_root / "models" / f'{model_name}.pkl'
+    try:
+        with open(model_path, 'rb') as f:
+            pipeline = pickle.load(f)
+        print(f"{model_name} model pipeline loaded successfully.")
+    except Exception as e:
+        print(f"Error loading {model_name} model: {e}")
+        raise
     return pipeline
 
 def save_predictions_to_db(predictions_df, db_path, create_table_sql_file, insert_into_table_sql_file):
