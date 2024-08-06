@@ -82,8 +82,8 @@ def create_pipeline(estimator, param_grid, use_rfe, num_folds, opt_metric, cat_c
         cv=num_folds, 
         scoring=opt_metric, 
         n_jobs=-1,
-        population_size=100, # 100
-        generations=25, # 25
+        population_size=250, # 100
+        generations=250, # 25
         crossover_probability=0.5, 
         mutation_probability=0.2, 
         verbose=True
