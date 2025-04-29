@@ -6,6 +6,11 @@ import os
 import sys
 import pathlib
 import pandas as pd
+# from deap import creator
+# # creator.__dict__.pop('_created', None)
+# import importlib
+# import deap.creator
+# importlib.reload(deap.creator)
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -25,6 +30,9 @@ project_root = pathlib.Path().absolute()
 # Now construct the relative path to your SQLite database
 db_path = project_root / "data" / "footy-tipper-db.sqlite"
 
+# get the correct predictors
+predictors = tc.filter_predictors(include_performance=tc.include_performance, predictor_list=tc.predictors)
+
 # Load the model
 home_model = pf.load_models('home_model', project_root)
 away_model = pf.load_models('away_model', project_root)
@@ -34,7 +42,7 @@ inference_data = pf.get_inference_data(db_path, project_root / 'pipeline/common/
 
 # Make predictions
 # Predict match outcomes and scorelines for the inference data
-outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(home_model, away_model, inference_data, tc.predictors)
+outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(home_model, away_model, inference_data, predictors)
 outcome_df = pd.merge(outcomes, margins, on='game_id')
 
 # Save the predictions

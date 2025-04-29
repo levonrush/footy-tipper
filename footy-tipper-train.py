@@ -3,7 +3,7 @@ from pipeline.utils import run_script
 # Define the scripts to run for training
 scripts = [
     "Rscript pipeline/data-prep.R",
-    "python3 pipeline/train.py"
+    "python pipeline/train.py"
 ]
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 # data params
-year_span <- 2018:2024
+year_span <- 2018:2025
 form_period <- 5
 pipeline <- "binomial"
 use_odds <- TRUE
@@ -8,3 +8,5 @@ use_odds <- TRUE
 elo_init <- 1500
 k_val <- 70
 carry_over <- 0.5
+
+include_performance <- TRUE

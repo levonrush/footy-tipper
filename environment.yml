@@ -1,0 +1,25 @@
+name: footy-tipper
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - numpy<2.0         # Ensures you remain on a compatible 1.x release
+  - pandas
+  - numba
+  - scikit-learn
+  - xgboost
+  - lightgbm
+  - matplotlib
+  - seaborn
+  - scipy
+  - python-dotenv
+  - google-api-python-client
+  - google-auth
+  - gspread
+  - joblib
+  - dill
+  - scikit-optimize
+  - pip
+  - pip:
+      - openai==0.28.0

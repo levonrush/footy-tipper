@@ -53,7 +53,7 @@ reg_reagan = sf.generate_reg_regan_email(
     tipper_picks, 
     os.getenv('OPENAI_KEY'), 
     os.getenv('FOLDER_URL'),
-    1
+    0.9
 )
 
 print(reg_reagan)

@@ -25,6 +25,9 @@ project_root = pathlib.Path().absolute()
 # Now construct the relative path to your SQLite database
 db_path = project_root / "data" / "footy-tipper-db.sqlite"
 
+# get the correct predictors
+predictors = tc.filter_predictors(include_performance=tc.include_performance, predictor_list=tc.predictors)
+
 # Get the training data
 print("Get Training Data")
 training_data = mf.get_training_data(
@@ -35,14 +38,14 @@ training_data = mf.get_training_data(
 # Train the model
 print("Training the model for home team scores")
 home_model = mf.train_and_select_best_model(
-    training_data, tc.predictors, 'team_final_score_home',
+    training_data, predictors, 'team_final_score_home',
     tc.use_rfe, tc.num_folds, tc.opt_metric
 )
 home_model
 
 print("Training the model for away team scores")
 away_model = mf.train_and_select_best_model(
-    training_data, tc.predictors, 'team_final_score_away',
+    training_data, predictors, 'team_final_score_away',
     tc.use_rfe, tc.num_folds, tc.opt_metric
 )
 away_model

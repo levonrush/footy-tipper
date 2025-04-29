@@ -11,6 +11,9 @@ opt_metric = make_scorer(custom_poisson_deviance, greater_is_better=False)
 num_folds = 3
 use_rfe = False
 
+# predictors
+include_performance = True
+
 predictors = [
     "round_id", "round_name", "game_number", "game_state_name",
     "start_time", "start_time_utc", "venue_name", "city", "crowd",
@@ -50,6 +53,8 @@ predictors = [
     "home_win_rate_away_ladder", "home_draw_rate_away_ladder", "home_loss_rate_away_ladder",
     "away_win_rate_away_ladder", "away_draw_rate_away_ladder", "away_loss_rate_away_ladder",
     "avg_tries_for_away_ladder", "avg_tries_conceded_away_ladder", "avg_goals_for_away_ladder",
+
+
     "avg_goals_conceded_away_ladder", "close_game_rate_away_ladder", "sin_bin_home_performance",
     "conversion_made_home_performance", "conversion_missed_home_performance",
     "tackle_made_home_performance", "tackle_missed_home_performance", "possession_home_performance",
@@ -128,3 +133,10 @@ predictors = [
     "set_restart_conceded10m_offside_away_performance", "try_involvement_away_performance",
     "ptb_in_opposition_20_away_performance", "linebreak_involvement_away_performance", "short_dropout_away_performance"
 ]
+
+def filter_predictors(include_performance=True, predictor_list=predictors):
+    if include_performance:
+        return predictor_list
+    else:
+        return [p for p in predictor_list if not p.endswith('_performance')]
+    

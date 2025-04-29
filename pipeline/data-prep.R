@@ -28,7 +28,7 @@ print("Running the data pipeline...")
 pipeline_data <- data_pipeline(
     year_span, pipeline = "binomial",
     form_period, carry_over, k_val,
-    elo_init, use_odds
+    elo_init, use_odds, include_performance
 )
 
 # Separate the datasets from the pipeline

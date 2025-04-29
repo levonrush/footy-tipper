@@ -1,4 +1,4 @@
-data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, elo_init, use_odds) {
+data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, elo_init, use_odds, include_performance = TRUE) {
 
     # Step 1: Calling 'get_data' function to fetch data for the specified range of years.
     # Step 2: The fetched data is then passed to 'clean_data' function for data cleaning.
@@ -9,7 +9,7 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
     # Step 7: The resulting data is filtered to remove the first round of each competition.
 
     print("Data Pipeline: Beginning data preparation...")
-    footy_tipping_data <- get_data(year_span = year_span)
+    footy_tipping_data <- get_data(year_span = year_span, include_performance = include_performance)
 
     footy_tipping_data <- footy_tipping_data %>%
       clean_data()

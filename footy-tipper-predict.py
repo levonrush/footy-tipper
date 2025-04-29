@@ -3,8 +3,8 @@ from pipeline.utils import run_script
 # Define the scripts to run for prediction
 scripts = [
     "Rscript pipeline/data-prep.R",
-    "python3 pipeline/inference.py",
-    "python3 pipeline/send.py"
+    "python pipeline/inference.py",
+    "python pipeline/send.py"
 ]
 
 if __name__ == "__main__":

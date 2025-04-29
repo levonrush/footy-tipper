@@ -207,6 +207,7 @@ def load_models(model_name, project_root):
     Returns:
         pipeline (Pipeline): The loaded Pipeline.
     """
+    
     model_path = project_root / "models" / f'{model_name}.pkl'
     try:
         with open(model_path, 'rb') as f:
