@@ -2,9 +2,10 @@ name: footy-tipper
 channels:
   - conda-forge
   - defaults
+
 dependencies:
   - python=3.9
-  - numpy<2.0         # Ensures you remain on a compatible 1.x release
+  - numpy<2.0
   - pandas
   - numba
   - scikit-learn
@@ -20,6 +21,10 @@ dependencies:
   - joblib
   - dill
   - scikit-optimize
+  - gfortran_impl_osx-arm64   # M1 Fortran compiler + runtime   [oai_citation:3‡anaconda.org](https://anaconda.org/conda-forge/gfortran_impl_osx-arm64?utm_source=chatgpt.com)
+  - libgfortran               # Fortran runtime library           [oai_citation:4‡GitHub](https://github.com/conda-forge/gfortran_impl_osx-64-feedstock?utm_source=chatgpt.com)
+  - libgfortran5              # Ensures libgfortran.5.dylib       [oai_citation:5‡GitHub](https://github.com/conda-forge/gfortran_impl_osx-64-feedstock?utm_source=chatgpt.com)
+  - blas                      # OpenBLAS + rpaths                 [oai_citation:6‡GitHub](https://github.com/conda-forge/gfortran_impl_osx-64-feedstock?utm_source=chatgpt.com)
   - pip
   - pip:
       - openai==0.28.0
