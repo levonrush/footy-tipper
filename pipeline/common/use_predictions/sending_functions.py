@@ -15,7 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 # For direct OpenAI API calls (removing langchain)
-import openai
+from openai import OpenAI
 
 # The 'get_predictions' function reads the predictions from the SQLite database and returns them as a pandas DataFrame.
 def get_predictions(db_path, project_root):
@@ -86,8 +86,8 @@ def upload_df_to_drive(df, json_path, parent_folder_id, filename):
 
 # The 'generate_reg_regan_email' function now uses the OpenAI API directly to generate email content.
 def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, temperature):
-    # Set up OpenAI API key
-    openai.api_key = api_key
+    # Initialise OpenAI client (modern v1 syntax)
+    client = OpenAI(api_key=api_key)
 
     # Build the strings from predictions and tipper picks
     input_predictions = ""
@@ -131,17 +131,16 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, tem
         Finally, if they are in tipping comps at either the Seven Seas Hotel in Carrington or the Ship Inn on Hunter St, they aren't allowed to use the tips.
     """
 
-    # Use OpenAI's ChatCompletion API directly
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
+    # Note: this model only supports default temperature; omit temperature to use model default.
+    response = client.chat.completions.create(
+        model="gpt-5",
         messages=[
             {"role": "system", "content": "You are a witty and sarcastic assistant who loves NRL and hates Manly."},
             {"role": "user", "content": prompt}
         ],
-        temperature=temperature,
-        max_tokens=7000
+        max_completion_tokens=7000
     )
-    email_content = response.choices[0].message["content"]
+    email_content = response.choices[0].message.content
     return email_content
 
 # The 'send_emails' function sends an email with the generated content.
@@ -166,6 +165,8 @@ def send_emails(doc_name, subject, message, sender_email, sender_password, json_
     text = msg.as_string()
     server.sendmail(sender_email, recipient_emails, text)
     server.quit()
+
+
 
 # import os
 # import pandas as pd
