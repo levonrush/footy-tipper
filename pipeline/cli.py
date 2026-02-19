@@ -18,9 +18,9 @@ def _project_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parents[1]
 
 
-def _run_command(cmd, env):
+def _run_command(cmd, env, cwd=None):
     print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, env=env)
+    subprocess.run(cmd, check=True, env=env, cwd=str(cwd) if cwd else None)
 
 
 def _build_env(args):
@@ -40,20 +40,20 @@ def _build_env(args):
     return env
 
 
-def _run_data_prep(env):
-    _run_command(["Rscript", "pipeline/data-prep.R"], env)
+def _run_data_prep(env, root):
+    _run_command(["Rscript", str(root / "pipeline" / "data-prep.R")], env, cwd=root)
 
 
-def _run_train(env, skip_prep):
+def _run_train(env, skip_prep, root):
     if not skip_prep:
-        _run_data_prep(env)
-    _run_command([sys.executable, "pipeline/train.py"], env)
+        _run_data_prep(env, root)
+    _run_command([sys.executable, str(root / "pipeline" / "train.py")], env, cwd=root)
 
 
-def _run_inference(env, skip_prep):
+def _run_inference(env, skip_prep, root):
     if not skip_prep:
-        _run_data_prep(env)
-    _run_command([sys.executable, "pipeline/inference.py"], env)
+        _run_data_prep(env, root)
+    _run_command([sys.executable, str(root / "pipeline" / "inference.py")], env, cwd=root)
 
 
 def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
@@ -150,6 +150,12 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
     )
     print("Production email flow complete.")
     return 0
+
+
+def _resolve_test_email(cli_value):
+    if cli_value:
+        return cli_value
+    return os.getenv("FOOTY_TIPPER_TEST_EMAIL", DEFAULT_TEST_EMAIL)
 
 
 def _add_season_args(parser):
@@ -267,8 +273,11 @@ def build_parser():
     send.add_argument("--test", action="store_true", help="Send a single test email instead of production list send.")
     send.add_argument(
         "--test-email",
-        default=os.getenv("FOOTY_TIPPER_TEST_EMAIL", DEFAULT_TEST_EMAIL),
-        help=f"Recipient for --test mode (default: {DEFAULT_TEST_EMAIL}).",
+        default=None,
+        help=(
+            "Recipient for --test mode "
+            f"(default: FOOTY_TIPPER_TEST_EMAIL or {DEFAULT_TEST_EMAIL})."
+        ),
     )
     send.add_argument(
         "--skip-drive",
@@ -286,8 +295,11 @@ def build_parser():
     predict.add_argument("--test", action="store_true", help="Use test send mode if send step is run.")
     predict.add_argument(
         "--test-email",
-        default=os.getenv("FOOTY_TIPPER_TEST_EMAIL", DEFAULT_TEST_EMAIL),
-        help=f"Recipient for --test mode (default: {DEFAULT_TEST_EMAIL}).",
+        default=None,
+        help=(
+            "Recipient for --test mode "
+            f"(default: FOOTY_TIPPER_TEST_EMAIL or {DEFAULT_TEST_EMAIL})."
+        ),
     )
     predict.add_argument("--skip-drive", action="store_true", help="Skip Google Drive upload during send step.")
     _add_openai_args(predict)
@@ -297,20 +309,24 @@ def build_parser():
 
 
 def main(argv=None):
+    root = _project_root()
+    load_dotenv(dotenv_path=root / "secrets.env")
+
     parser = build_parser()
     args = parser.parse_args(argv)
     env = _build_env(args)
+    resolved_test_email = _resolve_test_email(getattr(args, "test_email", None))
 
     if args.command == "prep":
-        _run_data_prep(env)
+        _run_data_prep(env, root)
         return 0
 
     if args.command == "train":
-        _run_train(env, skip_prep=args.skip_prep)
+        _run_train(env, skip_prep=args.skip_prep, root=root)
         return 0
 
     if args.command == "infer":
-        _run_inference(env, skip_prep=args.skip_prep)
+        _run_inference(env, skip_prep=args.skip_prep, root=root)
         return 0
 
     if args.command == "send":
@@ -318,21 +334,21 @@ def main(argv=None):
         skip_drive = args.skip_drive or args.test
         return _send_predictions(
             test_mode=args.test,
-            test_email=args.test_email,
+            test_email=resolved_test_email,
             skip_drive=skip_drive,
             use_openai=use_openai,
             dry_run=args.dry_run,
         )
 
     if args.command == "predict":
-        _run_inference(env, skip_prep=args.skip_prep)
+        _run_inference(env, skip_prep=args.skip_prep, root=root)
         if args.skip_send:
             print("Send step skipped.")
             return 0
         skip_drive = args.skip_drive or args.test
         return _send_predictions(
             test_mode=args.test,
-            test_email=args.test_email,
+            test_email=resolved_test_email,
             skip_drive=skip_drive,
             use_openai=args.use_openai,
             dry_run=args.dry_run,

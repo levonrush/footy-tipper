@@ -62,6 +62,28 @@ get_fixture_info <- function(fixtures_xml){
   return(fixture_info)
 }
 
+sanitize_feed_error <- function(error_message, password) {
+  safe_error <- as.character(error_message)
+  if (!is.null(password) && nzchar(password)) {
+    safe_error <- gsub(password, "<redacted>", safe_error, fixed = TRUE)
+  }
+  safe_error <- gsub("https?://[^[:space:]]+", "<feed-url>", safe_error)
+  safe_error
+}
+
+read_feed_xml <- function(url, password, context_message = NULL, log_error = FALSE) {
+  tryCatch(
+    suppressWarnings(read_xml(url)),
+    error = function(e) {
+      if (isTRUE(log_error) && !is.null(context_message)) {
+        safe_error <- sanitize_feed_error(conditionMessage(e), password)
+        message(paste0(context_message, " (", safe_error, ")"))
+      }
+      NULL
+    }
+  )
+}
+
 # A function to extract yearly ladder data
 get_year_ladder <- function(password, year){
 
@@ -72,11 +94,12 @@ get_year_ladder <- function(password, year){
   
   for (round in 1:40){
     
-    # Try to read XML data for a specific round, if it fails return NA
-    ladder_xml <- tryCatch(read_xml(paste0("http://", password, base_url, ladder_ext, year, "/", round)),
-                           error = function(e){NA})
+    ladder_xml <- read_feed_xml(
+      paste0("http://", password, base_url, ladder_ext, year, "/", round),
+      password
+    )
     
-    if (is.na(ladder_xml)) break
+    if (is.null(ladder_xml)) break
     
     # Extract relevant information from each 'ladderposition' node in the XML data
     year_ladder[[round]] <- ladder_xml %>% xml_find_all(".//ladderposition") %>%
@@ -137,11 +160,13 @@ get_year_performance <- function(password, year){
   
   for (round in 1:40){
     
-    performance_xml <- tryCatch(read_xml(paste0("http://", password, base_url, performance_ext, year, "/", round)),
-                                error = function(e){NA})
+    performance_xml <- read_feed_xml(
+      paste0("http://", password, base_url, performance_ext, year, "/", round),
+      password
+    )
     
     
-    if (is.na(performance_xml)) break
+    if (is.null(performance_xml)) break
     
     seasonId <- xml_attr(performance_xml, "seasonId")
     competitionId <- xml_attr(performance_xml, "competitionId")
@@ -278,12 +303,11 @@ get_data <- function(year_span, include_performance = TRUE){
   all_fixtures <- list()
   available_years <- c()
   for (year in year_span){
-    fixtures_xml <- tryCatch(
-      read_xml(paste0("http://", password, base_url, fixtures_ext, year)),
-      error = function(e){
-        message(paste0("Get Data: No fixture feed available for ", year, " (", conditionMessage(e), "). Skipping year."))
-        NULL
-      }
+    fixtures_xml <- read_feed_xml(
+      paste0("http://", password, base_url, fixtures_ext, year),
+      password,
+      context_message = paste0("Get Data: No fixture feed available for ", year, ". Skipping year."),
+      log_error = TRUE
     )
     if (is.null(fixtures_xml)) next
     

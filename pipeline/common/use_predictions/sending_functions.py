@@ -133,7 +133,7 @@ def _format_probability(value):
 def _format_price(value):
     if pd.isna(value):
         return "n/a"
-    return f"{float(value):.2f}"
+    return f"${float(value):.2f}"
 
 
 def _resolve_banner_path():

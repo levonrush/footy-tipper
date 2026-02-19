@@ -13,6 +13,8 @@ If you just want the pipeline running with minimal setup:
 ```bash
 conda env create -f environment.yml
 conda activate footy-tipper
+cp secrets.env.example secrets.env
+# edit secrets.env with your feed credentials
 
 # Fresh training run from 2012
 footy-tipper train --start-year 2012
@@ -72,10 +74,36 @@ Throughout these processes, SQL plays a vital role in data management and transi
 
 - For local CLI usage (recommended): Conda installed.
 - For Docker usage (optional): Docker installed and running.
+- Local config template: `secrets.env.example` (copy to `secrets.env` and fill in values).
 - Project secrets for full send workflow:
-  - `secrets.env`
-  - `service-account-token.json` (Google Drive/email integration)
+  - `secrets.env` (feed keys are required for prep/train/infer)
+  - `service-account-token.json` (only needed for Drive/Google Sheets send flows)
 - Optional for development/debugging: R, Python, and an editor like VS Code.
+
+## Secrets Setup
+
+Create a local secrets file:
+
+```bash
+cp secrets.env.example secrets.env
+```
+
+Required in `secrets.env` for data prep:
+- `PASSWORD`
+- `BASE_URL`
+- `NRL_FIXTURES_EXTENTION`
+- `NRL_ROUND_LADDER_EXTENTION`
+- `NRL_PERFORMANCE_EXTENTION`
+
+Required for email/Drive send flows:
+- `FOLDER_ID`, `FOLDER_URL`
+- `MY_EMAIL`, `EMAIL_PASSWORD`
+- optional `OPENAI_KEY` (fallback text is used if omitted)
+
+Optional defaults:
+- `FOOTY_TIPPER_TEST_EMAIL` for `--test` sends
+- `OPENAI_MODEL`
+- `FOOTY_TIPPER_EMAIL_BANNER`
 
 ## Usage
 
@@ -135,7 +163,7 @@ This sequence ensures that your Docker usage is secure, efficient, and aligns wi
 ### For Development and Debugging
 
 1. Open the project in your preferred code editor.
-2. If needed, set environment variables in a `.env` file or manually in your Python or R session.
+2. Set environment variables in `secrets.env` (recommended) or manually in your Python/R session.
 3. Run `pipeline/data-prep.R` for data collection, cleaning and feature engineering.
 4. For pipeline development, open and execute the `model-training.ipynb` notebook situated in the 'research' folder.
 5. If Docker is used, ensure to build and run the Docker image as necessary.
@@ -147,6 +175,14 @@ This sequence ensures that your Docker usage is secure, efficient, and aligns wi
 - Optional: set `FOOTY_TIPPER_INCLUDE_PERFORMANCE=false` to run without performance feed features.
 
 Note: Ensure your Python and R environments have all necessary packages installed to run the scripts and notebooks.
+
+### Smoke Checks
+
+```bash
+python -m compileall -q pipeline footy-tipper-train.py footy-tipper-predict.py
+Rscript -e "parse(file='pipeline/data-prep.R')"
+python -m unittest discover -s tests -p 'test_*.py' -v
+```
 
 ## Contributing
 

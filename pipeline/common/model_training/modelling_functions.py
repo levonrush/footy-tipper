@@ -4,10 +4,8 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler, FunctionTransfo
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import RFECV
-from sklearn.model_selection import BaseCrossValidator, TimeSeriesSplit
 import numpy as np
 import re
-import xgboost as xgb
 import lightgbm as lgb
 from sklearn.neural_network import MLPRegressor
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -20,6 +18,8 @@ from sklearn.exceptions import ConvergenceWarning
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
 
+from pipeline.common.model_training.cv import InSeasonSplit
+
 # Suppress convergence warnings
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
@@ -29,28 +29,6 @@ def sanitize_feature_names(names):
     Replace any non-alphanumeric or underscore characters with underscore.
     """
     return [re.sub(r'[^0-9a-zA-Z_]', '_', name) for name in names]
-
-
-class InSeasonSplit(BaseCrossValidator):
-    """
-    Cross-validator for in-season forecasting: within each season,
-    do a TimeSeriesSplit by round. Yields folds across all seasons.
-    """
-    def __init__(self, n_splits=5):
-        self.n_splits = n_splits
-
-    def split(self, X, y=None, groups=None):
-        if groups is None:
-            raise ValueError("InSeasonSplit requires 'groups' (competition_year) to be passed.")
-        seasons = np.unique(groups)
-        for season in seasons:
-            idx = np.where(groups == season)[0]
-            tscv = TimeSeriesSplit(n_splits=self.n_splits)
-            for train_rel, test_rel in tscv.split(idx):
-                yield idx[train_rel], idx[test_rel]
-
-    def get_n_splits(self, X=None, y=None, groups=None):
-        return 0 if groups is None else len(np.unique(groups)) * self.n_splits
 
 
 def get_training_data(db_path, sql_file):

@@ -7,12 +7,15 @@ Use this file when you just want the command that works.
 ```bash
 conda env create -f environment.yml
 conda activate footy-tipper
+cp secrets.env.example secrets.env
+# edit secrets.env with your feed credentials
 ```
 
 Notes:
 - `environment.yml` now installs the CLI (`footy-tipper`) automatically.
 - Most R packages install via conda; if any are still missing (like `elo`),
   the pipeline auto-installs them on first run.
+- `--test-email` defaults from `FOOTY_TIPPER_TEST_EMAIL` in your env/secrets file.
 
 ## 2) Most common commands
 

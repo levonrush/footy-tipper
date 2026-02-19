@@ -9,6 +9,8 @@ If you want the fastest setup and daily commands, use `cli/README.md`.
 ```bash
 conda env create -f environment.yml
 conda activate footy-tipper
+cp secrets.env.example secrets.env
+# edit secrets.env with your feed credentials
 footy-tipper --help
 ```
 
@@ -91,12 +93,26 @@ Defaults:
 - `prep`: `--prep-mode full`
 - Missing odds: allowed by default
 - OpenAI email generation: enabled by default
+- `--test-email`: `FOOTY_TIPPER_TEST_EMAIL` from env/secrets, else `levon.rush@gmail.com`
 
 ## Required Runtime Files
 
 Expected in project root:
-- `secrets.env`
+- `secrets.env` (copy from `secrets.env.example`)
 - `service-account-token.json` (only needed for Drive/email flows)
+
+Required keys in `secrets.env`:
+- feed: `PASSWORD`, `BASE_URL`, `NRL_FIXTURES_EXTENTION`, `NRL_ROUND_LADDER_EXTENTION`, `NRL_PERFORMANCE_EXTENTION`
+- send: `FOLDER_ID`, `FOLDER_URL`, `MY_EMAIL`, `EMAIL_PASSWORD`
+- optional: `OPENAI_KEY`, `OPENAI_MODEL`, `FOOTY_TIPPER_TEST_EMAIL`
+
+## Smoke Checks
+
+```bash
+python -m compileall -q pipeline footy-tipper-train.py footy-tipper-predict.py
+Rscript -e "parse(file='pipeline/data-prep.R')"
+python -m unittest discover -s tests -p 'test_*.py' -v
+```
 
 ## If `footy-tipper` Is Not Found
 

@@ -55,9 +55,25 @@ predictors = [
     "home_win_rate_away_ladder", "home_draw_rate_away_ladder", "home_loss_rate_away_ladder",
     "away_win_rate_away_ladder", "away_draw_rate_away_ladder", "away_loss_rate_away_ladder",
     "avg_tries_for_away_ladder", "avg_tries_conceded_away_ladder", "avg_goals_for_away_ladder",
+    "avg_goals_conceded_away_ladder", "close_game_rate_away_ladder",
 
+    # Engineered rolling/state features built from prior observed (Final) games.
+    "position_diff", "corona_season", "start_hour", "game_day",
+    "turn_around_home", "turn_around_away", "turn_around_diff",
+    "season_record_home", "season_record_away",
+    "season_points_for_home", "season_points_for_away",
+    "season_points_against_home", "season_points_against_away",
+    "season_points_diff_home", "season_points_diff_away",
+    "season_form_home", "season_form_away",
+    "season_points_for_form_home", "season_points_for_form_away",
+    "season_points_against_form_home", "season_points_against_form_away",
+    "season_diff_form_home", "season_diff_form_away",
+    "matchup_form", "state_of_origin", "post_origin",
+    "home_prev_result_diff", "away_prev_result_diff", "prev_result_diff",
+    "home_elo", "away_elo", "elo_diff",
+    "home_elo_prob", "away_elo_prob", "elo_draw_prob", "elo_prob_diff",
 
-    "avg_goals_conceded_away_ladder", "close_game_rate_away_ladder", "sin_bin_home_performance",
+    "sin_bin_home_performance",
     "conversion_made_home_performance", "conversion_missed_home_performance",
     "tackle_made_home_performance", "tackle_missed_home_performance", "possession_home_performance",
     "territory_home_performance", "offloads_home_performance", "tackle_break_home_performance",
@@ -150,6 +166,7 @@ categorical_predictors = {
     "broadcast_channel3",
     "team_home",
     "team_away",
+    "game_day",
 }
 
 def filter_predictors(include_performance=True, predictor_list=predictors):
