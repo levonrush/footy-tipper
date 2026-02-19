@@ -4,7 +4,8 @@ channels:
   - defaults
 
 dependencies:
-  - python=3.9
+  # Python runtime + ML dependencies
+  - python=3.11
   - numpy<2.0
   - pandas
   - numba
@@ -21,10 +22,32 @@ dependencies:
   - joblib
   - dill
   - scikit-optimize
-  - gfortran_impl_osx-arm64   # M1 Fortran compiler + runtime   [oai_citation:3‡anaconda.org](https://anaconda.org/conda-forge/gfortran_impl_osx-arm64?utm_source=chatgpt.com)
-  - libgfortran               # Fortran runtime library           [oai_citation:4‡GitHub](https://github.com/conda-forge/gfortran_impl_osx-64-feedstock?utm_source=chatgpt.com)
-  - libgfortran5              # Ensures libgfortran.5.dylib       [oai_citation:5‡GitHub](https://github.com/conda-forge/gfortran_impl_osx-64-feedstock?utm_source=chatgpt.com)
-  - blas                      # OpenBLAS + rpaths                 [oai_citation:6‡GitHub](https://github.com/conda-forge/gfortran_impl_osx-64-feedstock?utm_source=chatgpt.com)
+
+  # R runtime + core R packages used by data-prep scripts
+  - r-base
+  - r-dplyr
+  - r-tidyr
+  - r-lubridate
+  - r-here
+  - r-xml2
+  - r-janitor
+  - r-zoo
+  - r-purrr
+  - r-readr
+  - r-stringr
+  - r-forcats
+  - r-tibble
+  - r-rsqlite
+  - r-dbi
+  - r-dotenv
+
+  - gfortran_impl_osx-arm64
+  - libgfortran
+  - libgfortran5
+  - blas
+
   - pip
   - pip:
-      - openai==0.28.0
+      # Install the local CLI entrypoint (`footy-tipper`) during env creation.
+      - -e .
+      - openai>=1.0.0,<2.0.0

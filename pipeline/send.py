@@ -33,6 +33,11 @@ load_dotenv(dotenv_path=secrets_path)
 print("Getting predictions...")
 predictions = sf.get_predictions(db_path, project_root)
 
+# Offseason-safe behavior: skip send/upload when there are no upcoming pre-game fixtures.
+if predictions.empty:
+    print("No pre-game predictions available. Skipping upload and email send.")
+    sys.exit(0)
+
 # Get tipper picks
 print("Generating tipper picks...")
 tipper_picks = sf.get_tipper_picks(predictions)
@@ -60,13 +65,15 @@ print(reg_reagan)
 
 # Send the email
 print("Sending the email...")
+round_name = predictions['round_name'].iloc[0]
+competition_year = predictions['competition_year'].iloc[0]
 sf.send_emails(
     "footy-tipper-email-list", 
-    f"Footy Tipper Predictions for {predictions['round_name'].unique()[0]}", 
+    f"Footy Tipper Predictions for {round_name} {competition_year}", 
     reg_reagan, 
     os.getenv('MY_EMAIL'), 
     os.getenv('EMAIL_PASSWORD'), 
     json_path
 )
 
-print("Email sent!")
+print("Send step complete.")

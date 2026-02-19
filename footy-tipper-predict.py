@@ -2,7 +2,7 @@ from pipeline.utils import run_script
 
 # Define the scripts to run for prediction
 scripts = [
-    "Rscript pipeline/data-prep.R",
+    "FOOTY_TIPPER_PREP_MODE=infer Rscript pipeline/data-prep.R",
     "python pipeline/inference.py",
     "python pipeline/send.py"
 ]

@@ -105,17 +105,17 @@ turn_around <- function(data){
   
   # Combine the two datasets and calculate the time difference between successive games for each team
   turn_arounds <- bind_rows(home_games, away_games) %>%
-    arrange(start_time) %>%
-    group_by(team) %>%
+    arrange(team, competition_year, start_time) %>%
+    group_by(team, competition_year) %>%
     mutate(turn_around = difftime(start_time, lag(start_time), units = 'days') %>% as.numeric()) %>%
     ungroup() %>%
-    select(game_id, team, turn_around) %>%
+    select(game_id, team, competition_year, turn_around) %>%
     mutate(turn_around = replace_na(turn_around, mean(turn_around, na.rm = T)))  # Replace NA values with the mean turnaround time
   
   # Add the calculated turnaround times to the original dataset
   data <- data %>%
-    left_join(turn_arounds, by = c("game_id", "team_home" = "team")) %>%
-    left_join(turn_arounds, by = c("game_id", "team_away" = "team"), suffix = c("_home", "_away")) %>%
+    left_join(turn_arounds, by = c("game_id", "competition_year", "team_home" = "team")) %>%
+    left_join(turn_arounds, by = c("game_id", "competition_year", "team_away" = "team"), suffix = c("_home", "_away")) %>%
     mutate(turn_around_diff = turn_around_home - turn_around_away)  # Calculate the difference between home and away turnarounds
   
   return(data)  # Return the modified dataset
@@ -280,9 +280,9 @@ matchup_form <- function(data, form_period){
         home_team_result == 'Loss' ~ -1,
         TRUE                       ~ 0
         ),
-      matchup_form = ifelse(seq(n()) < 5,
+      matchup_form = ifelse(seq(n()) < form_period,
                             cumsum(form),
-                            rollsum(form, 5, align = "right", fill = 0)) %>% lag() %>% replace_na(0)) %>%
+                            rollsum(form, form_period, align = "right", fill = 0)) %>% lag() %>% replace_na(0)) %>%
     select(-form) %>%
     ungroup()
   

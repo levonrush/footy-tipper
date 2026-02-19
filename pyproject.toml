@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "footy-tipper-cli"
+version = "0.1.0"
+description = "CLI for the Footy Tipper pipeline."
+readme = "README.md"
+requires-python = ">=3.11"
+
+[project.scripts]
+footy-tipper = "pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pipeline*"]

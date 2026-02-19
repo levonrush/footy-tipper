@@ -1,4 +1,4 @@
-data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, elo_init, use_odds, include_performance = TRUE) {
+data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, elo_init, use_odds, include_performance = TRUE, prep_mode = "full") {
 
     # Step 1: Calling 'get_data' function to fetch data for the specified range of years.
     # Step 2: The fetched data is then passed to 'clean_data' function for data cleaning.
@@ -27,8 +27,13 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
       )
 
     print("Data Pipeline: Filtering data...")
-    footy_tipping_data <- footy_tipping_data %>%
-      filter(competition_year != min(competition_year))
+    unique_years <- unique(footy_tipping_data$competition_year)
+    if (length(unique_years) > 1) {
+      footy_tipping_data <- footy_tipping_data %>%
+        filter(competition_year != min(competition_year))
+    } else {
+      print("Data Pipeline: Single season in scope. Skipping first-season drop.")
+    }
 
     # If use_odds is TRUE, then only rows where team_head_to_head_odds_away is not NA are filtered.
     if (use_odds == TRUE) {
@@ -36,17 +41,27 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
         filter(!is.na(team_head_to_head_odds_away))
     }
 
-    # The data is grouped by game_state_name and split into two lists.
     print("Data Pipeline: Splitting and assigning datasets...")
-    train_inference_split <- footy_tipping_data  %>%
-      group_by(game_state_name) %>%
-      group_split()
-
-    # The first element of the list is assigned to train_df.
-    training_data <- train_inference_split[[1]]
-    # For the second element of the list, only rows where round_id equals the minimum round_id are filtered and assigned to inference_df.
-    inference_data <- train_inference_split[[2]] %>%
-      filter(round_id == min(round_id))
+    training_data <- footy_tipping_data %>%
+      filter(game_state_name == "Final")
+    
+    if (nrow(training_data) == 0 && prep_mode %in% c("full", "train")) {
+      stop("Data Pipeline: No training rows found with game_state_name == 'Final'.")
+    } else if (nrow(training_data) == 0) {
+      print("Data Pipeline: No final rows in current infer scope. Training table upsert will be skipped.")
+    }
+    
+    inference_data <- footy_tipping_data %>%
+      filter(game_state_name == "Pre Game")
+    
+    if (nrow(inference_data) > 0) {
+      latest_year <- max(inference_data$competition_year, na.rm = TRUE)
+      inference_data <- inference_data %>%
+        filter(competition_year == latest_year) %>%
+        filter(round_id == min(round_id, na.rm = TRUE))
+    } else {
+      print("Data Pipeline: No pre-game rows found. Inference dataset will be empty.")
+    }
 
     # The final processed data is returned as a list containing 'footy_tipping_data', 'train_df' and 'inference_df'.
     print("Data Pipeline: Data preparation complete!")

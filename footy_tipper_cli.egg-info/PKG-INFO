@@ -1,3 +1,12 @@
+Metadata-Version: 2.4
+Name: footy-tipper-cli
+Version: 0.1.0
+Summary: CLI for the Footy Tipper pipeline.
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Dynamic: license-file
+
 # The Footy-Tipper: A Machine Learning Approach to Winning the Pub Tipping Comp
 
 The Footy-Tipper, an open-source Rugby League prediction engine, artfully merges R, Python, and SQL to forecast outcomes of National Rugby League (NRL) matches, creating a holistic data science product. With R for data pipelines and analysis, Python for machine learning modeling, and SQL for data management, the project is a testament to technological synergy. Central to its charm is the incorporation of Reg Reagan's iconic humor and passion, a feature brought to life by ChatGPT's advanced language models. Mimicking Reagan's distinctive style, ChatGPT crafts engaging and witty narratives for sending out predictions, blending accurate, data-driven insights with the beloved cultural fabric of Rugby League. This approach not only elevates the delivery of predictions but also pays homage to the sport's heritage, making The Footy-Tipper a unique intersection of cutting-edge technology and the nostalgia of Rugby League's golden era, as envisioned through the lens of Reg Reagan's enduring legacy.
@@ -5,25 +14,6 @@ The Footy-Tipper, an open-source Rugby League prediction engine, artfully merges
 ![Footy Tipper Logo](/images/footy-tipper-logo.jpg)
 
 A development blog, titled "The Footy Tipper," provides detailed insights into the progress and findings of this project. [You can read the Footy Tipper blog here on Medium!](https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292)
-
-## Start Here (Recommended)
-
-If you just want the pipeline running with minimal setup:
-
-```bash
-conda env create -f environment.yml
-conda activate footy-tipper
-
-# Fresh training run from 2012
-footy-tipper train --start-year 2012
-
-# Pre-game inference
-footy-tipper infer
-```
-
-Docs:
-- Simple guide: `cli/README.md`
-- Full command reference: `CLI.md`
 
 ## Modeling and Simulation Process
 
@@ -33,11 +23,11 @@ The Footy-Tipper leverages advanced machine learning techniques to predict the o
 
 ### Model Training
 
-The model training process begins with setting up pipelines that include data preprocessing, feature selection, and hyperparameter tuning. Separate Poisson models are created for predicting the scores of the home team and the away team. These models are trained using extensive data to ensure they generalize well to unseen matches. Multiple models are trained with different configurations, and the best-performing models for the home and away teams are selected based on performance metrics. The preferred training entrypoint is `footy-tipper train`.
+The model training process begins with setting up pipelines that include data preprocessing, feature selection, and hyperparameter tuning. Separate Poisson models are created for predicting the scores of the home team and the away team. These models are trained using extensive data to ensure they generalize well to unseen matches. Multiple models are trained with different configurations, and the best-performing models for the home and away teams are selected based on performance metrics. The training job (`footy-tipper-train.py`) runs the data preparation and model training scripts.
 
 ### Simulation and Inference
 
-Once the Poisson models for both the home and away teams are trained, they are used to predict the expected scores for each team based on the input data. Simulations are then run to calculate the probabilities of each outcome (home win, away win, and draw) by modeling the distribution of scores. This involves generating numerous simulated matches to derive win probabilities and expected scorelines, providing a probabilistic view of match outcomes. The preferred prediction entrypoint is `footy-tipper predict`.
+Once the Poisson models for both the home and away teams are trained, they are used to predict the expected scores for each team based on the input data. Simulations are then run to calculate the probabilities of each outcome (home win, away win, and draw) by modeling the distribution of scores. This involves generating numerous simulated matches to derive win probabilities and expected scorelines, providing a probabilistic view of match outcomes. The prediction job (`footy-tipper-predict.py`) handles data preparation again (to update time dependant variables), inference, and sending predictions.
 
 ### Example
 
@@ -70,30 +60,14 @@ Throughout these processes, SQL plays a vital role in data management and transi
 
 ## Prerequisites
 
-- For local CLI usage (recommended): Conda installed.
-- For Docker usage (optional): Docker installed and running.
-- Project secrets for full send workflow:
-  - `secrets.env`
-  - `service-account-token.json` (Google Drive/email integration)
-- Optional for development/debugging: R, Python, and an editor like VS Code.
+- Docker installed and running on your machine.
+- The project secrets:
+  - The secrets file (`secrets.env`).
+  - Google service account for Google Drive authentication (`service-account-token.json`).
+- (Optional) R, Python and Visual Studio Code, if you want to develop or debug locally.
+- (Optional) Google Cloud Platform account for computation.
 
 ## Usage
-
-### Using the Local CLI (Recommended)
-
-```bash
-conda env create -f environment.yml
-conda activate footy-tipper
-footy-tipper --help
-```
-
-Common commands:
-
-```bash
-footy-tipper train --start-year 2012
-footy-tipper infer
-footy-tipper predict
-```
 
 ### Using Docker
 

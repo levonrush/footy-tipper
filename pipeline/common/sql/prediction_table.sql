@@ -1,7 +1,13 @@
-WITH min_round_id AS (
+WITH latest_year AS (
+    SELECT MAX(competition_year) AS competition_year
+    FROM footy_tipping_data
+    WHERE game_state_name = 'Pre Game'
+),
+min_round_id AS (
     SELECT MIN(round_id) AS round_id
     FROM footy_tipping_data
     WHERE game_state_name = 'Pre Game'
+      AND competition_year = (SELECT competition_year FROM latest_year)
 )
 
 SELECT CAST(ft.game_id AS INTEGER) AS game_id
@@ -20,4 +26,5 @@ SELECT CAST(ft.game_id AS INTEGER) AS game_id
 FROM predictions_table p
 LEFT JOIN footy_tipping_data ft ON p.game_id = ft.game_id
 WHERE ft.game_state_name = 'Pre Game'
-AND round_id = (SELECT * FROM min_round_id)
+AND ft.competition_year = (SELECT competition_year FROM latest_year)
+AND ft.round_id = (SELECT round_id FROM min_round_id)

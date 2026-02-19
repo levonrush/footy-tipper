@@ -34,7 +34,7 @@ clean_data <- function(data){
     mutate(broadcast_channel1 = if_else(is.na(broadcast_channel1), "None", broadcast_channel1),
            broadcast_channel2 = if_else(is.na(broadcast_channel2), "None", broadcast_channel2),
            broadcast_channel3 = if_else(is.na(broadcast_channel3), "None", broadcast_channel3),
-           venueName = fct_lump(venue_name, 42)) %>%
+           venue_name = fct_lump(venue_name, 42)) %>%
     mutate_if(is.character, as.factor) %>%
     mutate_if(is.factor, fct_lump_n, n = 40, ties.method = "max") %>%
     clean_names()

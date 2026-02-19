@@ -134,6 +134,18 @@ def predict_match_outcome_and_scoreline_with_bayes(home_model, away_model, infer
     Returns:
         DataFrame: The inference data with predicted probabilities, outcomes, scorelines, and Bayes factors.
     """
+    if inference_data.empty:
+        empty_outcomes = pd.DataFrame(
+            columns=[
+                'game_id', 'home_team_result', 'home_team_win_prob',
+                'home_team_lose_prob', 'draw_prob', 'bayes_factor', 'evidence_strength'
+            ]
+        )
+        empty_margins = pd.DataFrame(
+            columns=['game_id', 'predicted_home_score', 'predicted_away_score', 'predicted_margin']
+        )
+        return empty_outcomes, empty_margins
+
     # Predict the expected scores
     inference_data['home_goals_avg'] = predict_scores(home_model, inference_data[predictors])
     inference_data['away_goals_avg'] = predict_scores(away_model, inference_data[predictors])
@@ -194,7 +206,7 @@ def get_predictions(db_path, sql_file):
     # Disconnect from the SQLite database
     con.close()
 
-    predictions
+    return predictions
 
 def load_models(model_name, project_root):
     """

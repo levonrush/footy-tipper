@@ -39,6 +39,7 @@ away_model = pf.load_models('away_model', project_root)
 
 # Get the inference data
 inference_data = pf.get_inference_data(db_path, project_root / 'pipeline/common/sql/inference_data.sql')
+inference_data = tc.align_predictor_columns(inference_data, predictors)
 
 # Make predictions
 # Predict match outcomes and scorelines for the inference data

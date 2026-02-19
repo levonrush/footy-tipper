@@ -1,4 +1,6 @@
+import os
 import numpy as np
+import pandas as pd
 from sklearn.metrics import make_scorer, mean_poisson_deviance
 
 def custom_poisson_deviance(y_true, y_pred):
@@ -12,7 +14,7 @@ num_folds = 3
 use_rfe = False
 
 # predictors
-include_performance = True
+include_performance = os.getenv("FOOTY_TIPPER_INCLUDE_PERFORMANCE", "true").strip().lower() in {"1", "true", "yes", "y"}
 
 predictors = [
     "round_id", "round_name", "game_number", "game_state_name",
@@ -134,9 +136,43 @@ predictors = [
     "ptb_in_opposition_20_away_performance", "linebreak_involvement_away_performance", "short_dropout_away_performance"
 ]
 
+# Predictors that should be treated as categorical if missing from the source
+# data and created as fallback columns.
+categorical_predictors = {
+    "round_name",
+    "game_state_name",
+    "start_time",
+    "start_time_utc",
+    "venue_name",
+    "city",
+    "broadcast_channel1",
+    "broadcast_channel2",
+    "broadcast_channel3",
+    "team_home",
+    "team_away",
+}
+
 def filter_predictors(include_performance=True, predictor_list=predictors):
     if include_performance:
         return predictor_list
     else:
         return [p for p in predictor_list if not p.endswith('_performance')]
+
+
+def align_predictor_columns(df: pd.DataFrame, predictor_list, categorical_cols=None) -> pd.DataFrame:
+    """Ensure all expected predictor columns exist for training/inference."""
+    aligned = df.copy()
+    categorical_cols = set(categorical_cols or categorical_predictors)
+    missing_predictors = [p for p in predictor_list if p not in aligned.columns]
+
+    for col in missing_predictors:
+        aligned[col] = "Unknown" if col in categorical_cols else 0.0
+
+    if missing_predictors:
+        print(
+            "Missing predictors were added with fallback values: "
+            + ", ".join(sorted(missing_predictors))
+        )
+
+    return aligned
     

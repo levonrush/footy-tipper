@@ -3,11 +3,16 @@ import pandas as pd
 import sqlite3
 
 # for google
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-import gspread
-from google.oauth2 import service_account
+try:
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+    import gspread
+except Exception:
+    service_account = None
+    build = None
+    MediaFileUpload = None
+    gspread = None
 
 # for emails
 import smtplib
@@ -15,7 +20,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 # For direct OpenAI API calls (removing langchain)
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
 # The 'get_predictions' function reads the predictions from the SQLite database and returns them as a pandas DataFrame.
 def get_predictions(db_path, project_root):
@@ -28,18 +36,37 @@ def get_predictions(db_path, project_root):
 
 # The 'get_tipper_picks' function calculates the odds thresholds and returns a DataFrame of tipper picks.
 def get_tipper_picks(predictions, prod_run=False):
-    predictions['home_odds_thresh'] = 1 / predictions['home_team_win_prob']
-    predictions['away_odds_thresh'] = 1 / predictions['home_team_lose_prob'] 
+    if predictions.empty:
+        return pd.DataFrame(columns=['team', 'price', 'price_min'])
+
+    predictions = predictions.copy()
+    predictions['home_odds_thresh'] = 1 / predictions['home_team_win_prob'].replace(0, pd.NA)
+    predictions['away_odds_thresh'] = 1 / predictions['home_team_lose_prob'].replace(0, pd.NA)
+
     home_picks = predictions[predictions['home_team_result'] == 'Win'][['team_home', 'team_head_to_head_odds_home', 'home_odds_thresh']].copy()
     home_picks.rename(columns={'team_home': 'team', 'team_head_to_head_odds_home': 'price', 'home_odds_thresh': 'price_min'}, inplace=True)
     away_picks = predictions[predictions['home_team_result'] == 'Loss'][['team_away', 'team_head_to_head_odds_away', 'away_odds_thresh']].copy()
     away_picks.rename(columns={'team_away': 'team', 'team_head_to_head_odds_away': 'price', 'away_odds_thresh': 'price_min'}, inplace=True)
-    tipper_picks = pd.concat([home_picks, away_picks])
+    tipper_picks = pd.concat([home_picks, away_picks], ignore_index=True)
+    tipper_picks = tipper_picks.dropna(subset=['price', 'price_min'])
     tipper_picks = tipper_picks[tipper_picks['price'] > (tipper_picks['price_min'] * 1.05)]
     return tipper_picks
 
 # The 'upload_df_to_drive' function uploads a pandas DataFrame as a CSV file to Google Drive.
 def upload_df_to_drive(df, json_path, parent_folder_id, filename):
+    if service_account is None or build is None or MediaFileUpload is None:
+        print("Upload skipped: Google Drive dependencies are not installed.")
+        return
+    if df.empty:
+        print("Upload skipped: no predictions to upload.")
+        return
+    if not parent_folder_id:
+        print("Upload skipped: FOLDER_ID is not configured.")
+        return
+    if not os.path.exists(json_path):
+        print(f"Upload skipped: missing Google service account token at {json_path}.")
+        return
+
     creds = service_account.Credentials.from_service_account_file(json_path)
     drive_service = build('drive', 'v3', credentials=creds)
     competition_year = str(df['competition_year'].unique()[0])
@@ -84,8 +111,51 @@ def upload_df_to_drive(df, json_path, parent_folder_id, filename):
     print('File ID:', file.get('id'))
     os.remove(filename)
 
+def _build_fallback_email(predictions, tipper_picks, folder_url):
+    if predictions.empty:
+        return "No pre-game NRL fixtures were found for the current run, so there are no tips to send this week."
+
+    round_name = predictions['round_name'].iloc[0]
+    competition_year = predictions['competition_year'].iloc[0]
+    lines = [
+        f"Footy Tipper update for {round_name} {competition_year}",
+        "",
+        "Predicted winners:",
+    ]
+    for _, row in predictions.iterrows():
+        winner = row['team_home'] if row['home_team_result'] == 'Win' else row['team_away']
+        lines.append(
+            f"- {row['team_home']} vs {row['team_away']}: {winner} "
+            f"({row['home_team_win_prob']:.2%} home win, {row['home_team_lose_prob']:.2%} away win)"
+        )
+
+    lines.append("")
+    if tipper_picks.empty:
+        lines.append("Value picks: none flagged this round.")
+    else:
+        lines.append("Value picks:")
+        for _, row in tipper_picks.iterrows():
+            lines.append(f"- {row['team']} at {row['price']:.2f} (model threshold {row['price_min']:.2f})")
+
+    if folder_url:
+        lines.append("")
+        lines.append(f"Tips folder: {folder_url}")
+
+    lines.append("")
+    lines.append("Bring back the biff.")
+    return "\n".join(lines)
+
 # The 'generate_reg_regan_email' function now uses the OpenAI API directly to generate email content.
 def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, temperature):
+    if predictions.empty:
+        return _build_fallback_email(predictions, tipper_picks, folder_url)
+    if not api_key:
+        print("OPENAI_KEY is not configured. Using fallback email content.")
+        return _build_fallback_email(predictions, tipper_picks, folder_url)
+    if OpenAI is None:
+        print("OpenAI SDK is unavailable. Using fallback email content.")
+        return _build_fallback_email(predictions, tipper_picks, folder_url)
+
     # Initialise OpenAI client (modern v1 syntax)
     client = OpenAI(api_key=api_key)
 
@@ -131,27 +201,47 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, tem
         Finally, if they are in tipping comps at either the Seven Seas Hotel in Carrington or the Ship Inn on Hunter St, they aren't allowed to use the tips.
     """
 
-    # Note: this model only supports default temperature; omit temperature to use model default.
-    response = client.chat.completions.create(
-        model="gpt-5",
-        messages=[
-            {"role": "system", "content": "You are a witty and sarcastic assistant who loves NRL and hates Manly."},
-            {"role": "user", "content": prompt}
-        ],
-        max_completion_tokens=7000
-    )
-    email_content = response.choices[0].message.content
-    return email_content
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a witty and sarcastic assistant who loves NRL and hates Manly."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=temperature,
+            max_completion_tokens=1200
+        )
+        email_content = response.choices[0].message.content
+        if email_content:
+            return email_content
+    except Exception as exc:
+        print(f"OpenAI email generation failed ({exc}). Using fallback email content.")
+
+    return _build_fallback_email(predictions, tipper_picks, folder_url)
 
 # The 'send_emails' function sends an email with the generated content.
 def send_emails(doc_name, subject, message, sender_email, sender_password, json_path):
+    if service_account is None or gspread is None:
+        print("Email send skipped: Google Sheets dependencies are not installed.")
+        return
+    if not sender_email or not sender_password:
+        print("Email send skipped: missing MY_EMAIL or EMAIL_PASSWORD.")
+        return
+    if not os.path.exists(json_path):
+        print(f"Email send skipped: missing Google service account token at {json_path}.")
+        return
+
     scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
     creds = service_account.Credentials.from_service_account_file(json_path, scopes=scope)
     client = gspread.authorize(creds)
     sheet = client.open(doc_name).sheet1
     email_data = sheet.get_all_records()
-    recipient_emails = [row['Email'] for row in email_data]
+    recipient_emails = [row['Email'] for row in email_data if row.get('Email')]
+    if not recipient_emails:
+        print("Email send skipped: no recipients found in the email list.")
+        return
     
     msg = MIMEMultipart()
     msg['From'] = sender_email
@@ -164,6 +254,28 @@ def send_emails(doc_name, subject, message, sender_email, sender_password, json_
     server.login(sender_email, sender_password)
     text = msg.as_string()
     server.sendmail(sender_email, recipient_emails, text)
+    server.quit()
+
+
+def send_test_email(subject, message, sender_email, sender_password, recipient_email):
+    if not sender_email or not sender_password:
+        print("Test email skipped: missing MY_EMAIL or EMAIL_PASSWORD.")
+        return
+    if not recipient_email:
+        print("Test email skipped: missing recipient email.")
+        return
+
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = recipient_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(message, 'plain'))
+
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+    server.login(sender_email, sender_password)
+    text = msg.as_string()
+    server.sendmail(sender_email, [recipient_email], text)
     server.quit()
 
 

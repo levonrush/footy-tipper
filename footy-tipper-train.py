@@ -2,7 +2,7 @@ from pipeline.utils import run_script
 
 # Define the scripts to run for training
 scripts = [
-    "Rscript pipeline/data-prep.R",
+    "FOOTY_TIPPER_PREP_MODE=train Rscript pipeline/data-prep.R",
     "python pipeline/train.py"
 ]
 

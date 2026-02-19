@@ -34,6 +34,7 @@ training_data = mf.get_training_data(
     db_path = project_root / "data" / "footy-tipper-db.sqlite", 
     sql_file = project_root / 'pipeline/common/sql/training_data.sql'
     )
+training_data = tc.align_predictor_columns(training_data, predictors)
 
 # Train the model
 print("Training the model for home team scores")
