@@ -3,6 +3,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 
 try:
     from dotenv import load_dotenv
@@ -12,15 +13,48 @@ except Exception:
 
 
 DEFAULT_TEST_EMAIL = "levon.rush@gmail.com"
+CLI_START = time.monotonic()
 
 
 def _project_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parents[1]
 
 
+def _format_elapsed(seconds: float) -> str:
+    whole = int(max(0, seconds))
+    hours, remainder = divmod(whole, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _log(message: str, start_time: float = None) -> None:
+    base = CLI_START if start_time is None else start_time
+    elapsed = _format_elapsed(time.monotonic() - base)
+    print(f"[+{elapsed}] {message}", flush=True)
+
+
 def _run_command(cmd, env, cwd=None):
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, env=env, cwd=str(cwd) if cwd else None)
+    cmd_text = " ".join(cmd)
+    cmd_start = time.monotonic()
+    _log(f"Running: {cmd_text}", start_time=cmd_start)
+    proc = subprocess.Popen(
+        cmd,
+        env=env,
+        cwd=str(cwd) if cwd else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    if proc.stdout is not None:
+        for raw_line in proc.stdout:
+            _log(raw_line.rstrip("\n"), start_time=cmd_start)
+
+    rc = proc.wait()
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, cmd)
+    _log(f"Completed: {cmd_text}", start_time=cmd_start)
 
 
 def _build_env(args):
@@ -75,7 +109,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
 
     predictions = sf.get_predictions(db_path, root)
     if predictions.empty:
-        print("No pre-game predictions available. Nothing to send.")
+        _log("No pre-game predictions available. Nothing to send.")
         return 0
 
     tipper_picks = sf.get_tipper_picks(predictions)
@@ -89,11 +123,11 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
             "predictions.csv",
         )
     else:
-        print("Drive upload skipped.")
+        _log("Drive upload skipped.")
 
     api_key = os.getenv("OPENAI_KEY") if use_openai else None
     if test_mode and not use_openai:
-        print("Test mode active: using fallback email content (OpenAI disabled).")
+        _log("Test mode active: using fallback email content (OpenAI disabled).")
 
     email_payload = sf.generate_reg_regan_email_payload(
         predictions,
@@ -112,11 +146,11 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
     if test_mode:
         subject = f"[TEST] {subject}"
         if dry_run:
-            print("Dry run enabled. Email was not sent.")
-            print(f"To: {test_email}")
-            print(f"Subject: {subject}")
-            print("")
-            print(email_body)
+            _log("Dry run enabled. Email was not sent.")
+            _log(f"To: {test_email}")
+            _log(f"Subject: {subject}")
+            _log("")
+            _log(email_body)
             return 0
 
         sf.send_test_email(
@@ -128,14 +162,14 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
             html_message=email_html,
             inline_images=inline_images,
         )
-        print(f"Test email sent to {test_email}.")
+        _log(f"Test email sent to {test_email}.")
         return 0
 
     if dry_run:
-        print("Dry run enabled. Production email was not sent.")
-        print(f"Subject: {subject}")
-        print("")
-        print(email_body)
+        _log("Dry run enabled. Production email was not sent.")
+        _log(f"Subject: {subject}")
+        _log("")
+        _log(email_body)
         return 0
 
     sf.send_emails(
@@ -148,7 +182,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         html_message=email_html,
         inline_images=inline_images,
     )
-    print("Production email flow complete.")
+    _log("Production email flow complete.")
     return 0
 
 
@@ -343,7 +377,7 @@ def main(argv=None):
     if args.command == "predict":
         _run_inference(env, skip_prep=args.skip_prep, root=root)
         if args.skip_send:
-            print("Send step skipped.")
+            _log("Send step skipped.")
             return 0
         skip_drive = args.skip_drive or args.test
         return _send_predictions(

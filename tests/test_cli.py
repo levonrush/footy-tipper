@@ -1,5 +1,6 @@
 import os
 import pathlib
+import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -10,10 +11,33 @@ from pipeline import cli
 class CLISmokeTests(unittest.TestCase):
     def test_run_command_respects_cwd(self):
         env = {"A": "1"}
-        with mock.patch("pipeline.cli.subprocess.run") as run_mock:
+        proc = mock.Mock()
+        proc.stdout = iter(["hello\n"])
+        proc.wait.return_value = 0
+        with mock.patch("pipeline.cli.subprocess.Popen", return_value=proc) as popen_mock, \
+             mock.patch("pipeline.cli._log"):
             cli._run_command(["echo", "hello"], env, cwd=pathlib.Path("/tmp"))
 
-        run_mock.assert_called_once_with(["echo", "hello"], check=True, env=env, cwd="/tmp")
+        popen_mock.assert_called_once_with(
+            ["echo", "hello"],
+            env=env,
+            cwd="/tmp",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        proc.wait.assert_called_once()
+
+    def test_run_command_raises_on_nonzero_exit(self):
+        env = {"A": "1"}
+        proc = mock.Mock()
+        proc.stdout = iter([])
+        proc.wait.return_value = 2
+        with mock.patch("pipeline.cli.subprocess.Popen", return_value=proc), \
+             mock.patch("pipeline.cli._log"):
+            with self.assertRaises(subprocess.CalledProcessError):
+                cli._run_command(["echo", "hello"], env, cwd=pathlib.Path("/tmp"))
 
     def test_run_data_prep_uses_absolute_path(self):
         root = pathlib.Path("/repo")
