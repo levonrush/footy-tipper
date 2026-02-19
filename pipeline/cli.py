@@ -95,17 +95,19 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
     if test_mode and not use_openai:
         print("Test mode active: using fallback email content (OpenAI disabled).")
 
-    email_body = sf.generate_reg_regan_email(
+    email_payload = sf.generate_reg_regan_email_payload(
         predictions,
         tipper_picks,
         api_key,
         os.getenv("FOLDER_URL"),
         0.9,
+        use_openai=use_openai,
     )
 
-    round_name = predictions["round_name"].iloc[0]
-    competition_year = predictions["competition_year"].iloc[0]
-    subject = f"Footy Tipper Predictions for {round_name} {competition_year}"
+    subject = email_payload["subject"]
+    email_body = email_payload["plain_text"]
+    email_html = email_payload["html_text"]
+    inline_images = email_payload["inline_images"]
 
     if test_mode:
         subject = f"[TEST] {subject}"
@@ -123,6 +125,8 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
             os.getenv("MY_EMAIL"),
             os.getenv("EMAIL_PASSWORD"),
             test_email,
+            html_message=email_html,
+            inline_images=inline_images,
         )
         print(f"Test email sent to {test_email}.")
         return 0
@@ -141,6 +145,8 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         os.getenv("MY_EMAIL"),
         os.getenv("EMAIL_PASSWORD"),
         json_path,
+        html_message=email_html,
+        inline_images=inline_images,
     )
     print("Production email flow complete.")
     return 0

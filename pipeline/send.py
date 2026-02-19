@@ -53,7 +53,7 @@ sf.upload_df_to_drive(
 
 # Generate the Reg Regan email
 print("Generating the Reg Regan email...")
-reg_reagan = sf.generate_reg_regan_email(
+email_payload = sf.generate_reg_regan_email_payload(
     predictions, 
     tipper_picks, 
     os.getenv('OPENAI_KEY'), 
@@ -61,19 +61,19 @@ reg_reagan = sf.generate_reg_regan_email(
     0.9
 )
 
-print(reg_reagan)
+print(email_payload["plain_text"])
 
 # Send the email
 print("Sending the email...")
-round_name = predictions['round_name'].iloc[0]
-competition_year = predictions['competition_year'].iloc[0]
 sf.send_emails(
     "footy-tipper-email-list", 
-    f"Footy Tipper Predictions for {round_name} {competition_year}", 
-    reg_reagan, 
+    email_payload["subject"], 
+    email_payload["plain_text"], 
     os.getenv('MY_EMAIL'), 
     os.getenv('EMAIL_PASSWORD'), 
-    json_path
+    json_path,
+    html_message=email_payload["html_text"],
+    inline_images=email_payload["inline_images"],
 )
 
 print("Send step complete.")
