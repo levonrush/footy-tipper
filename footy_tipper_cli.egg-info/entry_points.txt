@@ -1,2 +1,0 @@
-[console_scripts]
-footy-tipper = pipeline.cli:main
