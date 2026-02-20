@@ -82,8 +82,9 @@ The current production model is a tiered pipeline built around explicit train/in
 ## Pipeline Workflow
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph O["Orchestration + Data Prep"]
+    direction TB
     CLI["CLI / Entrypoints<br/>footy-tipper + wrapper scripts"]
     FEEDS["Feeds + Config<br/>fixtures/ladder/performance/odds<br/>secrets.env + season controls"]
     PREP["R Data Prep<br/>pipeline/data-prep.R<br/>feature engineering + joins"]
@@ -92,6 +93,7 @@ flowchart LR
   end
 
   subgraph M["Model Training + Inference"]
+    direction TB
     TRAIN["Training Path<br/>load training_data<br/>compute Tier-A baseline<br/>align/prune predictors"]
     FIT["Model Fit<br/>Tier-B home/away Poisson<br/>blend with Tier-A baseline<br/>estimate lambda3<br/>fit stacker + beta calibrator"]
     ART["Model Artefacts<br/>home_model.pkl / away_model.pkl<br/>stacker.pkl<br/>win_prob_calibrator.pkl<br/>model_manifest.json"]
@@ -101,6 +103,7 @@ flowchart LR
   end
 
   subgraph S["Output + Delivery"]
+    direction TB
     PRED["Prediction Output<br/>home/away/draw probabilities<br/>predicted margin + scorelines<br/>upsert predictions_table"]
     SEND["Send + Value Layer<br/>prediction_table.sql (latest season/round)<br/>EV-based value picks<br/>Kelly stake sizing (normalized/bankroll)<br/>Drive upload + OpenAI/fallback email"]
     FIT --> PRED
