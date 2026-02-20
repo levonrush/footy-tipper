@@ -41,21 +41,118 @@ def get_predictions(db_path, project_root):
 
 # The 'get_tipper_picks' function calculates the odds thresholds and returns a DataFrame of tipper picks.
 def get_tipper_picks(predictions, prod_run=False):
+    output_columns = [
+        "game_id",
+        "team",
+        "opponent",
+        "side",
+        "price",
+        "price_min",
+        "model_prob",
+        "edge",
+        "kelly_full",
+        "kelly_fraction",
+        "kelly_capped_fraction",
+        "stake_fraction",
+        "stake_amount",
+    ]
     if predictions.empty:
-        return pd.DataFrame(columns=['team', 'price', 'price_min'])
+        return pd.DataFrame(columns=output_columns)
+
+    min_edge_default = 0.03 if prod_run else 0.02
+    min_edge = float(os.getenv("FOOTY_TIPPER_MIN_VALUE_EDGE", str(min_edge_default)))
+    kelly_multiplier = float(os.getenv("FOOTY_TIPPER_KELLY_FRACTION", "0.5"))
+    max_stake_fraction = float(os.getenv("FOOTY_TIPPER_MAX_STAKE_FRACTION", "0.05"))
+    min_stake_fraction = float(os.getenv("FOOTY_TIPPER_MIN_STAKE_FRACTION", "0.0"))
+    stake_mode = os.getenv("FOOTY_TIPPER_STAKE_MODE", "normalized").strip().lower()
+    if stake_mode not in {"normalized", "bankroll"}:
+        stake_mode = "normalized"
+    bankroll_env = os.getenv("FOOTY_TIPPER_BANKROLL", "")
+
+    bankroll = None
+    if bankroll_env.strip():
+        try:
+            bankroll_value = float(bankroll_env)
+            if bankroll_value > 0:
+                bankroll = bankroll_value
+        except ValueError:
+            bankroll = None
 
     predictions = predictions.copy()
-    predictions['home_odds_thresh'] = 1 / predictions['home_team_win_prob'].replace(0, pd.NA)
-    predictions['away_odds_thresh'] = 1 / predictions['home_team_lose_prob'].replace(0, pd.NA)
 
-    home_picks = predictions[predictions['home_team_result'] == 'Win'][['team_home', 'team_head_to_head_odds_home', 'home_odds_thresh']].copy()
-    home_picks.rename(columns={'team_home': 'team', 'team_head_to_head_odds_home': 'price', 'home_odds_thresh': 'price_min'}, inplace=True)
-    away_picks = predictions[predictions['home_team_result'] == 'Loss'][['team_away', 'team_head_to_head_odds_away', 'away_odds_thresh']].copy()
-    away_picks.rename(columns={'team_away': 'team', 'team_head_to_head_odds_away': 'price', 'away_odds_thresh': 'price_min'}, inplace=True)
-    tipper_picks = pd.concat([home_picks, away_picks], ignore_index=True)
-    tipper_picks = tipper_picks.dropna(subset=['price', 'price_min'])
-    tipper_picks = tipper_picks[tipper_picks['price'] > (tipper_picks['price_min'] * 1.05)]
-    return tipper_picks
+    # Use expected value per side (p * odds - 1) and select the strongest side
+    # per match, instead of forcing picks to align with the predicted winner.
+    records = []
+    for _, row in predictions.iterrows():
+        game_id = row.get("game_id")
+        home_team = row.get("team_home")
+        away_team = row.get("team_away")
+        home_prob = pd.to_numeric(pd.Series([row.get("home_team_win_prob")]), errors="coerce").iloc[0]
+        away_prob = pd.to_numeric(pd.Series([row.get("home_team_lose_prob")]), errors="coerce").iloc[0]
+        home_odds = pd.to_numeric(pd.Series([row.get("team_head_to_head_odds_home")]), errors="coerce").iloc[0]
+        away_odds = pd.to_numeric(pd.Series([row.get("team_head_to_head_odds_away")]), errors="coerce").iloc[0]
+
+        side_candidates = []
+        for side, team, opp, prob, odds in [
+            ("home", home_team, away_team, home_prob, home_odds),
+            ("away", away_team, home_team, away_prob, away_odds),
+        ]:
+            if pd.isna(prob) or pd.isna(odds) or odds <= 1 or prob <= 0 or prob >= 1:
+                continue
+
+            fair_odds = 1 / prob
+            edge = (prob * odds) - 1.0
+            denominator = odds - 1.0
+            kelly_full = edge / denominator if denominator > 0 else 0.0
+            kelly_full = max(0.0, kelly_full)
+            kelly_fractional = max(0.0, kelly_full * kelly_multiplier)
+            kelly_capped = min(max_stake_fraction, kelly_fractional)
+            if kelly_capped < min_stake_fraction:
+                kelly_capped = 0.0
+
+            side_candidates.append(
+                {
+                    "game_id": game_id,
+                    "team": team,
+                    "opponent": opp,
+                    "side": side,
+                    "price": odds,
+                    "price_min": fair_odds,
+                    "model_prob": prob,
+                    "edge": edge,
+                    "kelly_full": kelly_full,
+                    "kelly_fraction": kelly_fractional,
+                    "kelly_capped_fraction": kelly_capped,
+                }
+            )
+
+        if not side_candidates:
+            continue
+
+        best = max(side_candidates, key=lambda x: x["edge"])
+        if best["edge"] >= min_edge and best["kelly_capped_fraction"] > 0:
+            records.append(best)
+
+    if not records:
+        return pd.DataFrame(columns=output_columns)
+
+    tipper_picks = pd.DataFrame.from_records(records)
+    if stake_mode == "normalized":
+        total_weight = float(tipper_picks["kelly_capped_fraction"].sum())
+        if total_weight > 0:
+            tipper_picks["stake_fraction"] = tipper_picks["kelly_capped_fraction"] / total_weight
+        else:
+            tipper_picks["stake_fraction"] = 0.0
+    else:
+        tipper_picks["stake_fraction"] = tipper_picks["kelly_capped_fraction"]
+
+    if bankroll is not None:
+        tipper_picks["stake_amount"] = tipper_picks["stake_fraction"] * bankroll
+    else:
+        tipper_picks["stake_amount"] = pd.NA
+
+    tipper_picks = tipper_picks.sort_values(["stake_fraction", "edge"], ascending=False).reset_index(drop=True)
+    return tipper_picks[output_columns]
 
 # The 'upload_df_to_drive' function uploads a pandas DataFrame as a CSV file to Google Drive.
 def upload_df_to_drive(df, json_path, parent_folder_id, filename):
@@ -134,6 +231,12 @@ def _format_price(value):
     if pd.isna(value):
         return "n/a"
     return f"${float(value):.2f}"
+
+
+def _format_percent(value):
+    if pd.isna(value):
+        return "n/a"
+    return f"{float(value):.1%}"
 
 
 def _resolve_banner_path():
@@ -234,7 +337,9 @@ def _build_prompt_input(predictions, tipper_picks):
     else:
         for _, row in tipper_picks.iterrows():
             pick_lines.append(
-                f"- {row['team']}: market {_format_price(row['price'])}, model threshold {_format_price(row['price_min'])}"
+                f"- {row['team']} vs {row['opponent']}: market {_format_price(row['price'])}, "
+                f"fair {_format_price(row['price_min'])}, edge {_format_percent(row['edge'])}, "
+                f"stake share {_format_percent(row['stake_fraction'])}"
             )
 
     return "\n".join(fixture_lines), "\n".join(pick_lines)
@@ -386,9 +491,13 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
     else:
         lines.append("Value picks:")
         for _, row in tipper_picks.iterrows():
+            stake_suffix = ""
+            if not pd.isna(row.get("stake_amount", pd.NA)):
+                stake_suffix = f", stake {_format_price(row['stake_amount'])}"
             lines.append(
-                f"- {row['team']} at {_format_price(row['price'])} "
-                f"(model threshold {_format_price(row['price_min'])})"
+                f"- {row['team']} vs {row['opponent']} at {_format_price(row['price'])} "
+                f"(fair {_format_price(row['price_min'])}, edge {_format_percent(row['edge'])}, "
+                f"stake share {_format_percent(row['stake_fraction'])}{stake_suffix})"
             )
 
     if folder_url:
@@ -428,11 +537,14 @@ def _render_html_email(predictions, tipper_picks, folder_url, opening, closing, 
 
     pick_rows = []
     for _, row in tipper_picks.iterrows():
+        stake_text = _format_percent(row["stake_fraction"])
+        if not pd.isna(row.get("stake_amount", pd.NA)):
+            stake_text = f"{stake_text} ({_format_price(row['stake_amount'])})"
         pick_rows.append(
             "<tr>"
             "<td style=\"padding:10px; border-bottom:1px solid #f3f4f6; color:#111827; "
             "font-family:Arial, sans-serif; font-size:14px;\">"
-            f"{html.escape(str(row['team']))}"
+            f"{html.escape(str(row['team']))} vs {html.escape(str(row['opponent']))}"
             "</td>"
             "<td style=\"padding:10px; border-bottom:1px solid #f3f4f6; color:#111827; "
             "font-family:Arial, sans-serif; font-size:14px;\">"
@@ -441,6 +553,14 @@ def _render_html_email(predictions, tipper_picks, folder_url, opening, closing, 
             "<td style=\"padding:10px; border-bottom:1px solid #f3f4f6; color:#111827; "
             "font-family:Arial, sans-serif; font-size:14px;\">"
             f"{_format_price(row['price_min'])}"
+            "</td>"
+            "<td style=\"padding:10px; border-bottom:1px solid #f3f4f6; color:#111827; "
+            "font-family:Arial, sans-serif; font-size:14px;\">"
+            f"{_format_percent(row['edge'])}"
+            "</td>"
+            "<td style=\"padding:10px; border-bottom:1px solid #f3f4f6; color:#111827; "
+            "font-family:Arial, sans-serif; font-size:14px;\">"
+            f"{stake_text}"
             "</td>"
             "</tr>"
         )
@@ -460,7 +580,9 @@ def _render_html_email(predictions, tipper_picks, folder_url, opening, closing, 
             "<tr style=\"background:#f9fafb;\">"
             "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Team</th>"
             "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Market</th>"
-            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Model Min</th>"
+            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Fair</th>"
+            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Edge</th>"
+            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Stake Share</th>"
             "</tr>"
             "</thead>"
             "<tbody>"
