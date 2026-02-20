@@ -111,6 +111,72 @@ rolling_mean_before <- function(observed_values, window) {
   out
 }
 
+safe_logit <- function(prob, eps = 1e-6) {
+  p <- pmin(pmax(as.numeric(prob), eps), 1 - eps)
+  log(p / (1 - p))
+}
+
+compute_fair_probs_basic <- function(home_odds, away_odds) {
+  q_home <- suppressWarnings(1 / as.numeric(home_odds))
+  q_away <- suppressWarnings(1 / as.numeric(away_odds))
+
+  if (is.na(q_home) || is.na(q_away) || q_home <= 0 || q_away <= 0) {
+    return(c(NA_real_, NA_real_, NA_real_))
+  }
+
+  overround <- q_home + q_away
+  if (overround <= 0) {
+    return(c(NA_real_, NA_real_, NA_real_))
+  }
+
+  c(q_home / overround, q_away / overround, overround)
+}
+
+compute_fair_probs_power <- function(home_odds, away_odds) {
+  q_home <- suppressWarnings(1 / as.numeric(home_odds))
+  q_away <- suppressWarnings(1 / as.numeric(away_odds))
+
+  if (is.na(q_home) || is.na(q_away) || q_home <= 0 || q_away <= 0) {
+    return(c(NA_real_, NA_real_, NA_real_))
+  }
+
+  overround <- q_home + q_away
+  if (overround <= 0) {
+    return(c(NA_real_, NA_real_, NA_real_))
+  }
+
+  f <- function(k) {
+    (q_home ^ k) + (q_away ^ k) - 1
+  }
+
+  power_k <- 1
+  f_lower <- f(0.01)
+  f_upper <- f(10)
+  if (!is.na(f_lower) && !is.na(f_upper) && f_lower * f_upper <= 0) {
+    power_k <- tryCatch(
+      uniroot(f, lower = 0.01, upper = 10)$root,
+      error = function(e) 1
+    )
+  }
+
+  p_home_raw <- q_home ^ power_k
+  p_away_raw <- q_away ^ power_k
+  normalizer <- p_home_raw + p_away_raw
+  if (normalizer <= 0) {
+    return(c(NA_real_, NA_real_, overround))
+  }
+
+  c(p_home_raw / normalizer, p_away_raw / normalizer, overround)
+}
+
+col_or_na <- function(data, col_name) {
+  if (col_name %in% names(data)) {
+    suppressWarnings(as.numeric(data[[col_name]]))
+  } else {
+    rep(NA_real_, nrow(data))
+  }
+}
+
 last_observed_before <- function(observed_values, default = NA_real_) {
   vals <- as.numeric(observed_values)
   out <- rep(default, length(vals))
@@ -290,6 +356,145 @@ easy_pickings <- function(data){
   
 }
 
+market_features <- function(data) {
+  data <- data %>%
+    select(-any_of(c(
+      "home_market_prob_basic", "away_market_prob_basic", "home_market_prob_power", "away_market_prob_power",
+      "market_overround_h2h", "home_market_logit_basic", "home_market_logit_power",
+      "market_entropy_basic", "market_entropy_power", "market_prob_delta_basic", "market_prob_delta_power",
+      "home_line_cover_prob_basic", "away_line_cover_prob_basic", "line_overround_basic",
+      "home_line_cover_prob_power", "away_line_cover_prob_power", "line_overround_power",
+      "line_market_logit_home_basic", "line_market_logit_home_power",
+      "implied_spread_home", "implied_spread_away", "implied_spread_diff"
+    )))
+
+  h2h_basic <- t(mapply(
+    compute_fair_probs_basic,
+    data$team_head_to_head_odds_home,
+    data$team_head_to_head_odds_away
+  ))
+  h2h_power <- t(mapply(
+    compute_fair_probs_power,
+    data$team_head_to_head_odds_home,
+    data$team_head_to_head_odds_away
+  ))
+
+  line_basic <- t(mapply(
+    compute_fair_probs_basic,
+    data$team_line_odds_home,
+    data$team_line_odds_away
+  ))
+  line_power <- t(mapply(
+    compute_fair_probs_power,
+    data$team_line_odds_home,
+    data$team_line_odds_away
+  ))
+
+  data <- data %>%
+    mutate(
+      home_market_prob_basic = as.numeric(h2h_basic[, 1]),
+      away_market_prob_basic = as.numeric(h2h_basic[, 2]),
+      market_overround_h2h = as.numeric(h2h_basic[, 3]),
+      home_market_prob_power = as.numeric(h2h_power[, 1]),
+      away_market_prob_power = as.numeric(h2h_power[, 2]),
+      home_market_logit_basic = safe_logit(home_market_prob_basic),
+      home_market_logit_power = safe_logit(home_market_prob_power),
+      market_entropy_basic = ifelse(
+        is.na(home_market_prob_basic),
+        NA_real_,
+        -(home_market_prob_basic * log(pmax(home_market_prob_basic, 1e-9)) +
+            away_market_prob_basic * log(pmax(away_market_prob_basic, 1e-9)))
+      ),
+      market_entropy_power = ifelse(
+        is.na(home_market_prob_power),
+        NA_real_,
+        -(home_market_prob_power * log(pmax(home_market_prob_power, 1e-9)) +
+            away_market_prob_power * log(pmax(away_market_prob_power, 1e-9)))
+      ),
+      market_prob_delta_basic = home_market_prob_basic - away_market_prob_basic,
+      market_prob_delta_power = home_market_prob_power - away_market_prob_power,
+
+      home_line_cover_prob_basic = as.numeric(line_basic[, 1]),
+      away_line_cover_prob_basic = as.numeric(line_basic[, 2]),
+      line_overround_basic = as.numeric(line_basic[, 3]),
+      home_line_cover_prob_power = as.numeric(line_power[, 1]),
+      away_line_cover_prob_power = as.numeric(line_power[, 2]),
+      line_overround_power = as.numeric(line_power[, 3]),
+      line_market_logit_home_basic = safe_logit(home_line_cover_prob_basic),
+      line_market_logit_home_power = safe_logit(home_line_cover_prob_power),
+      implied_spread_home = suppressWarnings(as.numeric(team_line_amount_home)),
+      implied_spread_away = suppressWarnings(as.numeric(team_line_amount_away)),
+      implied_spread_diff = implied_spread_home - implied_spread_away
+    )
+
+  return(data)
+}
+
+missingness_flags <- function(data) {
+  data <- data %>%
+    select(-any_of(c(
+      "odds_missing", "line_odds_missing", "market_features_missing",
+      "performance_home_missing", "performance_away_missing", "performance_features_missing"
+    )))
+
+  home_perf_cols <- names(data)[str_detect(names(data), "_home_performance$")]
+  away_perf_cols <- names(data)[str_detect(names(data), "_away_performance$")]
+
+  if (length(home_perf_cols) == 0) {
+    home_perf_missing <- rep(1L, nrow(data))
+  } else {
+    home_perf_missing <- as.integer(rowSums(!is.na(data[, home_perf_cols, drop = FALSE])) == 0)
+  }
+
+  if (length(away_perf_cols) == 0) {
+    away_perf_missing <- rep(1L, nrow(data))
+  } else {
+    away_perf_missing <- as.integer(rowSums(!is.na(data[, away_perf_cols, drop = FALSE])) == 0)
+  }
+
+  data %>%
+    mutate(
+      odds_missing = as.integer(is.na(team_head_to_head_odds_home) | is.na(team_head_to_head_odds_away)),
+      line_odds_missing = as.integer(is.na(team_line_odds_home) | is.na(team_line_odds_away)),
+      market_features_missing = as.integer(is.na(home_market_prob_basic) | is.na(home_line_cover_prob_basic)),
+      performance_home_missing = home_perf_missing,
+      performance_away_missing = away_perf_missing,
+      performance_features_missing = as.integer(performance_home_missing == 1L | performance_away_missing == 1L)
+    )
+}
+
+delta_features <- function(data) {
+  data <- data %>%
+    select(-any_of(c(
+      "ladder_points_delta", "ladder_points_difference_delta", "ladder_rank_delta",
+      "ladder_win_rate_delta", "ladder_close_game_rate_delta",
+      "form_delta", "points_for_form_delta", "points_against_form_delta", "diff_form_delta",
+      "attack_delta", "defence_delta", "rest_delta",
+      "points_performance_delta", "set_completion_rate_performance_delta",
+      "effective_tackle_percentage_performance_delta", "all_run_metres_performance_delta"
+    )))
+
+  data %>%
+    mutate(
+      ladder_points_delta = competition_points_home_ladder - competition_points_away_ladder,
+      ladder_points_difference_delta = points_difference_home_ladder - points_difference_away_ladder,
+      ladder_rank_delta = position_home_ladder - position_away_ladder,
+      ladder_win_rate_delta = win_rate_home_ladder - win_rate_away_ladder,
+      ladder_close_game_rate_delta = close_game_rate_home_ladder - close_game_rate_away_ladder,
+      form_delta = season_form_home - season_form_away,
+      points_for_form_delta = season_points_for_form_home - season_points_for_form_away,
+      points_against_form_delta = season_points_against_form_home - season_points_against_form_away,
+      diff_form_delta = season_diff_form_home - season_diff_form_away,
+      attack_delta = season_points_for_form_home - season_points_against_form_away,
+      defence_delta = season_points_against_form_home - season_points_for_form_away,
+      rest_delta = turn_around_diff,
+      points_performance_delta = col_or_na(data, "points_home_performance") - col_or_na(data, "points_away_performance"),
+      set_completion_rate_performance_delta = col_or_na(data, "set_completion_rate_home_performance") - col_or_na(data, "set_completion_rate_away_performance"),
+      effective_tackle_percentage_performance_delta = col_or_na(data, "effective_tackle_percentage_home_performance") - col_or_na(data, "effective_tackle_percentage_away_performance"),
+      all_run_metres_performance_delta = col_or_na(data, "all_run_metres_home_performance") - col_or_na(data, "all_run_metres_away_performance")
+    )
+}
+
 # The 'season_stats' function calculates and adds season statistics to the dataset for each team, both when playing home and away
 season_stats <- function(data){
   data <- data %>%
@@ -447,7 +652,10 @@ feature_engineering <- function(data, form_period){
     form_stats(form_period = form_period) %>%
     matchup_form(form_period = form_period) %>%
     state_of_origin() %>%
-    get_previous_results()
+    get_previous_results() %>%
+    market_features() %>%
+    missingness_flags() %>%
+    delta_features()
 
   return(data)
 

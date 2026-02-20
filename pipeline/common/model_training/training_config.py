@@ -15,6 +15,7 @@ use_rfe = False
 
 # predictors
 include_performance = os.getenv("FOOTY_TIPPER_INCLUDE_PERFORMANCE", "true").strip().lower() in {"1", "true", "yes", "y"}
+sparse_min_support = int(os.getenv("FOOTY_TIPPER_SPARSE_MIN_SUPPORT", "30"))
 
 predictors = [
     "round_id", "round_name", "game_number", "game_state_name",
@@ -152,6 +153,33 @@ predictors = [
     "ptb_in_opposition_20_away_performance", "linebreak_involvement_away_performance", "short_dropout_away_performance"
 ]
 
+# New market, missingness, and delta features.
+predictors += [
+    "home_market_prob_basic", "away_market_prob_basic", "home_market_prob_power", "away_market_prob_power",
+    "market_overround_h2h", "home_market_logit_basic", "home_market_logit_power",
+    "market_entropy_basic", "market_entropy_power", "market_prob_delta_basic", "market_prob_delta_power",
+    "home_line_cover_prob_basic", "away_line_cover_prob_basic", "line_overround_basic",
+    "home_line_cover_prob_power", "away_line_cover_prob_power", "line_overround_power",
+    "line_market_logit_home_basic", "line_market_logit_home_power",
+    "implied_spread_home", "implied_spread_away", "implied_spread_diff",
+    "odds_missing", "line_odds_missing", "market_features_missing",
+    "performance_home_missing", "performance_away_missing", "performance_features_missing",
+    "ladder_points_delta", "ladder_points_difference_delta", "ladder_rank_delta",
+    "ladder_win_rate_delta", "ladder_close_game_rate_delta",
+    "form_delta", "points_for_form_delta", "points_against_form_delta",
+    "diff_form_delta", "attack_delta", "defence_delta", "rest_delta",
+    "points_performance_delta", "set_completion_rate_performance_delta",
+    "effective_tackle_percentage_performance_delta", "all_run_metres_performance_delta",
+]
+
+# Tier-A baseline features are computed in Python before training/inference.
+predictors += [
+    "baseline_mu_home",
+    "baseline_mu_away",
+    "baseline_draw_prob",
+    "baseline_home_win_prob_conditional",
+]
+
 # Predictors that should be treated as categorical if missing from the source
 # data and created as fallback columns.
 categorical_predictors = {
@@ -173,7 +201,72 @@ def filter_predictors(include_performance=True, predictor_list=predictors):
     if include_performance:
         return predictor_list
     else:
-        return [p for p in predictor_list if not p.endswith('_performance')]
+        return [p for p in predictor_list if "_performance" not in p]
+
+
+sparse_feature_whitelist = {
+    "state_of_origin",
+    "post_origin",
+    "odds_missing",
+    "line_odds_missing",
+    "market_features_missing",
+    "performance_home_missing",
+    "performance_away_missing",
+    "performance_features_missing",
+    "home_market_prob_basic",
+    "home_market_prob_power",
+    "home_line_cover_prob_basic",
+    "home_line_cover_prob_power",
+    "implied_spread_home",
+    "implied_spread_away",
+    "implied_spread_diff",
+    "baseline_mu_home",
+    "baseline_mu_away",
+    "baseline_draw_prob",
+    "baseline_home_win_prob_conditional",
+}
+
+
+def prune_sparse_predictors(
+    df: pd.DataFrame,
+    predictor_list,
+    min_support: int = sparse_min_support,
+    whitelist=None,
+):
+    """Drop unstable predictors with very low historical support."""
+    whitelist = set(whitelist or sparse_feature_whitelist)
+    kept, dropped = [], []
+
+    for col in predictor_list:
+        if col in whitelist:
+            kept.append(col)
+            continue
+        if col not in df.columns:
+            dropped.append(col)
+            continue
+
+        series = df[col]
+        non_missing = int(series.notna().sum())
+        if non_missing < min_support:
+            dropped.append(col)
+            continue
+
+        if pd.api.types.is_numeric_dtype(series):
+            numeric_series = pd.to_numeric(series, errors="coerce")
+            non_zero = int((numeric_series.fillna(0) != 0).sum())
+            if non_zero < min_support:
+                dropped.append(col)
+                continue
+
+        kept.append(col)
+
+    if dropped:
+        print(
+            f"Pruned {len(dropped)} sparse predictors (min_support={min_support}): "
+            + ", ".join(sorted(dropped))
+        )
+    print(f"Predictor count after sparse pruning: {len(kept)}")
+    return kept
 
 
 def align_predictor_columns(df: pd.DataFrame, predictor_list, categorical_cols=None) -> pd.DataFrame:
