@@ -20,11 +20,12 @@ This file is for coding/automation agents working on `footy-tipper`.
     - `training_data`
     - `inference_data`
 - Training:
-  - `pipeline/train.py` trains home/away Poisson models and saves `.pkl` files in `models/`.
+  - `pipeline/train.py` builds Tier-A baseline features, trains Tier-B home/away Poisson models, blends expected scores, fits stacker + beta calibrator, estimates `lambda3`, and saves artifacts in `models/`.
+  - Key artifacts: `home_model.pkl`, `away_model.pkl`, `stacker.pkl`, `win_prob_calibrator.pkl`, `model_manifest.json`.
 - Inference:
-  - `pipeline/inference.py` loads models, predicts, and upserts into `predictions_table`.
+  - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, simulates outcomes with bivariate Poisson (`lambda3`), and upserts into `predictions_table`.
 - Distribution:
-  - `pipeline/send.py` reads prediction view via SQL and handles upload/email.
+  - `pipeline/send.py` reads prediction view via SQL, computes EV-based value picks with Kelly-derived staking, and handles upload/email.
 
 ## Critical Runtime Config
 - Season controls:
@@ -42,6 +43,13 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `OPENAI_KEY`, optional `OPENAI_MODEL`
   - `MY_EMAIL`, `EMAIL_PASSWORD`
   - `FOOTY_TIPPER_TEST_EMAIL` (optional; default test recipient is `levon.rush@gmail.com`)
+  - Value-pick/staking controls (optional):
+    - `FOOTY_TIPPER_MIN_VALUE_EDGE`
+    - `FOOTY_TIPPER_KELLY_FRACTION`
+    - `FOOTY_TIPPER_MAX_STAKE_FRACTION`
+    - `FOOTY_TIPPER_MIN_STAKE_FRACTION`
+    - `FOOTY_TIPPER_STAKE_MODE` (`normalized` or `bankroll`)
+    - `FOOTY_TIPPER_BANKROLL` (used for `stake_amount` output)
 - Service account token path expected by scripts:
   - `service-account-token.json`
 

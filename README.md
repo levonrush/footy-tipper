@@ -27,48 +27,98 @@ Docs:
 - Simple guide: `cli/README.md`
 - Full command reference: `CLI.md`
 
-## Modeling and Simulation Process
+## Modeling and Prediction Process (Current)
 
-### Overview
+The current production model is a tiered pipeline built around explicit train/infer splits and reusable artifacts.
 
-The Footy-Tipper leverages advanced machine learning techniques to predict the outcomes and scorelines of NRL matches. This involves creating pipelines for model training, performing simulations to forecast match results, and using statistical methods to derive win probabilities. Below is an overview of the key functions involved in this process.
+### Data prep and table contracts
 
-### Model Training
+`pipeline/data-prep.R` writes to SQLite (`data/footy-tipper-db.sqlite`) and maintains these tables:
 
-The model training process begins with setting up pipelines that include data preprocessing, feature selection, and hyperparameter tuning. Separate Poisson models are created for predicting the scores of the home team and the away team. These models are trained using extensive data to ensure they generalize well to unseen matches. Multiple models are trained with different configurations, and the best-performing models for the home and away teams are selected based on performance metrics. The preferred training entrypoint is `footy-tipper train`.
+- `footy_tipping_data`: full context table
+- `training_data`: `game_state_name == "Final"` rows used for fitting
+- `inference_data`: `game_state_name == "Pre Game"` rows used for prediction
 
-### Simulation and Inference
+### Training architecture (`footy-tipper train`)
 
-Once the Poisson models for both the home and away teams are trained, they are used to predict the expected scores for each team based on the input data. Simulations are then run to calculate the probabilities of each outcome (home win, away win, and draw) by modeling the distribution of scores. This involves generating numerous simulated matches to derive win probabilities and expected scorelines, providing a probabilistic view of match outcomes. The preferred prediction entrypoint is `footy-tipper predict`.
+`pipeline/train.py` now fits a stacked/calibrated scoring and win-probability pipeline:
 
-### Example
+1. Build Tier-A baseline features (team strength priors + market-aware baseline terms).
+2. Train Tier-B home/away Poisson score models using curated predictors.
+3. Blend Tier-A and Tier-B expected scores with learned blend weights.
+4. Estimate bivariate shared-component `lambda3` for correlated score simulation.
+5. Fit a logistic stacker on conditional win probabilities (Tier-A, Tier-B, market).
+6. Fit a beta calibrator on stacked non-draw home-win probabilities.
+7. Save all artifacts to `models/` (`home_model.pkl`, `away_model.pkl`, `stacker.pkl`, `win_prob_calibrator.pkl`, `model_manifest.json`).
 
-To illustrate the prediction process, the following example shows a simulated distribution of scores and win probabilities for a match:
+### Inference architecture (`footy-tipper infer` / `footy-tipper predict`)
+
+`pipeline/inference.py`:
+
+1. Loads inference rows and computes Tier-A baseline on current context.
+2. Loads saved artifacts and predictors from the model manifest.
+3. Generates blended expected scores for home and away teams.
+4. Applies stacker + calibrator to non-draw conditional home-win probability.
+5. Runs bivariate simulation with `lambda3` to produce:
+   - home/away/draw probabilities
+   - predicted margins and scorelines
+6. Upserts predictions into `predictions_table`.
+
+### Value picks and staking (`footy-tipper send`)
+
+`pipeline/send.py` and `pipeline/common/use_predictions/sending_functions.py`:
+
+- Select value tips by expected value (`p * odds - 1`) per side, then keep the strongest side per match.
+- Use Kelly-derived sizing with cap/fraction controls.
+- Support stake modes:
+  - `normalized`: stake shares sum to 100% across selected value picks.
+  - `bankroll`: stake is direct fractional bankroll per pick.
+- Output picks and stakes in the email/summary payloads.
+
+### Example simulation output
 
 ![Prediction Example](/images/example_simulation.png)
 
-In this example, the left graph shows the distribution of simulated scores for the home and away teams, while the right graph shows the win probabilities.
+## Pipeline Workflow
 
-## Workflow
-1. **Model Development and EDA**: In the `research` folder, Jupyter and Rmarkdown notebooks facilitate exploratory data analysis and initial model prototyping, enabling swift experimentation and model iteration.
+```mermaid
+flowchart LR
+  subgraph O["Orchestration + Data Prep"]
+    CLI["CLI / Entrypoints<br/>footy-tipper + wrapper scripts"]
+    FEEDS["Feeds + Config<br/>fixtures/ladder/performance/odds<br/>secrets.env + season controls"]
+    PREP["R Data Prep<br/>pipeline/data-prep.R<br/>feature engineering + joins"]
+    DB[("SQLite DB<br/>footy_tipping_data<br/>training_data (Final)<br/>inference_data (Pre Game)<br/>predictions_table")]
+    CLI --> FEEDS --> PREP --> DB
+  end
 
-2. **Commonizing Code**: Reusable functions and configurations identified during model development are centralized in the `pipeline/common` directory to streamline code management and ensure uniformity across development and production.
+  subgraph M["Model Training + Inference"]
+    TRAIN["Training Path<br/>load training_data<br/>compute Tier-A baseline<br/>align/prune predictors"]
+    FIT["Model Fit<br/>Tier-B home/away Poisson<br/>blend with Tier-A baseline<br/>estimate lambda3<br/>fit stacker + beta calibrator"]
+    ART["Model Artefacts<br/>home_model.pkl / away_model.pkl<br/>stacker.pkl<br/>win_prob_calibrator.pkl<br/>model_manifest.json"]
+    INFER["Inference Path<br/>load inference_data + context<br/>Tier-A + Tier-B prediction<br/>blend/stack/calibrate<br/>bivariate simulation"]
+    DB --> TRAIN
+    TRAIN --> FIT --> ART --> INFER
+  end
 
-3. **Model Production**: Production scripts in the `pipeline` utilize the common functions for efficient data preparation (`data-prep.R`),  model training (`train.py`), prediction (`inference.py`), and result dissemination (`send.py`), automating the end-to-end process from data to delivery.
+  subgraph S["Output + Delivery"]
+    PRED["Prediction Output<br/>home/away/draw probabilities<br/>predicted margin + scorelines<br/>upsert predictions_table"]
+    SEND["Send + Value Layer<br/>prediction_table.sql (latest season/round)<br/>EV-based value picks<br/>Kelly stake sizing (normalized/bankroll)<br/>Drive upload + OpenAI/fallback email"]
+    FIT --> PRED
+    INFER --> PRED
+    PRED --> SEND
+  end
 
-![Workflow Pattern](/images/workflow.png)
+  DB --> INFER
+```
 
-## How it Works
+Mermaid source: `images/workflow.mmd`
 
-**Data Collection and Transformation:** `data-prep.R` kick-starts the process with data scraping, cleaning, and feature engineering, ensuring that the latest rugby league data is analysis-ready. The data is then stored in a SQL database for downstream processing.
+The diagram reflects the current end-to-end app flow:
 
-**Model Training:** The `train.py` script takes over to train predictive Poisson models for both the home and away teams using Python's extensive machine learning libraries. It focuses on optimizing model accuracy and performance based on the preprocessed data.
-
-**Model Prediction and Simulation:** In the `inference.py` script, the trained models generate expected scores for both the home and away teams. Game simulations are then performed to calculate win probabilities and predicted scorelines, transforming processed data into valuable insights for rugby league followers.
-
-**Send Predictions:** Finally, `send.py` automates the delivery of predictions through Google Drive and emails. The emails are stylized to emulate Reg Reagan's voice, combining predictions with engaging content, thanks to ChatGPT’s linguistic capabilities.
-
-Throughout these processes, SQL plays a vital role in data management and transition across various platforms and environments. Docker encapsulates both processes, ensuring portability and facilitating easy deployment.
+1. `prep` writes feature tables to SQLite.
+2. `train` creates baseline/blend/stack/calibration artifacts.
+3. `infer` generates probabilistic predictions and writes `predictions_table`.
+4. `send` selects value picks, applies stake sizing, and handles delivery.
 
 ## Prerequisites
 
