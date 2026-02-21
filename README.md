@@ -246,4 +246,4 @@ Footy-Tipper welcomes contributions from the community. Please check the issues 
 To obtain the project's secrets or for any questions or comments related to this project, please reach out via the repository's issues section.
 
 ## Acknowledgements
-Special thanks to Seven Seas Hotel for motivating this project, Kate for telling me to make myself a portfolio piece, Victoria and Ernie for the emotional support, and ChatGPT for writing this readme.
+Special thanks to Seven Seas Hotel for motivating this project, Victoria and Ernie for the emotional support, and ChatGPT for writing this readme.
