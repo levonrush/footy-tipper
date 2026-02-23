@@ -1,10 +1,12 @@
-# Footy Tipper
+# The Footy-Tipper: A Machine Learning Approach to Winning the Pub Tipping Comp
 
-Footy Tipper is a machine-learning NRL tipping engine built with R + Python + SQLite.
+Footy Tipper is an open-source NRL prediction engine that aggressively mashes together R, Python, SQLite, probability theory, and a questionable amount of confidence.
 
-It has two goals:
-- help you win your tipping comp
-- teach what went into building a serious, production-ish footy model (not just dump predictions)
+The mission is twofold:
+- help win tipping comps
+- teach what actually went into building the thing, not just dump picks and pretend it was magic
+
+It takes the game seriously, but not itself.
 
 ![Footy Tipper Logo](/images/footy-tipper-logo.jpg)
 
@@ -28,24 +30,24 @@ footy-tipper send --test --dry-run
 
 ## Docs
 
-The detailed docs now live in `docs/`.
+Main README is intentionally lightweight.
 
-- Getting started and runtime config: `docs/getting-started.md`
-- Full CLI reference: `docs/cli-reference.md`
-- End-to-end architecture and data flow: `docs/how-it-works.md`
-- Modelling techniques (stacking, calibration, simulation): `docs/modeling-techniques.md`
-- Joker strategy system (lit review to production): `docs/joker-strategy.md`
-- Reliability, reruns, and production safety: `docs/operations-reliability.md`
+The deep stuff lives in `docs/`:
+- Quick setup and runtime config: `docs/getting-started.md`
+- Full command reference: `docs/cli-reference.md`
+- End-to-end architecture: `docs/how-it-works.md`
+- Modelling techniques and tradeoffs: `docs/modeling-techniques.md`
+- Joker strategy (lit review to production): `docs/joker-strategy.md`
+- Reliability, reruns, and ops contracts: `docs/operations-reliability.md`
 
-You can start from `docs/README.md`.
+Start at `docs/README.md`.
 
 ## What This Project Tries To Teach
 
-- how to split training vs inference data safely (`Final` vs `Pre Game`)
-- how to blend model layers instead of betting on a single model class
-- how to calibrate probabilities for decision quality, not just accuracy
-- how to turn predictions into decisions (value picks, staking, joker timing)
-- how to build resilient automation that degrades safely when providers fail
+- how to split train/infer data correctly (`Final` vs `Pre Game`)
+- how to blend and calibrate models for decisions, not vibes
+- how to turn probabilities into actions (value picks, staking, joker timing)
+- how to build robust pipelines that fail gracefully when providers don’t play nice
 
 ## Example Output
 
@@ -53,7 +55,8 @@ You can start from `docs/README.md`.
 
 ## Legacy / History
 
-- Original CLI quick guide location: `cli/README.md`
-- Original CLI reference location: `CLI.md`
 - Literature and research notes: `lit-review/`
-- Medium development story: <https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292>
+- CLI pointer docs: `cli/README.md`, `CLI.md`
+- Medium dev write-up: <https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292>
+
+If these tips nuke your comp, this README has never seen you before in its life.
