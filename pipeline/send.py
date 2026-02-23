@@ -42,6 +42,12 @@ if predictions.empty:
 print("Generating tipper picks...")
 tipper_picks = sf.get_tipper_picks(predictions)
 
+# Get joker recommendation based on market-implied round difficulty profile.
+print("Scoring joker round options...")
+joker_recommendation = sf.get_joker_round_recommendation(db_path, project_root, predictions)
+print(joker_recommendation.get("headline", "Joker call unavailable"))
+print(joker_recommendation.get("detail", ""))
+
 # Upload the predictions
 print("Uploading predictions to Google Drive...")
 sf.upload_df_to_drive(
@@ -58,7 +64,8 @@ email_payload = sf.generate_reg_regan_email_payload(
     tipper_picks, 
     os.getenv('OPENAI_KEY'), 
     os.getenv('FOLDER_URL'),
-    0.9
+    0.9,
+    joker_recommendation=joker_recommendation,
 )
 
 print(email_payload["plain_text"])

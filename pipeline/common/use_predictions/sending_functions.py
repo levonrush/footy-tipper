@@ -39,6 +39,493 @@ def get_predictions(db_path, project_root):
     con.close()
     return predictions
 
+
+def _load_json_file(path):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception:
+        return None
+
+
+def _load_joker_policy(project_root):
+    project_root = Path(project_root)
+    configured = os.getenv("FOOTY_TIPPER_JOKER_POLICY_PATH", "").strip()
+    candidates = []
+
+    if configured:
+        configured_path = Path(configured).expanduser()
+        if not configured_path.is_absolute():
+            configured_path = project_root / configured_path
+        candidates.append(configured_path)
+
+    manifest_path = project_root / "models" / "model_manifest.json"
+    manifest_payload = _load_json_file(manifest_path)
+    if isinstance(manifest_payload, dict):
+        manifest_policy = str(manifest_payload.get("joker_policy_file", "")).strip()
+        if manifest_policy:
+            candidates.append(project_root / "models" / manifest_policy)
+
+    candidates.append(project_root / "models" / "joker_policy.json")
+
+    for path in candidates:
+        if path.exists() and path.is_file():
+            payload = _load_json_file(path)
+            if isinstance(payload, dict):
+                payload["_policy_path"] = str(path)
+                return payload
+    return None
+
+
+def _coerce_env_float(name, default, minimum=None):
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except Exception:
+        return float(default)
+    if minimum is not None:
+        value = max(float(minimum), value)
+    return value
+
+
+def _coerce_env_int(name, default, minimum=None):
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(float(raw))
+    except Exception:
+        value = int(default)
+    if minimum is not None:
+        value = max(int(minimum), value)
+    return value
+
+
+def _resolve_joker_strategy():
+    strategy_raw = os.getenv("FOOTY_TIPPER_JOKER_STRATEGY", "points").strip().lower()
+    return _resolve_joker_strategy_value(strategy_raw)
+
+
+def _resolve_joker_strategy_value(strategy_raw):
+    strategy_raw = str(strategy_raw or "").strip().lower()
+    aliases = {
+        "points": "points",
+        "expected": "points",
+        "ev": "points",
+        "protect": "protect",
+        "lead": "protect",
+        "conservative": "protect",
+        "chase": "chase",
+        "aggressive": "chase",
+        "swing": "chase",
+    }
+    return aliases.get(strategy_raw, "points")
+
+
+def _resolve_joker_strategy_context(project_root):
+    requested = os.getenv("FOOTY_TIPPER_JOKER_STRATEGY", "auto").strip().lower()
+    points_gap = _coerce_env_float("FOOTY_TIPPER_JOKER_POINTS_GAP", 0.0)
+
+    if requested and requested != "auto":
+        return {
+            "strategy": _resolve_joker_strategy_value(requested),
+            "source": "explicit_env",
+            "requested": requested,
+            "points_gap": points_gap,
+            "scenario": "manual",
+            "policy_used": False,
+            "policy_path": None,
+        }
+
+    policy = _load_joker_policy(project_root)
+    if not isinstance(policy, dict):
+        return {
+            "strategy": "points",
+            "source": "fallback_default",
+            "requested": requested or "auto",
+            "points_gap": points_gap,
+            "scenario": "neutral",
+            "policy_used": False,
+            "policy_path": None,
+        }
+
+    thresholds = policy.get("state_thresholds", {}) if isinstance(policy.get("state_thresholds"), dict) else {}
+    lead_max_gap = pd.to_numeric(pd.Series([thresholds.get("lead_max_gap", -3.0)]), errors="coerce").fillna(-3.0).iloc[0]
+    chase_min_gap = pd.to_numeric(pd.Series([thresholds.get("chase_min_gap", 3.0)]), errors="coerce").fillna(3.0).iloc[0]
+
+    scenario = "neutral"
+    if points_gap <= float(lead_max_gap):
+        scenario = "lead"
+    elif points_gap >= float(chase_min_gap):
+        scenario = "chase"
+
+    recommended = (
+        policy.get("recommended_strategy_by_scenario", {})
+        if isinstance(policy.get("recommended_strategy_by_scenario"), dict)
+        else {}
+    )
+    preferred = recommended.get(scenario, policy.get("default_strategy", "points"))
+    strategy = _resolve_joker_strategy_value(preferred)
+
+    return {
+        "strategy": strategy,
+        "source": "policy_auto",
+        "requested": requested or "auto",
+        "points_gap": points_gap,
+        "scenario": scenario,
+        "policy_used": True,
+        "policy_path": policy.get("_policy_path"),
+        "lead_max_gap": float(lead_max_gap),
+        "chase_min_gap": float(chase_min_gap),
+    }
+
+
+def _joker_objective_meta(strategy, risk_lambda):
+    if strategy == "protect":
+        return {
+            "objective_column": "score_protect",
+            "objective_label": f"mean-variance (mu - {risk_lambda:.2f}*sigma)",
+            "strategy_label": "Protect the lead",
+        }
+    if strategy == "chase":
+        return {
+            "objective_column": "score_chase",
+            "objective_label": "swing potential (variance)",
+            "strategy_label": "Chase upside",
+        }
+    return {
+        "objective_column": "score_points",
+        "objective_label": "expected correct tips (mu)",
+        "strategy_label": "Max expected points",
+    }
+
+
+def _round_label(round_id, round_name):
+    if pd.notna(round_name) and str(round_name).strip():
+        return str(round_name).strip()
+    if pd.isna(round_id):
+        return "Unknown round"
+    return f"Round {int(round_id)}"
+
+
+def _unavailable_joker_recommendation(reason, strategy_context=None):
+    strategy_context = strategy_context or {}
+    strategy = _resolve_joker_strategy_value(strategy_context.get("strategy", _resolve_joker_strategy()))
+    risk_lambda = _coerce_env_float("FOOTY_TIPPER_JOKER_RISK_LAMBDA", 1.0, minimum=0.0)
+    meta = _joker_objective_meta(strategy, risk_lambda)
+    return {
+        "available": False,
+        "status": "unavailable",
+        "headline": "Joker call unavailable",
+        "detail": reason,
+        "should_use_this_round": False,
+        "strategy": strategy,
+        "strategy_label": meta["strategy_label"],
+        "objective_label": meta["objective_label"],
+        "objective_column": meta["objective_column"],
+        "strategy_source": strategy_context.get("source", "unknown"),
+        "strategy_scenario": strategy_context.get("scenario", "unknown"),
+        "points_gap": strategy_context.get("points_gap"),
+        "policy_path": strategy_context.get("policy_path"),
+        "risk_lambda": risk_lambda,
+        "current_round_id": None,
+        "current_round_name": None,
+        "current_rank": None,
+        "current_score": None,
+        "current_mu": None,
+        "current_sigma": None,
+        "recommended_round_id": None,
+        "recommended_round_name": None,
+        "recommended_score": None,
+        "recommended_mu": None,
+        "recommended_sigma": None,
+        "score_gap_to_best": None,
+        "rounds_evaluated": 0,
+        "ranked_rounds": pd.DataFrame(),
+    }
+
+
+def get_joker_round_candidates(db_path, project_root):
+    output_columns = [
+        "game_id",
+        "round_id",
+        "competition_year",
+        "round_name",
+        "team_home",
+        "team_away",
+        "team_head_to_head_odds_home",
+        "team_head_to_head_odds_away",
+    ]
+    con = sqlite3.connect(str(db_path))
+    try:
+        with open(project_root / "pipeline/common/sql/joker_round_candidates.sql", "r") as file:
+            query = file.read()
+        candidates = pd.read_sql_query(query, con)
+    except Exception as exc:
+        print(f"Joker round candidate query failed ({exc}).")
+        candidates = pd.DataFrame(columns=output_columns)
+    finally:
+        con.close()
+
+    if candidates.empty:
+        return pd.DataFrame(columns=output_columns)
+    return candidates
+
+
+def compute_joker_round_metrics(fixtures):
+    output_columns = [
+        "round_id",
+        "competition_year",
+        "round_name",
+        "matches_considered",
+        "matches_total",
+        "odds_coverage",
+        "mu",
+        "variance",
+        "sigma",
+        "mean_tip_probability",
+        "perfect_round_probability",
+        "max_matches_in_scope",
+        "is_reduced_round",
+        "score_points",
+        "score_protect",
+        "score_chase",
+    ]
+    if fixtures.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    required_cols = {
+        "game_id",
+        "round_id",
+        "competition_year",
+        "round_name",
+        "team_head_to_head_odds_home",
+        "team_head_to_head_odds_away",
+    }
+    if not required_cols.issubset(set(fixtures.columns)):
+        return pd.DataFrame(columns=output_columns)
+
+    risk_lambda = _coerce_env_float("FOOTY_TIPPER_JOKER_RISK_LAMBDA", 1.0, minimum=0.0)
+    min_round_coverage = _coerce_env_float("FOOTY_TIPPER_JOKER_MIN_ROUND_COVERAGE", 0.95, minimum=0.0)
+
+    data = fixtures.copy()
+    round_totals = (
+        data.groupby(["round_id", "competition_year", "round_name"], dropna=False, as_index=False)
+        .agg(matches_total=("game_id", "count"))
+    )
+
+    data["odds_home"] = pd.to_numeric(data["team_head_to_head_odds_home"], errors="coerce")
+    data["odds_away"] = pd.to_numeric(data["team_head_to_head_odds_away"], errors="coerce")
+    data = data[(data["odds_home"] > 1.0) & (data["odds_away"] > 1.0)].copy()
+    if data.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    data["q_home"] = 1.0 / data["odds_home"]
+    data["q_away"] = 1.0 / data["odds_away"]
+    data["overround"] = data["q_home"] + data["q_away"]
+    data = data[data["overround"] > 0].copy()
+    if data.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    data["p_home"] = data["q_home"] / data["overround"]
+    data["p_away"] = data["q_away"] / data["overround"]
+    data["p_tip_correct"] = data[["p_home", "p_away"]].max(axis=1)
+    data["match_variance"] = data["p_tip_correct"] * (1.0 - data["p_tip_correct"])
+
+    round_metrics = (
+        data.groupby(["round_id", "competition_year", "round_name"], dropna=False, as_index=False)
+        .agg(
+            matches_considered=("game_id", "count"),
+            mu=("p_tip_correct", "sum"),
+            variance=("match_variance", "sum"),
+            mean_tip_probability=("p_tip_correct", "mean"),
+            perfect_round_probability=("p_tip_correct", "prod"),
+        )
+    )
+    if round_metrics.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    round_metrics = round_metrics.merge(
+        round_totals,
+        on=["round_id", "competition_year", "round_name"],
+        how="left",
+    )
+    round_metrics["matches_total"] = pd.to_numeric(round_metrics["matches_total"], errors="coerce").fillna(0).astype(int)
+    round_metrics["odds_coverage"] = round_metrics["matches_considered"] / round_metrics["matches_total"].replace(0, pd.NA)
+    round_metrics["odds_coverage"] = pd.to_numeric(round_metrics["odds_coverage"], errors="coerce").fillna(0.0)
+    round_metrics = round_metrics[round_metrics["odds_coverage"] >= min_round_coverage].copy()
+    if round_metrics.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    round_metrics["sigma"] = round_metrics["variance"].pow(0.5)
+    round_metrics["score_points"] = round_metrics["mu"]
+    round_metrics["score_protect"] = round_metrics["mu"] - (risk_lambda * round_metrics["sigma"])
+    round_metrics["score_chase"] = round_metrics["variance"]
+
+    max_matches = int(round_metrics["matches_considered"].max())
+    round_metrics["max_matches_in_scope"] = max_matches
+    round_metrics["is_reduced_round"] = round_metrics["matches_considered"] < max_matches
+
+    round_metrics = round_metrics.sort_values("round_id").reset_index(drop=True)
+    return round_metrics[output_columns]
+
+
+def recommend_joker_round(
+    fixtures,
+    current_round_id=None,
+    current_round_name=None,
+    strategy=None,
+    strategy_context=None,
+):
+    strategy_context = strategy_context or {}
+    strategy = _resolve_joker_strategy_value(strategy or strategy_context.get("strategy") or _resolve_joker_strategy())
+    risk_lambda = _coerce_env_float("FOOTY_TIPPER_JOKER_RISK_LAMBDA", 1.0, minimum=0.0)
+    min_rounds_with_odds = _coerce_env_int("FOOTY_TIPPER_JOKER_MIN_ROUNDS_WITH_ODDS", 2, minimum=1)
+    min_margin_ratio = _coerce_env_float("FOOTY_TIPPER_JOKER_MIN_MARGIN_RATIO", 0.05, minimum=0.0)
+    min_round_coverage = _coerce_env_float("FOOTY_TIPPER_JOKER_MIN_ROUND_COVERAGE", 0.95, minimum=0.0)
+    meta = _joker_objective_meta(strategy, risk_lambda)
+
+    round_metrics = compute_joker_round_metrics(fixtures)
+    if round_metrics.empty:
+        return _unavailable_joker_recommendation(
+            "No upcoming rounds had valid head-to-head odds, so the joker model could not score rounds.",
+            strategy_context=strategy_context,
+        )
+
+    objective_column = meta["objective_column"]
+    ranked = (
+        round_metrics.sort_values(
+            [objective_column, "mu", "matches_considered"],
+            ascending=[False, False, False],
+        )
+        .reset_index(drop=True)
+        .copy()
+    )
+    ranked["rank"] = ranked.index + 1
+
+    if current_round_id is None:
+        current_round_id = pd.to_numeric(ranked["round_id"], errors="coerce").min()
+    current_row = ranked[ranked["round_id"] == current_round_id]
+
+    if current_row.empty and current_round_name is not None:
+        lookup = str(current_round_name).strip().lower()
+        current_row = ranked[
+            ranked["round_name"].astype(str).str.strip().str.lower() == lookup
+        ]
+
+    if current_row.empty:
+        current_row = ranked.iloc[[0]]
+
+    recommended = ranked.iloc[0]
+    current = current_row.iloc[0]
+
+    should_use_pre_gate = int(current["round_id"]) == int(recommended["round_id"])
+    should_use = should_use_pre_gate
+    score_gap_to_best = float(recommended[objective_column]) - float(current[objective_column])
+    margin_to_next = None
+    margin_to_next_ratio = None
+
+    if len(ranked) > 1:
+        second_best_score = float(ranked.iloc[1][objective_column])
+        margin_to_next = float(recommended[objective_column]) - second_best_score
+        denom = max(abs(float(recommended[objective_column])), 1e-9)
+        margin_to_next_ratio = margin_to_next / denom
+
+    gate_reasons = []
+    if should_use_pre_gate and len(ranked) < min_rounds_with_odds:
+        gate_reasons.append(
+            f"only {len(ranked)} round(s) meet odds coverage >= {min_round_coverage:.0%} (min {min_rounds_with_odds})"
+        )
+    if should_use_pre_gate and margin_to_next_ratio is not None and margin_to_next_ratio < min_margin_ratio:
+        gate_reasons.append(
+            f"lead over next-best round is {margin_to_next_ratio:.1%} (min {min_margin_ratio:.1%})"
+        )
+    if gate_reasons:
+        should_use = False
+
+    recommended_round_label = _round_label(recommended["round_id"], recommended["round_name"])
+    current_round_label = _round_label(current["round_id"], current["round_name"])
+
+    if should_use:
+        detail = (
+            f"{current_round_label} is ranked #1/{len(ranked)} on {meta['objective_label']} "
+            f"(mu {float(current['mu']):.2f}, sigma {float(current['sigma']):.2f})."
+        )
+        headline = "PLAY JOKER THIS ROUND"
+    elif should_use_pre_gate and gate_reasons:
+        detail = (
+            f"{current_round_label} rates #1 on {meta['objective_label']}, but hold for now: "
+            f"{'; '.join(gate_reasons)}."
+        )
+        headline = "HOLD JOKER THIS ROUND"
+    else:
+        detail = (
+            f"{current_round_label} is ranked #{int(current['rank'])}/{len(ranked)} on "
+            f"{meta['objective_label']} (score {float(current[objective_column]):.2f}); "
+            f"best is {recommended_round_label} (score {float(recommended[objective_column]):.2f})."
+        )
+        headline = "HOLD JOKER THIS ROUND"
+
+    return {
+        "available": True,
+        "status": "ok",
+        "headline": headline,
+        "detail": detail,
+        "should_use_this_round": bool(should_use),
+        "strategy": strategy,
+        "strategy_label": meta["strategy_label"],
+        "strategy_source": strategy_context.get("source", "env"),
+        "strategy_scenario": strategy_context.get("scenario"),
+        "points_gap": strategy_context.get("points_gap"),
+        "policy_path": strategy_context.get("policy_path"),
+        "objective_label": meta["objective_label"],
+        "objective_column": objective_column,
+        "risk_lambda": risk_lambda,
+        "current_round_id": int(current["round_id"]),
+        "current_round_name": current_round_label,
+        "current_rank": int(current["rank"]),
+        "current_score": float(current[objective_column]),
+        "current_mu": float(current["mu"]),
+        "current_sigma": float(current["sigma"]),
+        "recommended_round_id": int(recommended["round_id"]),
+        "recommended_round_name": recommended_round_label,
+        "recommended_score": float(recommended[objective_column]),
+        "recommended_mu": float(recommended["mu"]),
+        "recommended_sigma": float(recommended["sigma"]),
+        "score_gap_to_best": score_gap_to_best,
+        "margin_to_next": margin_to_next,
+        "margin_to_next_ratio": margin_to_next_ratio,
+        "min_rounds_with_odds": int(min_rounds_with_odds),
+        "min_margin_ratio": float(min_margin_ratio),
+        "min_round_coverage": float(min_round_coverage),
+        "rounds_evaluated": int(len(ranked)),
+        "ranked_rounds": ranked,
+    }
+
+
+def get_joker_round_recommendation(db_path, project_root, predictions=None):
+    strategy_context = _resolve_joker_strategy_context(project_root)
+    current_round_id = None
+    current_round_name = None
+    if predictions is not None and not predictions.empty:
+        current_round_id_val = pd.to_numeric(
+            pd.Series([predictions.iloc[0].get("round_id")]),
+            errors="coerce",
+        ).iloc[0]
+        if pd.notna(current_round_id_val):
+            current_round_id = int(current_round_id_val)
+
+        round_name_val = predictions.iloc[0].get("round_name")
+        if pd.notna(round_name_val):
+            current_round_name = str(round_name_val)
+
+    fixtures = get_joker_round_candidates(db_path, project_root)
+    return recommend_joker_round(
+        fixtures,
+        current_round_id=current_round_id,
+        current_round_name=current_round_name,
+        strategy=strategy_context.get("strategy"),
+        strategy_context=strategy_context,
+    )
+
 # The 'get_tipper_picks' function calculates the odds thresholds and returns a DataFrame of tipper picks.
 def get_tipper_picks(predictions, prod_run=False):
     output_columns = [
@@ -239,6 +726,59 @@ def _format_percent(value):
     return f"{float(value):.1%}"
 
 
+def _format_number(value, decimals=2):
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return "n/a"
+    return f"{float(numeric):.{decimals}f}"
+
+
+def _joker_summary_lines(joker_recommendation):
+    if not isinstance(joker_recommendation, dict):
+        return ["Joker call: unavailable (no recommendation data provided)."]
+
+    headline = str(joker_recommendation.get("headline", "Joker call unavailable")).strip()
+    detail = str(joker_recommendation.get("detail", "")).strip()
+    strategy_label = str(joker_recommendation.get("strategy_label", "")).strip()
+    objective_label = str(joker_recommendation.get("objective_label", "")).strip()
+
+    lines = [f"Joker call: {headline}"]
+    if strategy_label:
+        if objective_label:
+            lines.append(f"Strategy: {strategy_label} using {objective_label}.")
+        else:
+            lines.append(f"Strategy: {strategy_label}.")
+    strategy_source = str(joker_recommendation.get("strategy_source", "")).strip()
+    strategy_scenario = str(joker_recommendation.get("strategy_scenario", "")).strip()
+    if strategy_source == "policy_auto":
+        scenario_suffix = f", scenario {strategy_scenario}" if strategy_scenario else ""
+        lines.append(f"Strategy source: learned training policy{scenario_suffix}.")
+    elif strategy_source == "explicit_env":
+        lines.append("Strategy source: explicit environment setting.")
+    if detail:
+        lines.append(detail)
+
+    if joker_recommendation.get("available"):
+        lines.append(
+            "Current round metrics: "
+            f"mu {_format_number(joker_recommendation.get('current_mu'))}, "
+            f"sigma {_format_number(joker_recommendation.get('current_sigma'))}."
+        )
+        if not joker_recommendation.get("should_use_this_round", False):
+            lines.append(
+                "Recommended hold target: "
+                f"{joker_recommendation.get('recommended_round_name', 'Unknown round')} "
+                f"(mu {_format_number(joker_recommendation.get('recommended_mu'))}, "
+                f"sigma {_format_number(joker_recommendation.get('recommended_sigma'))})."
+            )
+
+    return lines
+
+
+def _joker_prompt_block(joker_recommendation):
+    return "\n".join(f"- {line}" for line in _joker_summary_lines(joker_recommendation))
+
+
 def _resolve_banner_path():
     project_root = Path(__file__).resolve().parents[3]
     configured = os.getenv("FOOTY_TIPPER_EMAIL_BANNER")
@@ -257,7 +797,7 @@ def _resolve_banner_path():
     return None
 
 
-def _build_fallback_copy(predictions, folder_url):
+def _build_fallback_copy(predictions, folder_url, joker_recommendation=None):
     if predictions.empty:
         return {
             "subject": "Footy Tipper Update",
@@ -273,6 +813,11 @@ def _build_fallback_copy(predictions, folder_url):
         "The model has done the hard yakka and lined up this week's tips.\n"
         "If these picks torch your tipping comp, remember this was all done with science and zero accountability."
     )
+    if isinstance(joker_recommendation, dict):
+        opening += (
+            "\nJoker watch: "
+            f"{joker_recommendation.get('headline', 'Joker call unavailable')}."
+        )
     if folder_url:
         opening += f"\nFull details are in the tips folder: {folder_url}"
     closing = (
@@ -319,7 +864,7 @@ def _special_event_context(round_name, competition_year):
     }
 
 
-def _build_prompt_input(predictions, tipper_picks):
+def _build_prompt_input(predictions, tipper_picks, joker_recommendation=None):
     fixture_lines = []
     for _, row in predictions.iterrows():
         winner = row['team_home'] if row['home_team_result'] == 'Win' else row['team_away']
@@ -342,7 +887,7 @@ def _build_prompt_input(predictions, tipper_picks):
                 f"stake share {_format_percent(row['stake_fraction'])}"
             )
 
-    return "\n".join(fixture_lines), "\n".join(pick_lines)
+    return "\n".join(fixture_lines), "\n".join(pick_lines), _joker_prompt_block(joker_recommendation)
 
 
 def _parse_json_object(text):
@@ -364,7 +909,7 @@ def _parse_json_object(text):
     return None
 
 
-def _generate_openai_copy(predictions, tipper_picks, api_key, folder_url, temperature):
+def _generate_openai_copy(predictions, tipper_picks, api_key, folder_url, temperature, joker_recommendation=None):
     if predictions.empty:
         return None
     if not api_key:
@@ -374,7 +919,11 @@ def _generate_openai_copy(predictions, tipper_picks, api_key, folder_url, temper
         print("OpenAI SDK is unavailable. Using fallback email content.")
         return None
 
-    fixtures_text, picks_text = _build_prompt_input(predictions, tipper_picks)
+    fixtures_text, picks_text, joker_text = _build_prompt_input(
+        predictions,
+        tipper_picks,
+        joker_recommendation=joker_recommendation,
+    )
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
     special_event_context = _special_event_context(round_name, competition_year)
@@ -393,6 +942,9 @@ Fixtures and model picks:
 Value picks:
 {picks_text}
 
+Joker recommendation:
+{joker_text}
+
 Return JSON only with this exact schema:
 {{
   "subject": "short email subject line, max 75 chars",
@@ -404,6 +956,7 @@ Rules:
 - Mention the Newcastle Knights positively.
 - Take a light dig at Manly.
 - Include this disclaimer naturally: if people are in tipping comps at Seven Seas Hotel in Carrington or the Hunter Water work comp, they should not use these tips.
+- Include one explicit sentence that starts with "Joker call:" and states PLAY or HOLD for this round.
 - Keep it punchy and readable.
 - Do not include markdown, HTML, or extra keys.
 """
@@ -475,7 +1028,7 @@ def _to_html_paragraphs(text):
     return "".join(blocks)
 
 
-def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing):
+def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None):
     lines = [subject, "", opening, "", "Predicted winners:"]
     for _, row in predictions.iterrows():
         winner = row['team_home'] if row['home_team_result'] == 'Win' else row['team_away']
@@ -503,11 +1056,23 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
     if folder_url:
         lines.extend(["", f"Tips folder: {folder_url}"])
 
+    lines.extend(["", "Joker round call:"])
+    for line in _joker_summary_lines(joker_recommendation):
+        lines.append(f"- {line}")
+
     lines.extend(["", closing])
     return "\n".join(lines)
 
 
-def _render_html_email(predictions, tipper_picks, folder_url, opening, closing, banner_available):
+def _render_html_email(
+    predictions,
+    tipper_picks,
+    folder_url,
+    opening,
+    closing,
+    banner_available,
+    joker_recommendation=None,
+):
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
 
@@ -591,6 +1156,30 @@ def _render_html_email(predictions, tipper_picks, folder_url, opening, closing, 
             "</table>"
         )
 
+    joker_lines = _joker_summary_lines(joker_recommendation)
+    joker_list_html = "".join(
+        [
+            "<li style=\"margin:0 0 6px; color:#1f2937; font-family:Arial, sans-serif; font-size:14px; line-height:1.5;\">"
+            f"{html.escape(line)}"
+            "</li>"
+            for line in joker_lines
+        ]
+    )
+    joker_headline = html.escape(str(joker_recommendation.get("headline", "Joker call unavailable"))) if isinstance(joker_recommendation, dict) else "Joker call unavailable"
+    joker_bg = "#ecfdf5" if isinstance(joker_recommendation, dict) and joker_recommendation.get("should_use_this_round") else "#fff7ed"
+    joker_border = "#10b981" if isinstance(joker_recommendation, dict) and joker_recommendation.get("should_use_this_round") else "#f59e0b"
+    joker_section = (
+        "<div style=\"padding:14px; border-radius:10px; "
+        f"background:{joker_bg}; border:1px solid {joker_border};\">"
+        "<p style=\"margin:0 0 10px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; font-size:16px; font-weight:700;\">"
+        f"{joker_headline}"
+        "</p>"
+        "<ul style=\"margin:0; padding-left:18px;\">"
+        f"{joker_list_html}"
+        "</ul>"
+        "</div>"
+    )
+
     banner_html = ""
     if banner_available:
         banner_html = (
@@ -652,6 +1241,10 @@ def _render_html_email(predictions, tipper_picks, folder_url, opening, closing, 
         "<h3 style=\"margin:0 0 10px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Value picks</h3>"
         f"{value_section}"
         "</td></tr>"
+        "<tr><td style=\"padding:14px 24px 8px;\">"
+        "<h3 style=\"margin:0 0 10px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Joker round call</h3>"
+        f"{joker_section}"
+        "</td></tr>"
         f"{folder_button}"
         "<tr><td style=\"padding:6px 24px 22px;\">"
         f"{_to_html_paragraphs(closing)}"
@@ -668,12 +1261,31 @@ def _render_html_email(predictions, tipper_picks, folder_url, opening, closing, 
     )
 
 
-def generate_reg_regan_email_payload(predictions, tipper_picks, api_key, folder_url, temperature, use_openai=True):
-    fallback_copy = _build_fallback_copy(predictions, folder_url)
+def generate_reg_regan_email_payload(
+    predictions,
+    tipper_picks,
+    api_key,
+    folder_url,
+    temperature,
+    use_openai=True,
+    joker_recommendation=None,
+):
+    fallback_copy = _build_fallback_copy(
+        predictions,
+        folder_url,
+        joker_recommendation=joker_recommendation,
+    )
     if not use_openai:
         print("OpenAI generation disabled. Using fallback email content.")
     openai_copy = (
-        _generate_openai_copy(predictions, tipper_picks, api_key, folder_url, temperature)
+        _generate_openai_copy(
+            predictions,
+            tipper_picks,
+            api_key,
+            folder_url,
+            temperature,
+            joker_recommendation=joker_recommendation,
+        )
         if use_openai
         else None
     )
@@ -702,6 +1314,7 @@ def generate_reg_regan_email_payload(predictions, tipper_picks, api_key, folder_
         copy["subject"],
         copy["opening"],
         copy["closing"],
+        joker_recommendation=joker_recommendation,
     )
     html_email = _render_html_email(
         predictions,
@@ -710,6 +1323,7 @@ def generate_reg_regan_email_payload(predictions, tipper_picks, api_key, folder_
         copy["opening"],
         copy["closing"],
         banner_available=bool(banner_path),
+        joker_recommendation=joker_recommendation,
     )
 
     inline_images = []
@@ -725,7 +1339,14 @@ def generate_reg_regan_email_payload(predictions, tipper_picks, api_key, folder_
 
 
 # Backward-compatible wrapper: returns plain text body only.
-def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, temperature):
+def generate_reg_regan_email(
+    predictions,
+    tipper_picks,
+    api_key,
+    folder_url,
+    temperature,
+    joker_recommendation=None,
+):
     payload = generate_reg_regan_email_payload(
         predictions,
         tipper_picks,
@@ -733,6 +1354,7 @@ def generate_reg_regan_email(predictions, tipper_picks, api_key, folder_url, tem
         folder_url,
         temperature,
         use_openai=bool(api_key),
+        joker_recommendation=joker_recommendation,
     )
     return payload["plain_text"]
 

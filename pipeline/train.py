@@ -16,6 +16,7 @@ sys.path.insert(0, parent_dir)
 
 from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.model_training import calibration as calib
+from pipeline.common.model_training import joker_policy as jp
 from pipeline.common.model_training import modelling_functions as mf
 from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
@@ -204,6 +205,21 @@ manifest = {
     "lambda3": lambda3,
     "tier_a_baseline": tb.baseline_config_to_dict(baseline_cfg, base_home, base_away),
 }
+
+print("Running joker strategy backtest")
+try:
+    joker_policy_path = project_root / "models" / "joker_policy.json"
+    joker_policy = jp.save_joker_policy(training_data, joker_policy_path)
+    manifest["joker_policy_file"] = str(joker_policy_path.name)
+    manifest["joker_policy_default_strategy"] = joker_policy.get("default_strategy", "points")
+    manifest["joker_policy_seasons_evaluated"] = int(joker_policy.get("seasons_evaluated", 0))
+    print(
+        "Joker policy saved "
+        f"(default={manifest['joker_policy_default_strategy']}, "
+        f"seasons={manifest['joker_policy_seasons_evaluated']})"
+    )
+except Exception as exc:
+    print(f"Joker policy backtest skipped ({exc}).")
 
 manifest_path = project_root / "models" / "model_manifest.json"
 manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

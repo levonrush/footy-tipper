@@ -113,6 +113,10 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         return 0
 
     tipper_picks = sf.get_tipper_picks(predictions)
+    joker_recommendation = sf.get_joker_round_recommendation(db_path, root, predictions)
+    _log(joker_recommendation.get("headline", "Joker call unavailable"))
+    if joker_recommendation.get("detail"):
+        _log(joker_recommendation["detail"])
 
     # In test mode, skip Drive upload by default unless explicitly requested.
     if not skip_drive:
@@ -136,6 +140,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         os.getenv("FOLDER_URL"),
         0.9,
         use_openai=use_openai,
+        joker_recommendation=joker_recommendation,
     )
 
     subject = email_payload["subject"]
