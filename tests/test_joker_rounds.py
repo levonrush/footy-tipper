@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest import mock
@@ -56,6 +57,59 @@ class JokerRoundTests(unittest.TestCase):
                 },
             ]
         )
+
+    def _write_fixture_rows(self, db_path):
+        con = sqlite3.connect(str(db_path))
+        try:
+            con.execute(
+                """
+                CREATE TABLE footy_tipping_data (
+                    game_id INTEGER,
+                    round_id INTEGER,
+                    competition_year INTEGER,
+                    round_name TEXT,
+                    team_home TEXT,
+                    team_away TEXT,
+                    team_head_to_head_odds_home REAL,
+                    team_head_to_head_odds_away REAL,
+                    game_state_name TEXT
+                )
+                """
+            )
+            rows = []
+            for row in self.fixtures.to_dict(orient="records"):
+                rows.append(
+                    (
+                        int(row["game_id"]),
+                        int(row["round_id"]),
+                        int(row["competition_year"]),
+                        row["round_name"],
+                        row["team_home"],
+                        row["team_away"],
+                        float(row["team_head_to_head_odds_home"]),
+                        float(row["team_head_to_head_odds_away"]),
+                        "Pre Game",
+                    )
+                )
+            con.executemany(
+                """
+                INSERT INTO footy_tipping_data (
+                    game_id,
+                    round_id,
+                    competition_year,
+                    round_name,
+                    team_home,
+                    team_away,
+                    team_head_to_head_odds_home,
+                    team_head_to_head_odds_away,
+                    game_state_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+            con.commit()
+        finally:
+            con.close()
 
     def test_points_strategy_prefers_high_expected_correct_tips(self):
         with mock.patch.dict(
@@ -229,6 +283,84 @@ class JokerRoundTests(unittest.TestCase):
         self.assertEqual(context["strategy"], "protect")
         self.assertEqual(context["source"], "explicit_env")
         self.assertFalse(context["policy_used"])
+
+    def test_usage_write_gate_blocks_test_mode_persistence(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "FOOTY_TIPPER_JOKER_STRATEGY": "points",
+                "FOOTY_TIPPER_JOKER_MIN_MARGIN_RATIO": "0.0",
+            },
+            clear=False,
+        ):
+            recommendation = sf.recommend_joker_round(
+                self.fixtures,
+                current_round_id=1,
+                current_round_name="Round 1",
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.sqlite"
+            outcome = sf.persist_joker_usage_if_applicable(
+                db_path,
+                recommendation,
+                allow_write=False,
+                source="unit_test",
+            )
+            usage = sf.get_joker_usage_for_year(db_path, 2026)
+
+        self.assertFalse(outcome["recorded"])
+        self.assertEqual(outcome["reason"], "write_disabled")
+        self.assertIsNone(usage)
+
+    def test_recommendation_respects_existing_usage_state(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.sqlite"
+            self._write_fixture_rows(db_path)
+
+            predictions = pd.DataFrame(
+                [
+                    {
+                        "round_id": 1,
+                        "competition_year": 2026,
+                        "round_name": "Round 1",
+                    }
+                ]
+            )
+            project_root = Path(__file__).resolve().parents[1]
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "FOOTY_TIPPER_JOKER_STRATEGY": "points",
+                    "FOOTY_TIPPER_JOKER_MIN_MARGIN_RATIO": "0.0",
+                },
+                clear=False,
+            ):
+                initial = sf.get_joker_round_recommendation(db_path, project_root, predictions)
+            self.assertTrue(initial["should_use_this_round"])
+
+            write_outcome = sf.persist_joker_usage_if_applicable(
+                db_path,
+                initial,
+                allow_write=True,
+                source="unit_test",
+            )
+            self.assertTrue(write_outcome["recorded"])
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "FOOTY_TIPPER_JOKER_STRATEGY": "points",
+                    "FOOTY_TIPPER_JOKER_MIN_MARGIN_RATIO": "0.0",
+                },
+                clear=False,
+            ):
+                after_usage = sf.get_joker_round_recommendation(db_path, project_root, predictions)
+
+        self.assertTrue(after_usage["joker_already_used"])
+        self.assertFalse(after_usage["should_use_this_round"])
+        self.assertIn("ALREADY USED", after_usage["headline"])
 
 
 if __name__ == "__main__":

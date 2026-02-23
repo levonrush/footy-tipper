@@ -49,7 +49,21 @@ Then send-time logic maps your state:
 
 and applies the strategy recommended by `joker_policy.json`.
 
-## 4) Key Env Vars
+## 4) Single-Use State Tracking
+
+The pipeline now persists joker usage in SQLite:
+- table: `joker_usage`
+- key: `competition_year` (one joker max per season)
+- payload: played round, timestamp, and write source
+
+Runtime behavior:
+- every send path reads `joker_usage` and blocks further `PLAY` calls once a season is marked used
+- test runs (`footy-tipper send --test ...`) are read-only for joker usage
+- production sends write usage only after a successful production email send
+
+This means repeated test runs are safe, and repeated production runs do not duplicate joker usage records.
+
+## 5) Key Env Vars
 
 Core behavior:
 - `FOOTY_TIPPER_JOKER_STRATEGY` (`auto`, `points`, `protect`, `chase`)
@@ -70,7 +84,7 @@ Backtest tuning:
 - `FOOTY_TIPPER_JOKER_BACKTEST_SEED`
 - plus scenario thresholds/gaps in `pipeline/common/model_training/joker_policy.py`
 
-## 5) Interpretation Rules
+## 6) Interpretation Rules
 
 Treat `PLAY` as a strong recommendation only when:
 - enough rounds are priced
@@ -78,7 +92,7 @@ Treat `PLAY` as a strong recommendation only when:
 
 If coverage is thin (common early in market cycle), `HOLD` is expected and correct.
 
-## 6) Literature Link
+## 7) Literature Link
 
 Source material and notes:
 - `lit-review/Optimal Joker-Round Selection in Footy Tipping Competitions.pdf`

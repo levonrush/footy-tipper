@@ -51,6 +51,12 @@ Defaults:
 - minimum coverage per round
 - minimum lead over next-best round
 
+Single-use reliability:
+- joker usage is persisted in `joker_usage` keyed by `competition_year`
+- once a season is marked used, recommendations are forced to hold
+- test sends read this state but do not write it
+- production sends write only after successful production email send
+
 ## 6) Recommended Weekly Runbook
 
 1. `footy-tipper infer`
@@ -64,6 +70,7 @@ When output looks wrong, check:
 - round/year selected by `prediction_table.sql`
 - row counts in `inference_data` and `predictions_table`
 - odds coverage by round
+- `joker_usage` row for the active `competition_year`
 - which joker strategy source was used (`explicit_env`, `policy_auto`, fallback)
 
 ## 8) Security / Hygiene

@@ -198,6 +198,13 @@ def _joker_objective_meta(strategy, risk_lambda):
     }
 
 
+def _coerce_competition_year(value):
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return None
+    return int(numeric)
+
+
 def _round_label(round_id, round_name):
     if pd.notna(round_name) and str(round_name).strip():
         return str(round_name).strip()
@@ -226,6 +233,7 @@ def _unavailable_joker_recommendation(reason, strategy_context=None):
         "points_gap": strategy_context.get("points_gap"),
         "policy_path": strategy_context.get("policy_path"),
         "risk_lambda": risk_lambda,
+        "competition_year": None,
         "current_round_id": None,
         "current_round_name": None,
         "current_rank": None,
@@ -241,6 +249,200 @@ def _unavailable_joker_recommendation(reason, strategy_context=None):
         "rounds_evaluated": 0,
         "ranked_rounds": pd.DataFrame(),
     }
+
+
+def _ensure_joker_usage_table(db_path):
+    con = sqlite3.connect(str(db_path))
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS joker_usage (
+                competition_year INTEGER PRIMARY KEY,
+                round_id INTEGER NOT NULL,
+                round_name TEXT,
+                played_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                source TEXT NOT NULL DEFAULT 'unknown'
+            )
+            """
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def get_joker_usage_for_year(db_path, competition_year):
+    year = _coerce_competition_year(competition_year)
+    if year is None:
+        return None
+
+    con = sqlite3.connect(str(db_path))
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            """
+            SELECT competition_year, round_id, round_name, played_at_utc, source
+            FROM joker_usage
+            WHERE competition_year = ?
+            LIMIT 1
+            """,
+            (int(year),),
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            row = None
+        else:
+            print(f"Joker usage lookup failed ({exc}).")
+            row = None
+    except Exception as exc:
+        print(f"Joker usage lookup failed ({exc}).")
+        row = None
+    finally:
+        con.close()
+
+    if row is None:
+        return None
+
+    return {
+        "competition_year": _coerce_competition_year(row["competition_year"]),
+        "round_id": _coerce_competition_year(row["round_id"]),
+        "round_name": row["round_name"],
+        "played_at_utc": row["played_at_utc"],
+        "source": row["source"],
+    }
+
+
+def _infer_joker_competition_year(predictions=None, fixtures=None, recommendation=None):
+    if isinstance(recommendation, dict):
+        year = _coerce_competition_year(recommendation.get("competition_year"))
+        if year is not None:
+            return year
+
+    if predictions is not None and not predictions.empty and "competition_year" in predictions.columns:
+        year = _coerce_competition_year(predictions.iloc[0].get("competition_year"))
+        if year is not None:
+            return year
+
+    if fixtures is not None and not fixtures.empty and "competition_year" in fixtures.columns:
+        numeric = pd.to_numeric(fixtures["competition_year"], errors="coerce").dropna()
+        if not numeric.empty:
+            return int(numeric.iloc[0])
+
+    return None
+
+
+def _apply_joker_usage_state(recommendation, usage_record):
+    if not isinstance(recommendation, dict):
+        return recommendation
+
+    result = dict(recommendation)
+    result.setdefault("joker_already_used", False)
+    result.setdefault("joker_used_round_id", None)
+    result.setdefault("joker_used_round_name", None)
+    result.setdefault("joker_used_at_utc", None)
+    result.setdefault("joker_used_source", None)
+
+    if not isinstance(usage_record, dict):
+        return result
+
+    used_round_label = _round_label(usage_record.get("round_id"), usage_record.get("round_name"))
+    used_at = str(usage_record.get("played_at_utc", "") or "").strip()
+    used_at_suffix = f" (recorded {used_at} UTC)" if used_at else ""
+    detail = f"Joker already played in {used_round_label}{used_at_suffix}."
+
+    result.update(
+        {
+            "available": False,
+            "status": "already_used",
+            "headline": "JOKER ALREADY USED THIS SEASON",
+            "detail": detail,
+            "should_use_this_round": False,
+            "joker_already_used": True,
+            "joker_used_round_id": usage_record.get("round_id"),
+            "joker_used_round_name": used_round_label,
+            "joker_used_at_utc": usage_record.get("played_at_utc"),
+            "joker_used_source": usage_record.get("source"),
+            "competition_year": _coerce_competition_year(
+                usage_record.get("competition_year", result.get("competition_year"))
+            ),
+        }
+    )
+    return result
+
+
+def persist_joker_usage_if_applicable(db_path, joker_recommendation, allow_write=False, source="send"):
+    outcome = {
+        "recorded": False,
+        "reason": "no_recommendation",
+        "competition_year": None,
+        "round_id": None,
+        "round_name": None,
+    }
+    if not isinstance(joker_recommendation, dict):
+        return outcome
+
+    competition_year = _coerce_competition_year(joker_recommendation.get("competition_year"))
+    current_round_id = _coerce_competition_year(joker_recommendation.get("current_round_id"))
+    recommended_round_id = _coerce_competition_year(joker_recommendation.get("recommended_round_id"))
+    round_id = current_round_id if current_round_id is not None else recommended_round_id
+    round_name = str(
+        joker_recommendation.get("current_round_name")
+        or joker_recommendation.get("recommended_round_name")
+        or ""
+    ).strip() or None
+
+    outcome.update(
+        {
+            "reason": "pending",
+            "competition_year": competition_year,
+            "round_id": round_id,
+            "round_name": round_name,
+        }
+    )
+
+    if joker_recommendation.get("joker_already_used"):
+        outcome["reason"] = "already_used"
+        return outcome
+    if not joker_recommendation.get("should_use_this_round", False):
+        outcome["reason"] = "not_play_signal"
+        return outcome
+    if not allow_write:
+        outcome["reason"] = "write_disabled"
+        return outcome
+    if competition_year is None or round_id is None:
+        outcome["reason"] = "missing_round_context"
+        return outcome
+
+    _ensure_joker_usage_table(db_path)
+    con = None
+    try:
+        con = sqlite3.connect(str(db_path))
+        cursor = con.execute(
+            """
+            INSERT OR IGNORE INTO joker_usage (competition_year, round_id, round_name, source)
+            VALUES (?, ?, ?, ?)
+            """,
+            (int(competition_year), int(round_id), round_name, str(source or "send")),
+        )
+        con.commit()
+        inserted = cursor.rowcount > 0
+    except Exception as exc:
+        outcome["reason"] = "db_error"
+        outcome["error"] = str(exc)
+        return outcome
+    finally:
+        if con is not None:
+            con.close()
+
+    if inserted:
+        outcome["recorded"] = True
+        outcome["reason"] = "recorded"
+    else:
+        outcome["reason"] = "already_recorded"
+
+    usage_record = get_joker_usage_for_year(db_path, competition_year)
+    if isinstance(usage_record, dict):
+        outcome["usage_record"] = usage_record
+    return outcome
 
 
 def get_joker_round_candidates(db_path, project_root):
@@ -479,6 +681,7 @@ def recommend_joker_round(
         "objective_label": meta["objective_label"],
         "objective_column": objective_column,
         "risk_lambda": risk_lambda,
+        "competition_year": _coerce_competition_year(current.get("competition_year")),
         "current_round_id": int(current["round_id"]),
         "current_round_name": current_round_label,
         "current_rank": int(current["rank"]),
@@ -518,13 +721,21 @@ def get_joker_round_recommendation(db_path, project_root, predictions=None):
             current_round_name = str(round_name_val)
 
     fixtures = get_joker_round_candidates(db_path, project_root)
-    return recommend_joker_round(
+    recommendation = recommend_joker_round(
         fixtures,
         current_round_id=current_round_id,
         current_round_name=current_round_name,
         strategy=strategy_context.get("strategy"),
         strategy_context=strategy_context,
     )
+    competition_year = _infer_joker_competition_year(
+        predictions=predictions,
+        fixtures=fixtures,
+        recommendation=recommendation,
+    )
+    recommendation["competition_year"] = competition_year
+    usage_record = get_joker_usage_for_year(db_path, competition_year)
+    return _apply_joker_usage_state(recommendation, usage_record)
 
 # The 'get_tipper_picks' function calculates the odds thresholds and returns a DataFrame of tipper picks.
 def get_tipper_picks(predictions, prod_run=False):
@@ -741,8 +952,20 @@ def _joker_summary_lines(joker_recommendation):
     detail = str(joker_recommendation.get("detail", "")).strip()
     strategy_label = str(joker_recommendation.get("strategy_label", "")).strip()
     objective_label = str(joker_recommendation.get("objective_label", "")).strip()
+    joker_already_used = bool(joker_recommendation.get("joker_already_used", False))
+    used_round_label = _round_label(
+        joker_recommendation.get("joker_used_round_id"),
+        joker_recommendation.get("joker_used_round_name"),
+    )
+    used_at = str(joker_recommendation.get("joker_used_at_utc", "") or "").strip()
 
     lines = [f"Joker call: {headline}"]
+    if joker_already_used:
+        usage_line = f"Season status: already played in {used_round_label}."
+        if used_at:
+            usage_line = f"Season status: already played in {used_round_label} (recorded {used_at} UTC)."
+        lines.append(usage_line)
+
     if strategy_label:
         if objective_label:
             lines.append(f"Strategy: {strategy_label} using {objective_label}.")
@@ -1166,8 +1389,14 @@ def _render_html_email(
         ]
     )
     joker_headline = html.escape(str(joker_recommendation.get("headline", "Joker call unavailable"))) if isinstance(joker_recommendation, dict) else "Joker call unavailable"
-    joker_bg = "#ecfdf5" if isinstance(joker_recommendation, dict) and joker_recommendation.get("should_use_this_round") else "#fff7ed"
-    joker_border = "#10b981" if isinstance(joker_recommendation, dict) and joker_recommendation.get("should_use_this_round") else "#f59e0b"
+    joker_bg = "#fff7ed"
+    joker_border = "#f59e0b"
+    if isinstance(joker_recommendation, dict) and joker_recommendation.get("joker_already_used"):
+        joker_bg = "#f3f4f6"
+        joker_border = "#6b7280"
+    elif isinstance(joker_recommendation, dict) and joker_recommendation.get("should_use_this_round"):
+        joker_bg = "#ecfdf5"
+        joker_border = "#10b981"
     joker_section = (
         "<div style=\"padding:14px; border-radius:10px; "
         f"background:{joker_bg}; border:1px solid {joker_border};\">"
@@ -1403,13 +1632,13 @@ def _build_mime_message(subject, sender_email, recipients, plain_message, html_m
 def send_emails(doc_name, subject, message, sender_email, sender_password, json_path, html_message=None, inline_images=None):
     if service_account is None or gspread is None:
         print("Email send skipped: Google Sheets dependencies are not installed.")
-        return
+        return False
     if not sender_email or not sender_password:
         print("Email send skipped: missing MY_EMAIL or EMAIL_PASSWORD.")
-        return
+        return False
     if not os.path.exists(json_path):
         print(f"Email send skipped: missing Google service account token at {json_path}.")
-        return
+        return False
 
     scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
@@ -1420,7 +1649,7 @@ def send_emails(doc_name, subject, message, sender_email, sender_password, json_
     recipient_emails = [row['Email'] for row in email_data if row.get('Email')]
     if not recipient_emails:
         print("Email send skipped: no recipients found in the email list.")
-        return
+        return False
     
     msg = _build_mime_message(
         subject=subject,
@@ -1437,15 +1666,16 @@ def send_emails(doc_name, subject, message, sender_email, sender_password, json_
     text = msg.as_string()
     server.sendmail(sender_email, recipient_emails, text)
     server.quit()
+    return True
 
 
 def send_test_email(subject, message, sender_email, sender_password, recipient_email, html_message=None, inline_images=None):
     if not sender_email or not sender_password:
         print("Test email skipped: missing MY_EMAIL or EMAIL_PASSWORD.")
-        return
+        return False
     if not recipient_email:
         print("Test email skipped: missing recipient email.")
-        return
+        return False
 
     msg = _build_mime_message(
         subject=subject,
@@ -1462,6 +1692,7 @@ def send_test_email(subject, message, sender_email, sender_password, recipient_e
     text = msg.as_string()
     server.sendmail(sender_email, [recipient_email], text)
     server.quit()
+    return True
 
 
 

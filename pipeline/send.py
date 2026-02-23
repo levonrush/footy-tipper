@@ -72,7 +72,7 @@ print(email_payload["plain_text"])
 
 # Send the email
 print("Sending the email...")
-sf.send_emails(
+sent = sf.send_emails(
     "footy-tipper-email-list", 
     email_payload["subject"], 
     email_payload["plain_text"], 
@@ -82,5 +82,27 @@ sf.send_emails(
     html_message=email_payload["html_text"],
     inline_images=email_payload["inline_images"],
 )
+if sent:
+    usage_outcome = sf.persist_joker_usage_if_applicable(
+        db_path,
+        joker_recommendation,
+        allow_write=True,
+        source="send_py_production",
+    )
+    if usage_outcome.get("recorded"):
+        print(
+            "Recorded joker usage for "
+            f"{usage_outcome.get('competition_year')} round {usage_outcome.get('round_id')}."
+        )
+    elif usage_outcome.get("reason") == "already_recorded":
+        print("Joker usage already recorded for this season.")
+    elif usage_outcome.get("reason") == "not_play_signal":
+        print("Joker recommendation is HOLD. Usage state unchanged.")
+    elif usage_outcome.get("reason") == "already_used":
+        print("Joker already marked as used for this season. Usage state unchanged.")
+    elif usage_outcome.get("reason") == "db_error":
+        print(f"Joker usage write failed: {usage_outcome.get('error', 'unknown db error')}")
+else:
+    print("Email send skipped or failed. Joker usage state unchanged.")
 
 print("Send step complete.")

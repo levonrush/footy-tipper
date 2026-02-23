@@ -158,7 +158,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
             _log(email_body)
             return 0
 
-        sf.send_test_email(
+        sent = sf.send_test_email(
             subject,
             email_body,
             os.getenv("MY_EMAIL"),
@@ -167,7 +167,10 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
             html_message=email_html,
             inline_images=inline_images,
         )
-        _log(f"Test email sent to {test_email}.")
+        if sent:
+            _log(f"Test email sent to {test_email}.")
+        else:
+            _log("Test email flow skipped or failed.")
         return 0
 
     if dry_run:
@@ -177,7 +180,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         _log(email_body)
         return 0
 
-    sf.send_emails(
+    sent = sf.send_emails(
         "footy-tipper-email-list",
         subject,
         email_body,
@@ -187,6 +190,32 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         html_message=email_html,
         inline_images=inline_images,
     )
+    if not sent:
+        _log("Production email flow skipped or failed. Joker usage state unchanged.")
+        return 0
+
+    usage_outcome = sf.persist_joker_usage_if_applicable(
+        db_path,
+        joker_recommendation,
+        allow_write=True,
+        source="cli_send_production",
+    )
+    usage_reason = usage_outcome.get("reason")
+    if usage_outcome.get("recorded"):
+        _log(
+            "Joker usage recorded for "
+            f"{usage_outcome.get('competition_year')} in round {usage_outcome.get('round_id')}."
+        )
+    elif usage_reason == "already_recorded":
+        _log("Joker usage was already recorded for this season.")
+    elif usage_reason == "already_used":
+        _log("Joker usage already marked for this season. No update needed.")
+    elif usage_reason == "not_play_signal":
+        _log("Joker recommendation is HOLD, so usage state was not updated.")
+    elif usage_reason == "missing_round_context":
+        _log("Joker recommendation lacked season/round context. Usage state was not updated.")
+    elif usage_reason == "db_error":
+        _log(f"Joker usage write failed: {usage_outcome.get('error', 'unknown db error')}")
     _log("Production email flow complete.")
     return 0
 
