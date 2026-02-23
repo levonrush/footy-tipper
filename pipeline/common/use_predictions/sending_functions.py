@@ -345,18 +345,28 @@ def _apply_joker_usage_state(recommendation, usage_record):
         return result
 
     used_round_label = _round_label(usage_record.get("round_id"), usage_record.get("round_name"))
+    used_round_id = _coerce_competition_year(usage_record.get("round_id"))
+    current_round_id = _coerce_competition_year(result.get("current_round_id"))
+    is_current_round_usage = (
+        used_round_id is not None
+        and current_round_id is not None
+        and int(used_round_id) == int(current_round_id)
+    )
     used_at = str(usage_record.get("played_at_utc", "") or "").strip()
     used_at_suffix = f" (recorded {used_at} UTC)" if used_at else ""
     detail = f"Joker already played in {used_round_label}{used_at_suffix}."
+    if is_current_round_usage:
+        detail = f"Joker already locked for this round in {used_round_label}{used_at_suffix}."
 
     result.update(
         {
             "available": False,
-            "status": "already_used",
-            "headline": "JOKER ALREADY USED THIS SEASON",
+            "status": "already_used_current_round" if is_current_round_usage else "already_used",
+            "headline": "PLAY JOKER THIS ROUND (ALREADY LOCKED)" if is_current_round_usage else "JOKER ALREADY USED THIS SEASON",
             "detail": detail,
-            "should_use_this_round": False,
+            "should_use_this_round": bool(is_current_round_usage),
             "joker_already_used": True,
+            "joker_usage_applies_to_current_round": bool(is_current_round_usage),
             "joker_used_round_id": usage_record.get("round_id"),
             "joker_used_round_name": used_round_label,
             "joker_used_at_utc": usage_record.get("played_at_utc"),

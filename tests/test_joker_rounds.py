@@ -359,8 +359,66 @@ class JokerRoundTests(unittest.TestCase):
                 after_usage = sf.get_joker_round_recommendation(db_path, project_root, predictions)
 
         self.assertTrue(after_usage["joker_already_used"])
-        self.assertFalse(after_usage["should_use_this_round"])
-        self.assertIn("ALREADY USED", after_usage["headline"])
+        self.assertTrue(after_usage["should_use_this_round"])
+        self.assertIn("PLAY", after_usage["headline"])
+        self.assertEqual(after_usage["status"], "already_used_current_round")
+
+    def test_recommendation_holds_in_later_round_after_usage(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.sqlite"
+            self._write_fixture_rows(db_path)
+
+            project_root = Path(__file__).resolve().parents[1]
+            round_one_predictions = pd.DataFrame(
+                [
+                    {
+                        "round_id": 1,
+                        "competition_year": 2026,
+                        "round_name": "Round 1",
+                    }
+                ]
+            )
+            round_two_predictions = pd.DataFrame(
+                [
+                    {
+                        "round_id": 2,
+                        "competition_year": 2026,
+                        "round_name": "Round 2",
+                    }
+                ]
+            )
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "FOOTY_TIPPER_JOKER_STRATEGY": "points",
+                    "FOOTY_TIPPER_JOKER_MIN_MARGIN_RATIO": "0.0",
+                },
+                clear=False,
+            ):
+                initial = sf.get_joker_round_recommendation(db_path, project_root, round_one_predictions)
+            write_outcome = sf.persist_joker_usage_if_applicable(
+                db_path,
+                initial,
+                allow_write=True,
+                source="unit_test",
+            )
+            self.assertTrue(write_outcome["recorded"])
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "FOOTY_TIPPER_JOKER_STRATEGY": "points",
+                    "FOOTY_TIPPER_JOKER_MIN_MARGIN_RATIO": "0.0",
+                },
+                clear=False,
+            ):
+                later_round = sf.get_joker_round_recommendation(db_path, project_root, round_two_predictions)
+
+        self.assertTrue(later_round["joker_already_used"])
+        self.assertFalse(later_round["should_use_this_round"])
+        self.assertEqual(later_round["status"], "already_used")
+        self.assertIn("ALREADY USED", later_round["headline"])
 
 
 if __name__ == "__main__":

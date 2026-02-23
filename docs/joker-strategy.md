@@ -58,6 +58,7 @@ The pipeline now persists joker usage in SQLite:
 
 Runtime behavior:
 - every send path reads `joker_usage` and blocks further `PLAY` calls once a season is marked used
+- reruns in the exact same round keep a sticky `PLAY` message ("already locked") for consistency
 - test runs (`footy-tipper send --test ...`) are read-only for joker usage
 - production sends write usage only after a successful production email send
 

@@ -53,6 +53,7 @@ Defaults:
 
 Single-use reliability:
 - joker usage is persisted in `joker_usage` keyed by `competition_year`
+- if rerun in the same recorded round, messaging stays sticky as `PLAY` ("already locked")
 - once a season is marked used, recommendations are forced to hold
 - test sends read this state but do not write it
 - production sends write only after successful production email send
