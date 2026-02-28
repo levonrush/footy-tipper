@@ -45,6 +45,51 @@ def conditional_home_win_prob(mu_home, mu_away):
     return home_win / non_draw
 
 
+def marginalized_conditional_home_win_prob(
+    mu_home,
+    mu_away,
+    lineup_uncertainty_home=0.0,
+    lineup_uncertainty_away=0.0,
+    n_samples=64,
+    mu_noise_scale=0.12,
+    rng=None,
+):
+    """
+    Approximate p(home win | non-draw) by marginalising over lineup uncertainty.
+
+    The uncertainty terms are expected to be in [0, 0.25] from p(1-p) style
+    features. We convert them to multiplicative score-mean noise and average the
+    conditional win probabilities across Monte Carlo draws.
+    """
+    base = conditional_home_win_prob(mu_home, mu_away)
+    n_samples = int(max(1, n_samples))
+    mu_noise_scale = float(max(0.0, mu_noise_scale))
+    if n_samples <= 1 or mu_noise_scale <= 0:
+        return base
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    uh = float(max(0.0, lineup_uncertainty_home))
+    ua = float(max(0.0, lineup_uncertainty_away))
+    std_home = mu_noise_scale * np.sqrt(uh)
+    std_away = mu_noise_scale * np.sqrt(ua)
+    if std_home <= 1e-9 and std_away <= 1e-9:
+        return base
+
+    # Lognormal multipliers keep score means positive and centred near 1.0.
+    mult_home = np.exp(rng.normal(loc=-0.5 * (std_home ** 2), scale=std_home, size=n_samples))
+    mult_away = np.exp(rng.normal(loc=-0.5 * (std_away ** 2), scale=std_away, size=n_samples))
+
+    probs = []
+    for mh, ma in zip(mult_home, mult_away):
+        sample_mu_home = max(1e-6, float(mu_home) * float(mh))
+        sample_mu_away = max(1e-6, float(mu_away) * float(ma))
+        probs.append(conditional_home_win_prob(sample_mu_home, sample_mu_away))
+
+    return float(np.mean(probs)) if probs else base
+
+
 def derive_market_home_probability(df: pd.DataFrame) -> np.ndarray:
     """Get market-implied home win probability with robust fallbacks."""
     if "home_market_prob_basic" in df.columns:

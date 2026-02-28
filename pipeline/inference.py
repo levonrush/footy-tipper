@@ -14,6 +14,7 @@ parent_dir = os.path.dirname(script_dir)
 sys.path.insert(0, parent_dir)
 
 from pipeline.common.model_prediciton import prediction_functions as pf
+from pipeline.common.lineups import features as lf
 from pipeline.common.model_training import calibration as calib
 from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
@@ -34,6 +35,8 @@ predictors = manifest.get(
 blend_weight_home = float(manifest.get("blend_weight_home", 1.0))
 blend_weight_away = float(manifest.get("blend_weight_away", 1.0))
 lambda3 = float(manifest.get("lambda3", 0.0))
+lineup_mc_samples = int(manifest.get("lineup_monte_carlo_samples", os.getenv("FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES", "64")))
+lineup_mu_noise_scale = float(manifest.get("lineup_mu_noise_scale", os.getenv("FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE", "0.12")))
 
 baseline_cfg_payload = manifest.get("tier_a_baseline", {})
 if baseline_cfg_payload:
@@ -86,6 +89,31 @@ inference_data["baseline_home_win_prob_conditional"] = (
     pd.to_numeric(inference_data["baseline_home_win_prob_conditional"], errors="coerce").fillna(0.5)
 )
 
+print("Merging lineup-derived features")
+try:
+    context_years = sorted(
+        pd.to_numeric(context_data["competition_year"], errors="coerce").dropna().astype(int).unique().tolist()
+    )
+    lineup_entries = lf.load_lineup_entries(db_path, years=context_years)
+    context_lineup_features = lf.build_lineup_match_features(context_data, lineup_entries)
+    inference_lineup_features = context_lineup_features[context_lineup_features["game_id"].isin(inference_data["game_id"])]
+    inference_data = inference_data.merge(inference_lineup_features, on="game_id", how="left")
+
+    for col in lf.LINEUP_FEATURE_COLUMNS:
+        if col == "game_id":
+            continue
+        if col in {"lineup_home_players", "lineup_away_players"}:
+            inference_data[col] = inference_data[col].fillna("")
+        else:
+            inference_data[col] = pd.to_numeric(inference_data[col], errors="coerce").fillna(0.0)
+
+    lineup_coverage = 0.0
+    if "lineup_features_missing" in inference_data.columns and len(inference_data) > 0:
+        lineup_coverage = float((inference_data["lineup_features_missing"] <= 0).mean())
+    print(f"Lineup features merged for inference. Coverage={lineup_coverage:.1%}")
+except Exception as exc:
+    print(f"Lineup feature merge skipped ({exc}).")
+
 inference_data = tc.align_predictor_columns(inference_data, predictors)
 
 home_model_mu = np.maximum(pf.predict_scores(home_model, inference_data[predictors]), 1e-6)
@@ -99,7 +127,22 @@ blended_mu_away = np.maximum((1.0 - blend_weight_away) * baseline_mu_away + blen
 
 # Tier A / Tier B / market conditional win probabilities for stacking.
 tier_a_cond = np.clip(inference_data["baseline_home_win_prob_conditional"].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
-tier_b_cond = np.array([pf.conditional_home_win_prob(mh, ma) for mh, ma in zip(blended_mu_home, blended_mu_away)], dtype=float)
+lineup_unc_home = pd.to_numeric(inference_data.get("lineup_selection_uncertainty_home", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+lineup_unc_away = pd.to_numeric(inference_data.get("lineup_selection_uncertainty_away", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+tier_b_cond = np.array(
+    [
+        pf.marginalized_conditional_home_win_prob(
+            mh,
+            ma,
+            lineup_uncertainty_home=uh,
+            lineup_uncertainty_away=ua,
+            n_samples=lineup_mc_samples,
+            mu_noise_scale=lineup_mu_noise_scale,
+        )
+        for mh, ma, uh, ua in zip(blended_mu_home, blended_mu_away, lineup_unc_home, lineup_unc_away)
+    ],
+    dtype=float,
+)
 market_cond = pf.derive_market_home_probability(inference_data)
 if "odds_missing" in inference_data.columns:
     odds_missing = pd.to_numeric(inference_data["odds_missing"], errors="coerce").fillna(0).to_numpy(dtype=float)

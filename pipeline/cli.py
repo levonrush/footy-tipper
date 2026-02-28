@@ -1,6 +1,7 @@
 import argparse
 import os
 import pathlib
+import sqlite3
 import subprocess
 import sys
 import time
@@ -13,7 +14,9 @@ except Exception:
 
 
 DEFAULT_TEST_EMAIL = "levon.rush@gmail.com"
+REQUIRED_MODEL_FILES = ("home_model.pkl", "away_model.pkl", "model_manifest.json")
 CLI_START = time.monotonic()
+DEFAULT_LINEUP_BACKFILL_MAX_ARTICLES = 2000
 
 
 def _project_root() -> pathlib.Path:
@@ -71,11 +74,162 @@ def _build_env(args):
         env["FOOTY_TIPPER_PREP_MODE"] = args.prep_mode
     if getattr(args, "infer_context_years", None) is not None:
         env["FOOTY_TIPPER_INFER_CONTEXT_YEARS"] = str(args.infer_context_years)
+    if getattr(args, "lineups_mode", None):
+        env["FOOTY_TIPPER_LINEUPS_MODE"] = str(args.lineups_mode)
+    if getattr(args, "lineups_max_articles", None) is not None:
+        env["FOOTY_TIPPER_LINEUPS_MAX_ARTICLES"] = str(args.lineups_max_articles)
+    if getattr(args, "lineups_include_sitemap_in_recent", None) is not None:
+        env["FOOTY_TIPPER_LINEUPS_INCLUDE_SITEMAP_IN_RECENT"] = (
+            "true" if bool(args.lineups_include_sitemap_in_recent) else "false"
+        )
+    if getattr(args, "lineups_strict", None) is not None:
+        env["FOOTY_TIPPER_LINEUPS_STRICT"] = "true" if bool(args.lineups_strict) else "false"
     return env
 
 
 def _run_data_prep(env, root):
     _run_command(["Rscript", str(root / "pipeline" / "data-prep.R")], env, cwd=root)
+
+
+def _run_lineups(env, root):
+    _run_command([sys.executable, str(root / "pipeline" / "lineups.py")], env, cwd=root)
+
+
+def _to_bool(value, default):
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "n"}:
+        return False
+    return default
+
+
+def _env_int(env, key, default):
+    raw = env.get(key)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+def _lineups_enabled(env):
+    return _to_bool(env.get("FOOTY_TIPPER_LINEUPS_ENABLED"), True)
+
+
+def _lineups_mode(env):
+    return str(env.get("FOOTY_TIPPER_LINEUPS_MODE", "recent")).strip().lower() or "recent"
+
+
+def _lineup_backfill_db_path(root: pathlib.Path) -> pathlib.Path:
+    return root / "data" / "footy-tipper-db.sqlite"
+
+
+def _lineup_requested_year_window(env):
+    start_year = _env_int(env, "FOOTY_TIPPER_START_YEAR", 2018)
+    end_year = _env_int(env, "FOOTY_TIPPER_END_YEAR", time.gmtime().tm_year)
+    if end_year < start_year:
+        end_year = start_year
+    return start_year, end_year
+
+
+def _lineup_backfill_bootstrapped(root: pathlib.Path, env) -> bool:
+    db_path = _lineup_backfill_db_path(root)
+    if not db_path.exists():
+        return False
+
+    start_year, end_year = _lineup_requested_year_window(env)
+
+    try:
+        with sqlite3.connect(str(db_path)) as con:
+            tables = {
+                row[0]
+                for row in con.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name IN ('lineup_ingestion_runs', 'lineup_entries')
+                    """
+                ).fetchall()
+            }
+
+            if "lineup_ingestion_runs" in tables:
+                row = con.execute(
+                    """
+                    SELECT 1
+                    FROM lineup_ingestion_runs
+                    WHERE mode = 'backfill'
+                      AND status IN ('ok', 'completed_with_errors')
+                      AND COALESCE(requested_start_year, 9999) <= ?
+                      AND COALESCE(requested_end_year, -9999) >= ?
+                    ORDER BY completed_at_utc DESC
+                    LIMIT 1
+                    """,
+                    (start_year, end_year),
+                ).fetchone()
+                if row:
+                    return True
+
+            if "lineup_entries" not in tables:
+                return False
+
+            year_count, min_year = con.execute(
+                """
+                SELECT
+                    COUNT(DISTINCT competition_year) AS year_count,
+                    MIN(competition_year) AS min_year
+                FROM lineup_entries
+                WHERE round_id IS NOT NULL
+                  AND competition_year BETWEEN ? AND ?
+                """,
+                (start_year, end_year),
+            ).fetchone()
+
+            year_count = int(year_count or 0)
+            min_year = int(min_year) if min_year is not None else None
+            required_years = min(3, max(1, end_year - start_year + 1))
+
+            if year_count < required_years:
+                return False
+            if min_year is None:
+                return False
+            if min_year > (start_year + 1):
+                return False
+            return True
+    except Exception:
+        return False
+
+
+def _bootstrap_lineups_for_training_if_needed(env, root):
+    if not _lineups_enabled(env):
+        return
+    if not _to_bool(env.get("FOOTY_TIPPER_LINEUPS_AUTO_BACKFILL"), True):
+        return
+    if _lineups_mode(env) == "backfill":
+        return
+    if _lineup_backfill_bootstrapped(root, env):
+        return
+
+    backfill_env = env.copy()
+    backfill_env["FOOTY_TIPPER_LINEUPS_MODE"] = "backfill"
+    backfill_env["FOOTY_TIPPER_LINEUPS_MAX_ARTICLES"] = str(
+        _env_int(
+            env,
+            "FOOTY_TIPPER_LINEUPS_BACKFILL_MAX_ARTICLES",
+            DEFAULT_LINEUP_BACKFILL_MAX_ARTICLES,
+        )
+    )
+
+    start_year, end_year = _lineup_requested_year_window(env)
+    _log(
+        "Historical lineup backfill not found for "
+        f"{start_year}-{end_year}. Running one-time lineup bootstrap."
+    )
+    _run_lineups(backfill_env, root)
 
 
 def _run_train(env, skip_prep, root):
@@ -88,6 +242,36 @@ def _run_inference(env, skip_prep, root):
     if not skip_prep:
         _run_data_prep(env, root)
     _run_command([sys.executable, str(root / "pipeline" / "inference.py")], env, cwd=root)
+
+
+def _model_artifacts_exist(root: pathlib.Path) -> bool:
+    models_dir = root / "models"
+    return all((models_dir / filename).exists() for filename in REQUIRED_MODEL_FILES)
+
+
+def _ensure_models_for_prediction(env, root, auto_train=True, allow_lineup_bootstrap=True) -> bool:
+    if _model_artifacts_exist(root):
+        return True
+
+    if not auto_train:
+        _log(
+            "Model artifacts are missing. Run `footy-tipper train` "
+            "or remove --skip-auto-train."
+        )
+        return False
+
+    _log("Model artifacts are missing. Running `footy-tipper train` automatically.")
+    train_env = env.copy()
+    train_env["FOOTY_TIPPER_PREP_MODE"] = "train"
+    if allow_lineup_bootstrap:
+        _bootstrap_lineups_for_training_if_needed(train_env, root)
+    _run_train(train_env, skip_prep=False, root=root)
+
+    if _model_artifacts_exist(root):
+        return True
+
+    _log("Training completed but required model artifacts were still not found.")
+    return False
 
 
 def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
@@ -311,6 +495,42 @@ def _add_openai_args(parser):
     parser.set_defaults(use_openai=True)
 
 
+def _add_lineup_args(parser, default_mode="recent", include_skip=True):
+    if include_skip:
+        parser.add_argument(
+            "--skip-lineups",
+            action="store_true",
+            help="Skip lineup ingestion refresh before this command.",
+        )
+    parser.add_argument(
+        "--lineups-mode",
+        choices=("recent", "backfill"),
+        default=None,
+        help=(
+            "Lineup ingestion mode: recent refreshes from team-lists hub; "
+            f"backfill additionally crawls sitemap archives (default: {default_mode})."
+        ),
+    )
+    parser.add_argument(
+        "--lineups-max-articles",
+        type=int,
+        default=None,
+        help="Limit number of lineup articles fetched in this run.",
+    )
+    parser.add_argument(
+        "--lineups-include-sitemap-in-recent",
+        action="store_true",
+        default=None,
+        help="In recent mode, also use sitemap URLs (broader but slower).",
+    )
+    parser.add_argument(
+        "--lineups-strict",
+        action="store_true",
+        default=None,
+        help="Fail command if lineup ingestion reports errors.",
+    )
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="footy-tipper",
@@ -321,6 +541,7 @@ def build_parser():
     prep = subparsers.add_parser("prep", help="Run R data preparation and write SQLite tables.")
     _add_season_args(prep)
     _add_prep_mode_args(prep, default_mode="full", choices=("full", "train", "infer"))
+    _add_lineup_args(prep, default_mode="recent")
 
     train = subparsers.add_parser("train", help="Run training workflow.")
     _add_season_args(train)
@@ -330,12 +551,19 @@ def build_parser():
         choices=("full", "train"),
         include_infer_context_arg=False,
     )
+    _add_lineup_args(train, default_mode="recent")
     train.add_argument("--skip-prep", action="store_true", help="Skip R data prep and train from existing SQLite tables.")
 
     infer = subparsers.add_parser("infer", help="Run inference workflow.")
     _add_season_args(infer)
     _add_prep_mode_args(infer, default_mode="infer", choices=("infer", "full"))
+    _add_lineup_args(infer, default_mode="recent")
     infer.add_argument("--skip-prep", action="store_true", help="Skip R data prep and infer from existing SQLite tables.")
+    infer.add_argument(
+        "--skip-auto-train",
+        action="store_true",
+        help="Do not auto-run training when model artifacts are missing.",
+    )
 
     send = subparsers.add_parser("send", help="Send predictions (Drive + email list) or run test send.")
     send.add_argument("--test", action="store_true", help="Send a single test email instead of production list send.")
@@ -358,8 +586,14 @@ def build_parser():
     predict = subparsers.add_parser("predict", help="Run full prediction workflow (prep -> infer -> send).")
     _add_season_args(predict)
     _add_prep_mode_args(predict, default_mode="infer", choices=("infer", "full"))
+    _add_lineup_args(predict, default_mode="recent")
     predict.add_argument("--skip-prep", action="store_true", help="Skip R data prep.")
     predict.add_argument("--skip-send", action="store_true", help="Skip send step after inference.")
+    predict.add_argument(
+        "--skip-auto-train",
+        action="store_true",
+        help="Do not auto-run training when model artifacts are missing.",
+    )
     predict.add_argument("--test", action="store_true", help="Use test send mode if send step is run.")
     predict.add_argument(
         "--test-email",
@@ -372,6 +606,10 @@ def build_parser():
     predict.add_argument("--skip-drive", action="store_true", help="Skip Google Drive upload during send step.")
     _add_openai_args(predict)
     predict.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
+
+    lineups = subparsers.add_parser("lineups", help="Run lineup ingestion only.")
+    _add_season_args(lineups)
+    _add_lineup_args(lineups, default_mode="recent", include_skip=False)
 
     return parser
 
@@ -386,15 +624,33 @@ def main(argv=None):
     resolved_test_email = _resolve_test_email(getattr(args, "test_email", None))
 
     if args.command == "prep":
+        if not args.skip_lineups:
+            _run_lineups(env, root)
         _run_data_prep(env, root)
         return 0
 
     if args.command == "train":
+        if not args.skip_lineups:
+            _bootstrap_lineups_for_training_if_needed(env, root)
+            _run_lineups(env, root)
         _run_train(env, skip_prep=args.skip_prep, root=root)
         return 0
 
     if args.command == "infer":
+        if not args.skip_lineups:
+            _run_lineups(env, root)
+        if not _ensure_models_for_prediction(
+            env,
+            root,
+            auto_train=not args.skip_auto_train,
+            allow_lineup_bootstrap=not args.skip_lineups,
+        ):
+            return 1
         _run_inference(env, skip_prep=args.skip_prep, root=root)
+        return 0
+
+    if args.command == "lineups":
+        _run_lineups(env, root)
         return 0
 
     if args.command == "send":
@@ -409,6 +665,15 @@ def main(argv=None):
         )
 
     if args.command == "predict":
+        if not args.skip_lineups:
+            _run_lineups(env, root)
+        if not _ensure_models_for_prediction(
+            env,
+            root,
+            auto_train=not args.skip_auto_train,
+            allow_lineup_bootstrap=not args.skip_lineups,
+        ):
+            return 1
         _run_inference(env, skip_prep=args.skip_prep, root=root)
         if args.skip_send:
             _log("Send step skipped.")

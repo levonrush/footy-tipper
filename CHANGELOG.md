@@ -38,6 +38,13 @@ All notable changes to this project are documented in this file.
   - modeling techniques
   - joker strategy
   - operations/reliability
+- Added lineup ingestion pipeline (`pipeline/lineups.py`) and lineup feature modules (`pipeline/common/lineups/*`) to capture NRL Team Lists/Late Mail snapshots into SQLite (`lineup_article_snapshots`, `lineup_entries`).
+- Added lineup-aware predictor blocks (availability, spine/bench composition, continuity, freshness, and home-away deltas) to training/inference.
+- Added lineup uncertainty features (expected named/spine/interchange counts + selection uncertainty) and Monte Carlo marginalization of Tier-B conditional win probabilities.
+- Added dedicated lineup integration docs (`docs/lineup-integration.md`) and lineup config examples in `secrets.env.example`.
+- Added lineup parsing/feature unit tests:
+  - `tests/test_lineup_ingest_parsing.py`
+  - `tests/test_lineup_features.py`
 
 ### Changed
 - Season year span is now automatic instead of hardcoded to 2025 (`pipeline/common/data-prep/data_config.R`).
@@ -52,6 +59,16 @@ All notable changes to this project are documented in this file.
 - Conda Python version aligned with Docker Python 3.11 (`environment.yml`).
 - README redesigned to be lightweight and operator-friendly, with deep technical content moved to `docs/`.
 - Legacy docs `CLI.md` and `cli/README.md` now act as pointers to `docs/` pages.
+- CLI now includes lineup orchestration controls:
+  - new `lineups` command
+  - lineup refresh runs before `prep`, `train`, `infer`, and `predict` by default
+  - new flags: `--skip-lineups`, `--lineups-mode`, `--lineups-max-articles`, `--lineups-include-sitemap-in-recent`, `--lineups-strict`
+- `train` now auto-bootstraps a historical lineup backfill when the configured training window has not been backfilled yet; auto-train from `infer`/`predict` inherits the same behavior unless lineups are explicitly skipped.
+- `infer` and `predict` now auto-run training when required model artifacts are missing (unless `--skip-auto-train` is provided), so default commands are one-step for operators.
+- Lineup features now use as-of snapshot cutoffs (default 24h before kickoff for training rows) to better match real run timing.
+- Legacy wrappers now include lineup refresh:
+  - `footy-tipper-train.py`
+  - `footy-tipper-predict.py`
 
 ### Fixed
 - Fixed `get_predictions` missing return in prediction utilities (`pipeline/common/model_prediciton/prediction_functions.py`).
@@ -61,6 +78,12 @@ All notable changes to this project are documented in this file.
 - Fixed `matchup_form` to honor `form_period` instead of hardcoded window.
 - Fixed fixture home/away split logic to avoid reliance on implicit group ordering (`pipeline/common/data-prep/get-data.R`).
 - Fixed `install.R` to actually install required R packages.
+- Fixed lineup package import behavior so missing scraper deps (`bs4`/`lxml`) no longer crash `train`/`infer`; lineup refresh now fail-soft skips unless strict mode is enabled.
+- Fixed lineup feature timestamp parsing so Unix-second `start_time` values from SQLite match lineup snapshots correctly.
+- Improved lineup ingestion observability with live progress logs for topic discovery, sitemap scanning, and article processing.
+- Fixed historical lineup parsing coverage by adding legacy text-template support for older official NRL team-list pages (not just the modern structured template).
+- Fixed lineup backfill repair behavior so reruns can upgrade existing zero-entry snapshots in place when newer parsing logic can now extract lineup rows from the same article content hash.
+- Expanded lineup-derived feature engineering with role-group strength aggregates, halves-pair continuity, rolling lineup stability, bench spine-cover, and snapshot change-rate features.
 
 ### Reliability / Hardening
 - Fixture fetch now skips unavailable future years instead of hard failing entire runs (`pipeline/common/data-prep/get-data.R`).

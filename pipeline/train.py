@@ -15,6 +15,7 @@ parent_dir = os.path.dirname(script_dir)
 sys.path.insert(0, parent_dir)
 
 from pipeline.common.model_prediciton import prediction_functions as pf
+from pipeline.common.lineups import features as lf
 from pipeline.common.model_training import calibration as calib
 from pipeline.common.model_training import joker_policy as jp
 from pipeline.common.model_training import modelling_functions as mf
@@ -93,6 +94,30 @@ training_data["baseline_home_win_prob_conditional"] = (
     pd.to_numeric(training_data["baseline_home_win_prob_conditional"], errors="coerce").fillna(0.5)
 )
 
+print("Merging lineup-derived features")
+try:
+    training_years = sorted(
+        pd.to_numeric(training_data["competition_year"], errors="coerce").dropna().astype(int).unique().tolist()
+    )
+    lineup_entries = lf.load_lineup_entries(db_path, years=training_years)
+    lineup_features = lf.build_lineup_match_features(training_data, lineup_entries)
+    training_data = training_data.merge(lineup_features, on="game_id", how="left")
+
+    for col in lf.LINEUP_FEATURE_COLUMNS:
+        if col == "game_id":
+            continue
+        if col in {"lineup_home_players", "lineup_away_players"}:
+            training_data[col] = training_data[col].fillna("")
+        else:
+            training_data[col] = pd.to_numeric(training_data[col], errors="coerce").fillna(0.0)
+
+    lineup_coverage = 0.0
+    if "lineup_features_missing" in training_data.columns and len(training_data) > 0:
+        lineup_coverage = float((training_data["lineup_features_missing"] <= 0).mean())
+    print(f"Lineup features merged. Coverage={lineup_coverage:.1%}")
+except Exception as exc:
+    print(f"Lineup feature merge skipped ({exc}).")
+
 training_data = tc.align_predictor_columns(training_data, predictors)
 selected_predictors = tc.prune_sparse_predictors(training_data, predictors)
 training_data = tc.align_predictor_columns(training_data, selected_predictors)
@@ -152,11 +177,24 @@ print(f"In-sample blended deviance: home={home_dev:.4f}, away={away_dev:.4f}")
 print(f"Estimated bivariate shared component lambda3={lambda3:.4f}")
 
 print("Fitting stacking model and beta calibrator")
+lineup_mc_samples = int(os.getenv("FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES", "64"))
+lineup_mu_noise_scale = float(os.getenv("FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE", "0.12"))
+
+lineup_unc_home = pd.to_numeric(training_data.get("lineup_selection_uncertainty_home", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+lineup_unc_away = pd.to_numeric(training_data.get("lineup_selection_uncertainty_away", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+
 tier_a_cond = np.clip(training_data["baseline_home_win_prob_conditional"].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
 tier_b_cond = np.array(
     [
-        pf.conditional_home_win_prob(mh, ma)
-        for mh, ma in zip(blended_mu_home, blended_mu_away)
+        pf.marginalized_conditional_home_win_prob(
+            mh,
+            ma,
+            lineup_uncertainty_home=uh,
+            lineup_uncertainty_away=ua,
+            n_samples=lineup_mc_samples,
+            mu_noise_scale=lineup_mu_noise_scale,
+        )
+        for mh, ma, uh, ua in zip(blended_mu_home, blended_mu_away, lineup_unc_home, lineup_unc_away)
     ],
     dtype=float,
 )
@@ -203,6 +241,8 @@ manifest = {
     "blend_weight_home": home_weight,
     "blend_weight_away": away_weight,
     "lambda3": lambda3,
+    "lineup_monte_carlo_samples": lineup_mc_samples,
+    "lineup_mu_noise_scale": lineup_mu_noise_scale,
     "tier_a_baseline": tb.baseline_config_to_dict(baseline_cfg, base_home, base_away),
 }
 

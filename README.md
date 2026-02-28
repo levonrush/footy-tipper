@@ -22,11 +22,14 @@ cp secrets.env.example secrets.env
 Core commands:
 
 ```bash
-footy-tipper train --start-year 2012
-footy-tipper infer
+footy-tipper train
 footy-tipper predict
 footy-tipper send --test --dry-run
 ```
+
+`train` and `predict` are designed as simple defaults:
+- `train` runs historical lineup bootstrap when needed, then lineup refresh + prep + model training.
+- `predict` runs lineup refresh + inference + send flow (and auto-trains if models are missing).
 
 ## Docs
 
@@ -36,6 +39,7 @@ The deep stuff lives in `docs/`:
 - Quick setup and runtime config: `docs/getting-started.md`
 - Full command reference: `docs/cli-reference.md`
 - End-to-end architecture: `docs/how-it-works.md`
+- Lineup ingestion + lineup-aware model features: `docs/lineup-integration.md`
 - Modelling techniques and tradeoffs: `docs/modeling-techniques.md`
 - Joker strategy (lit review to production): `docs/joker-strategy.md`
 - Reliability, reruns, and ops contracts: `docs/operations-reliability.md`

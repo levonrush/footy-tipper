@@ -8,17 +8,26 @@ conda activate footy-tipper
 cp secrets.env.example secrets.env
 ```
 
+If your env already exists, update it after pulling changes:
+
+```bash
+conda env update -f environment.yml --prune
+```
+
 Edit `secrets.env` with your feed credentials.
 
 ## 2) Core Weekly Flow
 
 ```bash
-footy-tipper train --start-year 2012
-footy-tipper infer
+footy-tipper train
+footy-tipper predict
 footy-tipper send --test --dry-run
 ```
 
-Most operators use `footy-tipper predict` for a full run.
+Simple default:
+- `footy-tipper train` handles historical lineup bootstrap when needed, then lineup refresh + data prep + training.
+- `footy-tipper predict` handles lineup refresh + inference + send flow.
+- If models are missing, `predict`/`infer` auto-run training unless you pass `--skip-auto-train`.
 
 ## 3) Required Files
 
@@ -45,6 +54,10 @@ Optional:
 - `OPENAI_KEY`
 - `OPENAI_MODEL`
 - `FOOTY_TIPPER_TEST_EMAIL`
+- `FOOTY_TIPPER_LINEUPS_MODE` (`recent` or `backfill`)
+- `FOOTY_TIPPER_LINEUPS_MAX_ARTICLES`
+- `FOOTY_TIPPER_LINEUPS_BACKFILL_MAX_ARTICLES`
+- `FOOTY_TIPPER_LINEUPS_STRICT`
 
 ## 5) Season Controls
 
