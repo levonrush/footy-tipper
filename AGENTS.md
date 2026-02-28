@@ -13,6 +13,15 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Entrypoints:
   - `footy-tipper-train.py`: runs R data prep, then Python training.
   - `footy-tipper-predict.py`: runs R data prep, inference, then send.
+- Lineup ingestion:
+  - `pipeline/lineups.py` fetches Team Lists/Late Mail articles, parses structured lineups, and writes:
+    - `lineup_article_snapshots`
+    - `lineup_entries`
+    - `lineup_ingestion_runs`
+  - Ingestion must support both modern structured NRL team-list pages and the older 2012-2018 text-style team-list pages.
+  - Re-running lineup backfill should be able to repair previously stored zero-entry snapshots when newer parsing logic can now extract rows from the same article hash.
+  - `pipeline/train.py` and `pipeline/inference.py` merge lineup-derived features from these tables.
+  - Current lineup feature families include squad size/composition, uncertainty, continuity, role-group strength (spine/halves/middles/edges/outside backs/interchange), cohesion, and within-week snapshot churn.
 - Data prep:
   - `pipeline/data-prep.R` sources `pipeline/common/data-prep/*.R`.
   - Writes three SQLite tables to `data/footy-tipper-db.sqlite`:
@@ -32,6 +41,18 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `FOOTY_TIPPER_START_YEAR` (default: `2018`)
   - `FOOTY_TIPPER_END_YEAR` (default: current year)
   - `FOOTY_TIPPER_INCLUDE_PERFORMANCE` (default: `true`)
+- Lineup controls:
+  - `FOOTY_TIPPER_LINEUPS_ENABLED` (default: `true`)
+  - `FOOTY_TIPPER_LINEUPS_MODE` (`recent` or `backfill`, default: `recent`)
+  - `FOOTY_TIPPER_LINEUPS_MAX_ARTICLES` (default depends on mode)
+  - `FOOTY_TIPPER_LINEUPS_BACKFILL_MAX_ARTICLES` (default: `2000`; used by train bootstrap)
+  - `FOOTY_TIPPER_LINEUPS_INCLUDE_SITEMAP_IN_RECENT` (default: `false`)
+  - `FOOTY_TIPPER_LINEUPS_STRICT` (default: `false`; when true, ingestion errors fail the command)
+  - `FOOTY_TIPPER_LINEUPS_AUTO_BACKFILL` (default: `true`; train bootstraps historical lineup scrape when needed)
+  - `FOOTY_TIPPER_LINEUPS_AS_OF_HOURS_BEFORE_KICKOFF` (default: `24`; training as-of cutoff for lineup snapshots)
+  - `FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES` (default: `64`; uncertainty marginalization samples)
+  - `FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE` (default: `0.12`; score-mean noise scale for uncertainty marginalization)
+  - Python deps for scraping: `beautifulsoup4`, `lxml` (missing deps should fail soft unless strict mode is enabled)
 - Feed/API environment values expected in `secrets.env`:
   - `PASSWORD`
   - `BASE_URL`
@@ -63,6 +84,11 @@ This file is for coding/automation agents working on `footy-tipper`.
   - If no pre-game rows exist, send step exits cleanly without failing pipeline.
 - Provider-safe execution:
   - Missing Google/OpenAI dependencies should degrade gracefully (skip/fallback), not crash.
+- Lineup-safe execution:
+  - Lineup ingestion should fail soft by default.
+  - Train/infer must continue if lineup tables are unavailable or sparse.
+  - `--lineups-strict` / `FOOTY_TIPPER_LINEUPS_STRICT=true` is the only mode that should fail hard.
+  - Historical lineup backfills should prefer repairing existing sparse/zero-entry snapshots over creating duplicate article rows.
 
 ## Data and SQL Contracts
 - `prediction_table.sql` should always target:
@@ -72,12 +98,17 @@ This file is for coding/automation agents working on `footy-tipper`.
 
 ## Common Commands
 - Preferred CLI:
+  - `footy-tipper lineups`
   - `footy-tipper prep`
   - `footy-tipper train`
   - `footy-tipper infer`
   - `footy-tipper send`
   - `footy-tipper send --test --test-email levon.rush@gmail.com`
   - `footy-tipper predict`
+- Simplicity defaults:
+  - `footy-tipper train` should bootstrap historical lineups when needed, then run lineup refresh + prep + training without extra flags.
+  - `footy-tipper predict` should run lineup refresh + inference + send workflow without extra flags.
+  - `infer`/`predict` should auto-train if required model artifacts are missing (unless explicitly disabled via `--skip-auto-train`), and that auto-train path should inherit lineup bootstrap behavior unless `--skip-lineups` is set.
 - Train:
   - `python footy-tipper-train.py`
 - Predict + send:
@@ -87,6 +118,8 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Quick syntax checks:
   - `python -m compileall -q pipeline footy-tipper-train.py footy-tipper-predict.py`
   - `Rscript -e "parse(file='pipeline/data-prep.R')"`
+- Lineup backfill:
+  - `footy-tipper lineups --lineups-mode backfill --start-year 2018 --end-year 2026 --lineups-max-articles 2000`
 
 ## Safety / Repo Hygiene
 - Never commit secrets (`secrets.env`, service-account token, passwords, API keys).

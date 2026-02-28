@@ -1,7 +1,9 @@
 import os
 import pathlib
+import sqlite3
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -95,9 +97,161 @@ class CLISmokeTests(unittest.TestCase):
         parser = cli.build_parser()
         send_args = parser.parse_args(["send"])
         predict_args = parser.parse_args(["predict", "--skip-prep", "--skip-send"])
+        lineups_args = parser.parse_args(["lineups"])
 
         self.assertIsNone(send_args.test_email)
         self.assertIsNone(predict_args.test_email)
+        self.assertEqual(lineups_args.command, "lineups")
+
+    def test_main_infer_runs_lineups_by_default(self):
+        with mock.patch("pipeline.cli._run_lineups") as lineups_mock, \
+             mock.patch("pipeline.cli._ensure_models_for_prediction", return_value=True) as ensure_mock, \
+             mock.patch("pipeline.cli._run_inference") as infer_mock, \
+             mock.patch("pipeline.cli.load_dotenv"):
+            rc = cli.main(["infer", "--skip-prep"])
+
+        self.assertEqual(rc, 0)
+        lineups_mock.assert_called_once()
+        ensure_mock.assert_called_once()
+        self.assertTrue(ensure_mock.call_args.kwargs["allow_lineup_bootstrap"])
+        infer_mock.assert_called_once()
+
+    def test_main_infer_skip_lineups_flag(self):
+        with mock.patch("pipeline.cli._run_lineups") as lineups_mock, \
+             mock.patch("pipeline.cli._ensure_models_for_prediction", return_value=True) as ensure_mock, \
+             mock.patch("pipeline.cli._run_inference") as infer_mock, \
+             mock.patch("pipeline.cli.load_dotenv"):
+            rc = cli.main(["infer", "--skip-prep", "--skip-lineups"])
+
+        self.assertEqual(rc, 0)
+        lineups_mock.assert_not_called()
+        ensure_mock.assert_called_once()
+        self.assertFalse(ensure_mock.call_args.kwargs["allow_lineup_bootstrap"])
+        infer_mock.assert_called_once()
+
+    def test_main_predict_runs_auto_train_guard(self):
+        with mock.patch("pipeline.cli._run_lineups") as lineups_mock, \
+             mock.patch("pipeline.cli._ensure_models_for_prediction", return_value=True) as ensure_mock, \
+             mock.patch("pipeline.cli._run_inference") as infer_mock, \
+             mock.patch("pipeline.cli._send_predictions", return_value=0) as send_mock, \
+             mock.patch("pipeline.cli.load_dotenv"):
+            rc = cli.main(["predict", "--skip-prep", "--skip-send"])
+
+        self.assertEqual(rc, 0)
+        lineups_mock.assert_called_once()
+        ensure_mock.assert_called_once()
+        self.assertTrue(ensure_mock.call_args.kwargs["allow_lineup_bootstrap"])
+        infer_mock.assert_called_once()
+        send_mock.assert_not_called()
+
+    def test_main_train_bootstraps_lineups_before_recent_refresh(self):
+        with mock.patch("pipeline.cli._bootstrap_lineups_for_training_if_needed") as bootstrap_mock, \
+             mock.patch("pipeline.cli._run_lineups") as lineups_mock, \
+             mock.patch("pipeline.cli._run_train") as train_mock, \
+             mock.patch("pipeline.cli.load_dotenv"):
+            rc = cli.main(["train", "--skip-prep"])
+
+        self.assertEqual(rc, 0)
+        bootstrap_mock.assert_called_once()
+        lineups_mock.assert_called_once()
+        train_mock.assert_called_once()
+
+    def test_main_train_skip_lineups_skips_bootstrap(self):
+        with mock.patch("pipeline.cli._bootstrap_lineups_for_training_if_needed") as bootstrap_mock, \
+             mock.patch("pipeline.cli._run_lineups") as lineups_mock, \
+             mock.patch("pipeline.cli._run_train") as train_mock, \
+             mock.patch("pipeline.cli.load_dotenv"):
+            rc = cli.main(["train", "--skip-prep", "--skip-lineups"])
+
+        self.assertEqual(rc, 0)
+        bootstrap_mock.assert_not_called()
+        lineups_mock.assert_not_called()
+        train_mock.assert_called_once()
+
+    def test_ensure_models_runs_train_when_artifacts_missing(self):
+        env = {}
+        root = pathlib.Path("/repo")
+        with mock.patch("pipeline.cli._model_artifacts_exist", side_effect=[False, True]), \
+             mock.patch("pipeline.cli._bootstrap_lineups_for_training_if_needed") as bootstrap_mock, \
+             mock.patch("pipeline.cli._run_train") as run_train_mock, \
+             mock.patch("pipeline.cli._log"):
+            ok = cli._ensure_models_for_prediction(env, root, auto_train=True)
+
+        self.assertTrue(ok)
+        bootstrap_mock.assert_called_once()
+        bootstrap_env = bootstrap_mock.call_args.args[0]
+        self.assertEqual(bootstrap_env["FOOTY_TIPPER_PREP_MODE"], "train")
+        run_train_mock.assert_called_once()
+
+    def test_ensure_models_returns_false_when_auto_train_disabled(self):
+        env = {}
+        root = pathlib.Path("/repo")
+        with mock.patch("pipeline.cli._model_artifacts_exist", return_value=False), \
+             mock.patch("pipeline.cli._run_train") as run_train_mock, \
+             mock.patch("pipeline.cli._log"):
+            ok = cli._ensure_models_for_prediction(env, root, auto_train=False)
+
+        self.assertFalse(ok)
+        run_train_mock.assert_not_called()
+
+    def test_ensure_models_respects_disabled_lineup_bootstrap(self):
+        env = {}
+        root = pathlib.Path("/repo")
+        with mock.patch("pipeline.cli._model_artifacts_exist", side_effect=[False, True]), \
+             mock.patch("pipeline.cli._bootstrap_lineups_for_training_if_needed") as bootstrap_mock, \
+             mock.patch("pipeline.cli._run_train") as run_train_mock, \
+             mock.patch("pipeline.cli._log"):
+            ok = cli._ensure_models_for_prediction(env, root, auto_train=True, allow_lineup_bootstrap=False)
+
+        self.assertTrue(ok)
+        bootstrap_mock.assert_not_called()
+        run_train_mock.assert_called_once()
+
+    def test_lineup_backfill_bootstrapped_detects_recorded_backfill_run(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            data_dir = root / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            db_path = data_dir / "footy-tipper-db.sqlite"
+
+            with sqlite3.connect(str(db_path)) as con:
+                con.executescript(
+                    """
+                    CREATE TABLE lineup_ingestion_runs (
+                        run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        mode TEXT NOT NULL,
+                        requested_start_year INTEGER,
+                        requested_end_year INTEGER,
+                        completed_at_utc TEXT NOT NULL,
+                        status TEXT NOT NULL
+                    );
+                    """
+                )
+                con.execute(
+                    """
+                    INSERT INTO lineup_ingestion_runs (
+                        mode, requested_start_year, requested_end_year, completed_at_utc, status
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    ("backfill", 2018, 2026, "2026-02-28T00:00:00+00:00", "ok"),
+                )
+
+            env = {"FOOTY_TIPPER_START_YEAR": "2018", "FOOTY_TIPPER_END_YEAR": "2026"}
+            self.assertTrue(cli._lineup_backfill_bootstrapped(root, env))
+
+    def test_bootstrap_lineups_for_training_runs_backfill_when_history_missing(self):
+        env = {"FOOTY_TIPPER_START_YEAR": "2018", "FOOTY_TIPPER_END_YEAR": "2026"}
+        root = pathlib.Path("/repo")
+
+        with mock.patch("pipeline.cli._lineup_backfill_bootstrapped", return_value=False), \
+             mock.patch("pipeline.cli._run_lineups") as run_lineups_mock, \
+             mock.patch("pipeline.cli._log"):
+            cli._bootstrap_lineups_for_training_if_needed(env, root)
+
+        run_lineups_mock.assert_called_once()
+        bootstrap_env = run_lineups_mock.call_args.args[0]
+        self.assertEqual(bootstrap_env["FOOTY_TIPPER_LINEUPS_MODE"], "backfill")
+        self.assertEqual(bootstrap_env["FOOTY_TIPPER_LINEUPS_MAX_ARTICLES"], "2000")
 
     def test_main_send_reads_test_email_from_env(self):
         with mock.patch.dict(os.environ, {"FOOTY_TIPPER_TEST_EMAIL": "from_env@example.com"}, clear=False), \

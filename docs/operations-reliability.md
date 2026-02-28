@@ -42,6 +42,11 @@ If optional providers are missing:
 
 Core tipping pipeline continues where possible.
 
+Lineup ingestion is also fail-soft by default:
+- parsing/network issues are logged
+- train/infer continue with fallback lineup feature defaults
+- enable strict failure with `--lineups-strict` (or `FOOTY_TIPPER_LINEUPS_STRICT=true`)
+
 ## 5) Joker Reliability Controls
 
 Joker recommendation includes guardrails so it does not overreact when odds coverage is thin.
@@ -60,16 +65,20 @@ Single-use reliability:
 
 ## 6) Recommended Weekly Runbook
 
-1. `footy-tipper infer`
-2. `footy-tipper send --test --dry-run`
-3. sanity-check round scope + joker call + value picks
-4. run production send
+1. `footy-tipper predict --test --dry-run`
+2. sanity-check round scope + joker call + value picks
+3. run production send
+
+Bootstrap note:
+- `footy-tipper train` auto-runs one historical lineup backfill when needed
+- weekly `predict` keeps using the faster recent-refresh path unless auto-training is required
 
 ## 7) Debugging Checklist
 
 When output looks wrong, check:
 - round/year selected by `prediction_table.sql`
 - row counts in `inference_data` and `predictions_table`
+- lineup ingestion summary (`snapshots_inserted`, `entries_inserted`, parse failures)
 - odds coverage by round
 - `joker_usage` row for the active `competition_year`
 - which joker strategy source was used (`explicit_env`, `policy_auto`, fallback)

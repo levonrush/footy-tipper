@@ -1,6 +1,21 @@
 import dill as pickle
 import numpy as np
+import warnings
 from sklearn.linear_model import LogisticRegression
+
+PROB_EPS = 1e-4
+MAX_LOGIT = 8.0
+
+
+def _clip_probs(values):
+    clipped = np.clip(np.asarray(values, dtype=float), PROB_EPS, 1 - PROB_EPS)
+    return np.nan_to_num(clipped, nan=0.5, posinf=1 - PROB_EPS, neginf=PROB_EPS)
+
+
+def _safe_logit(values):
+    probs = _clip_probs(values)
+    logits = np.log(probs / (1.0 - probs))
+    return np.clip(np.nan_to_num(logits, nan=0.0, posinf=MAX_LOGIT, neginf=-MAX_LOGIT), -MAX_LOGIT, MAX_LOGIT)
 
 
 class IdentityCalibrator:
@@ -8,62 +23,83 @@ class IdentityCalibrator:
         return self
 
     def predict(self, probs):
-        clipped = np.clip(np.asarray(probs, dtype=float), 1e-6, 1 - 1e-6)
-        return clipped
+        return _clip_probs(probs)
 
 
 class BetaCalibrator:
     """Beta calibration: sigmoid(a * log(p) + b * log(1-p) + c)."""
 
-    def __init__(self, c=1.0, max_iter=1000):
-        self._model = LogisticRegression(C=c, max_iter=max_iter)
+    def __init__(self, c=0.25, max_iter=1000):
+        self._model = LogisticRegression(C=c, max_iter=max_iter, solver="lbfgs")
         self._is_fitted = False
 
     def fit(self, probs, y):
-        p = np.clip(np.asarray(probs, dtype=float), 1e-6, 1 - 1e-6)
+        p = _clip_probs(probs)
         y = np.asarray(y, dtype=int)
 
         if len(np.unique(y)) < 2:
             self._is_fitted = False
             return self
 
-        X = np.column_stack([np.log(p), np.log(1 - p)])
-        self._model.fit(X, y)
-        self._is_fitted = True
+        X = np.column_stack(
+            [
+                np.clip(np.log(p), -MAX_LOGIT, 0.0),
+                np.clip(np.log(1 - p), -MAX_LOGIT, 0.0),
+            ]
+        )
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=-MAX_LOGIT)
+
+        if not np.isfinite(X).all():
+            self._is_fitted = False
+            return self
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                self._model.fit(X, y)
+            self._is_fitted = True
+        except Exception:
+            self._is_fitted = False
         return self
 
     def predict(self, probs):
-        p = np.clip(np.asarray(probs, dtype=float), 1e-6, 1 - 1e-6)
+        p = _clip_probs(probs)
         if not self._is_fitted:
             return p
 
-        X = np.column_stack([np.log(p), np.log(1 - p)])
+        X = np.column_stack(
+            [
+                np.clip(np.log(p), -MAX_LOGIT, 0.0),
+                np.clip(np.log(1 - p), -MAX_LOGIT, 0.0),
+            ]
+        )
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=-MAX_LOGIT)
         return self._model.predict_proba(X)[:, 1]
 
 
 class LogisticStacker:
     """Simple meta-model for combining Tier A/Tier B/market probabilities."""
 
-    def __init__(self, c=1.0, max_iter=1000):
-        self._model = LogisticRegression(C=c, max_iter=max_iter)
+    def __init__(self, c=0.25, max_iter=1000):
+        self._model = LogisticRegression(C=c, max_iter=max_iter, solver="lbfgs")
         self._is_fitted = False
 
     @staticmethod
     def _to_meta_features(tier_a, tier_b, market, odds_missing):
-        eps = 1e-6
-        pa = np.clip(np.asarray(tier_a, dtype=float), eps, 1 - eps)
-        pb = np.clip(np.asarray(tier_b, dtype=float), eps, 1 - eps)
-        pm = np.clip(np.asarray(market, dtype=float), eps, 1 - eps)
-        miss = np.asarray(odds_missing, dtype=float)
+        pa = _clip_probs(tier_a)
+        pb = _clip_probs(tier_b)
+        pm = _clip_probs(market)
+        miss = np.nan_to_num(np.asarray(odds_missing, dtype=float), nan=0.0, posinf=1.0, neginf=0.0)
 
-        return np.column_stack(
+        X = np.column_stack(
             [
-                np.log(pa / (1 - pa)),
-                np.log(pb / (1 - pb)),
-                np.log(pm / (1 - pm)),
+                _safe_logit(pa),
+                _safe_logit(pb),
+                _safe_logit(pm),
                 miss,
             ]
         )
+        return np.nan_to_num(X, nan=0.0, posinf=MAX_LOGIT, neginf=-MAX_LOGIT)
 
     def fit(self, tier_a, tier_b, market, odds_missing, y):
         y = np.asarray(y, dtype=int)
@@ -72,14 +108,23 @@ class LogisticStacker:
             return self
 
         X = self._to_meta_features(tier_a, tier_b, market, odds_missing)
-        self._model.fit(X, y)
-        self._is_fitted = True
+        if not np.isfinite(X).all():
+            self._is_fitted = False
+            return self
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                self._model.fit(X, y)
+            self._is_fitted = True
+        except Exception:
+            self._is_fitted = False
         return self
 
     def predict(self, tier_a, tier_b, market, odds_missing):
         X = self._to_meta_features(tier_a, tier_b, market, odds_missing)
         if not self._is_fitted:
-            return np.clip(np.asarray(tier_b, dtype=float), 1e-6, 1 - 1e-6)
+            return _clip_probs(tier_b)
         return self._model.predict_proba(X)[:, 1]
 
 

@@ -8,7 +8,9 @@ This page explains the end-to-end pipeline and the data contracts that keep it s
 flowchart TB
   subgraph O[Orchestration + Data Prep]
     CLI[CLI + Entrypoints] --> PREP[R Data Prep]
+    CLI --> LINEUPS[Lineup Ingestion]
     PREP --> DB[(SQLite)]
+    LINEUPS --> DB
   end
 
   subgraph M[Model Training + Inference]
@@ -35,16 +37,29 @@ Data prep writes these tables in `data/footy-tipper-db.sqlite`:
 
 This split is a core safety feature. It prevents accidental train/infer leakage.
 
+## Lineup Ingestion (`pipeline/lineups.py`)
+
+Lineup ingestion writes additional SQLite tables:
+- `lineup_article_snapshots`: article-level versioned metadata and parse status
+- `lineup_entries`: normalized team/player/jersey/role rows
+- `lineup_ingestion_runs`: recent/backfill run history used for auto-bootstrap decisions
+
+These tables are refreshed before `prep/train/infer/predict` unless `--skip-lineups` is set.
+`train` can also trigger a one-time historical backfill bootstrap before the normal recent refresh.
+The model pipeline remains fail-safe: missing lineup data does not block train/infer.
+
 ## Training (`pipeline/train.py`)
 
 Training currently does this:
 1. Build Tier-A baseline features.
-2. Train Tier-B home/away Poisson score models.
-3. Blend Tier-A and Tier-B score expectations.
-4. Estimate shared score covariance (`lambda3`) for bivariate simulation.
-5. Fit win-probability stacker + beta calibrator.
-6. Save model artifacts to `models/`.
-7. Run joker backtest simulations and save `models/joker_policy.json`.
+2. Merge lineup-aware features (availability, spine/bench/continuity/freshness deltas).
+3. Train Tier-B home/away Poisson score models.
+4. Blend Tier-A and Tier-B score expectations.
+5. Estimate shared score covariance (`lambda3`) for bivariate simulation.
+6. Build uncertainty-marginalized Tier-B conditional win probabilities (Monte Carlo using lineup uncertainty).
+7. Fit win-probability stacker + beta calibrator.
+8. Save model artifacts to `models/`.
+9. Run joker backtest simulations and save `models/joker_policy.json`.
 
 Main artifacts:
 - `models/home_model.pkl`
@@ -59,11 +74,12 @@ Main artifacts:
 Inference:
 1. Loads `inference_data`.
 2. Rebuilds Tier-A context.
-3. Loads manifest + trained artifacts.
-4. Produces blended expected scores.
-5. Applies stack + calibration to home win probabilities.
-6. Simulates outcomes/scorelines with bivariate Poisson.
-7. Upserts into `predictions_table`.
+3. Merges lineup-aware features using latest lineup snapshots.
+4. Loads manifest + trained artifacts.
+5. Produces blended expected scores.
+6. Applies uncertainty-marginalized Tier-B conditional probabilities before stack + calibration.
+7. Simulates outcomes/scorelines with bivariate Poisson.
+8. Upserts into `predictions_table`.
 
 ## Send Layer (`pipeline/send.py`)
 

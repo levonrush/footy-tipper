@@ -1,0 +1,1182 @@
+
+
+=== PAGE 1 ===
+
+Incorporating NRL Team Lineups into Match
+Prediction Systems (2012–Present)
+Executive summary
+Lineup  information  can  explain  a  large  share  of  match-to-match  variance  that  match-history  features
+cannot capture, especially when high-impact spine players appear or withdraw late. The key technical shift
+is to treat “team strength” as a sum of (i) a team baseline that evolves over time and (ii) a lineup component
+that depends on  who plays and  where they play (starting 13 vs interchange vs reserves), plus uncertainty
+because the named squad is not the final 17. 
+NRL  lineup  data  exists  in  public,  primary  sources,  but  access  is  shaped  by  platform  constraints  and
+licensing. Official club and league sites publish squad lists on a schedule that has changed over time: in
+2012 the league described Tuesday lists updated with “Friday morning late mail”, and later communications
+in 2017 and 2019 describe 21-man Tuesday squads updated to 19-man 24 hours pre-game and 17-man one
+hour pre-kick-off; a 2026 club post shows a 22-man Tuesday squad at 4pm. 
+The most robust modelling pattern for your setting (games 2012–present; existing match-history features)
+is:
+(1) build a canonical historical lineup table (match_id × player_id × team_id × listed_position × status),
+(2)  estimate  player  and  position  effects  with  strong  regularisation  or  Bayesian  shrinkage  to  avoid
+overfitting,
+(3) integrate “Thursday inference” by marginalising over uncertain final selections using historical selection
+probabilities from named squads, and
+(4) validate with time-respecting splits, calibration, and ablations that isolate what lineups add beyond team
+form and head-to-head history. 
+Reinforcement learning (RL) is useful once you can (a) simulate counterfactual lineups or (b) frame selection
+and interchange decisions as policies with measurable rewards. Given rugby league data scarcity, offline RL
+is the relevant regime: it needs careful off-policy evaluation (OPE) and conservative policy improvement to
+avoid learning actions unsupported by historical data. 
+Lineups in the NRL data lifecycle
+Squad announcements are not a single event. The data product you need depends on whether you predict
+on Tuesday, Thursday, or just before kick-off. In 2012, league posts describe weekly team lists “announced
+first every Tuesday” and “updated with the Friday morning late mail”.   A club explainer from 2017
+describes a three-stage process: 21 players named Tuesday (4pm AEST), reduced to a 19-man squad 24
+hours pre-game, then final 17 confirmed one hour pre-kick-off, with limited exceptions approved by the NRL
+Head of Football.  A league post from 2019 repeats the 21-man → 19-man → 17-man cadence explicitly
+for that round. 
+1
+2
+3
+4
+5
+6
+7
+1
+
+=== PAGE 2 ===
+
+The 2026 season shows that these rules can shift. A 2026 club post names a 22-man squad at 4pm Tuesday
+and  publishes  a  structured  squad  list  including  “Reserves”  beyond  the  interchange.   This  variation
+matters operationally: a production system should not hard-code “21-man Tuesday squads” as an invariant,
+and should store squad size and role labels as observed, season-by-season. 
+“Lineup effect” is not just “player present”. Rugby league roles are asymmetric: the spine concentrates
+decision-making and ball touches, interchange timing changes matchups, and late positional switches can
+change a player’s contribution even if the player remains selected. Rugby league performance research has
+already operationalised position-specific modelling, including separate distributions and models by position
+group and explicit modelling of interchange roles. 
+Licensing constraints shape what “public lineup data” means. League and club websites operate under
+terms that restrict use to personal, non-commercial contexts and limit reproduction without consent, which
+creates compliance risk for persistent scraping or redistribution.  In parallel, commercial data providers
+exist: a 2018 press release states that STATS (now part of Stats Perform) signed a multi-year agreement as
+the official data provider and distributes live and post-match data via data feeds to partners.   Rugby
+league  research  using  event-level  or  detailed  performance  feeds  frequently  notes  license  and  ethics
+constraints that prevent sharing raw data, which is a practical indicator that “full-fidelity” datasets are
+typically commercial rather than open. 
+Data sources and acquisition strategy
+Primary sources that cover 2012–present lineups exist, but each source is strongest for a different “truth”:
+named squads, final 17s, positional labels, and last-minute changes.
+A practical design is to store multiple lineup “versions” per match (e.g., named squad, 24-hour squad, final
+17, actual minute participation where available), then let modelling choose which version to condition on
+depending on inference time. The monitoring layer should follow the publishing cadence and treat each
+fetch as an append-only event. 
+Candidate data sources comparison
+Source
+(priority
+order)
+What it covers
+well
+Typical fields
+you can
+extract
+Access patternStrengths Key risks /
+caveats
+Official
+league
+“team lists”
+news posts
+(2012–
+present
+archives)
+Named squads
+and historical
+named lists;
+often includes
+“late mail”
+updates (at
+least in earlier
+years)
+Player names,
+listed
+positions,
+interchange/
+reserves
+labels, match
+metadata
+HTML fetch +
+parser
+Primary/
+official; long
+historical
+depth visible
+in archives 
+Terms of use
+constrain
+reuse; page
+templates
+evolve across
+eras 
+8
+9
+10
+11
+12
+13
+14
+15 16
+2
+
+=== PAGE 3 ===
+
+Source
+(priority
+order)
+What it covers
+well
+Typical fields
+you can
+extract
+Access patternStrengths Key risks /
+caveats
+Official club
+“team list”
+posts
+Structured
+lineup lists;
+timestamps;
+often clearer
+separation of
+backs/
+forwards/
+interchange/
+reserves
+Player names,
+jersey
+numbers,
+position
+labels, squad
+size,
+timestamp
+HTML fetch +
+parser
+Structured
+lists with
+explicit
+positions and
+reserves;
+close to
+source of
+selection
+decisions 
+Template
+changes and
+occasional
+editorial text
+must be
+filtered; squad
+sizes can differ
+by event/
+season 
+Official
+draw /
+match
+centre pages
+Match
+metadata;
+links to related
+team lists;
+sometimes
+“Team Lists”
+print sections
+Match IDs,
+venue/time,
+team names,
+related
+content
+HTML fetch;
+sometimes
+requires
+backing API
+calls
+Stable match
+identifiers
+and
+scheduling
+context 
+Some content
+is dynamically
+loaded;
+scraping may
+require
+reverse-
+engineering
+backing
+endpoints 
+Official stats
+pages
+Aggregated
+player/team
+stats, often by
+competition
+and round
+Player totals,
+team totals
+Web app
+interface
+Primary
+source of
+published
+stats exists 
+Often JS-
+driven; may
+fail without
+app context;
+not designed
+as a bulk
+export 
+Commercial
+data feeds
+(Stats
+Perform /
+Opta)
+High-fidelity
+match, event,
+and
+performance
+data;
+potentially
+stints and
+substitutions
+Events,
+minutes,
+substitutions,
+advanced
+metrics
+Licensed API/
+feed
+Official-
+provider
+relationship
+and feed
+distribution
+to partners is
+documented 
+Requires
+contract; data
+sharing often
+restricted by
+license and
+ethics 
+8
+8
+17
+18
+19
+19
+20
+13
+3
+
+=== PAGE 4 ===
+
+Source
+(priority
+order)
+What it covers
+well
+Typical fields
+you can
+extract
+Access patternStrengths Key risks /
+caveats
+“Champion
+Data match
+centre API”
+as
+referenced
+by
+community
+tooling
+Programmatic
+retrieval of
+match-centre
+style stats
+Player/team
+stats;
+competition
+IDs
+Unofficial
+programmatic
+access via
+wrappers
+Public tooling
+documents
+that a match-
+centre API
+exists and
+can be called 
+Access may be
+brittle or
+unauthorised;
+credentials
+and terms may
+apply 
+Community
+scraping
+packages
+(e.g., nrlR)
+Accelerates
+discovery of
+endpoints and
+parsing
+patterns
+Fixtures,
+some lineup
+scraping,
+stats
+wrappers
+R package
+functions
+Documents
+rate limiting,
+caching, and
+ethics
+guidance;
+includes
+lineup
+scraping
+entrypoints 
+Not affiliated;
+can break
+when sites
+change; still
+bound by
+underlying site
+terms 
+Media
+aggregators
+and analysis
+sites (Fox
+Sports, The
+Roar)
+Human-
+readable
+summaries;
+injury and
+“team tips”
+content
+Predicted
+lineups,
+commentary
+HTML
+Useful
+redundancy
+for changes
+and rumours
+(especially
+late mail
+style content)
+Not primary;
+paywalls and
+editorial bias;
+may not
+preserve
+historical
+structured
+data 
+Near-term capture for “Thursday inference”
+A robust design treats Thursday as “latest reliable snapshot before many weekend matches”, not as a
+universal squad release time. In the 2017 description, the cut to 19 happens 24 hours pre-game, which
+means Wednesday for Thursday matches, Thursday for Friday matches, and so on.   The 2019 league
+post makes the same “24 hours before each game” statement. 
+Operationally, a weekly job should:
+Pull the nominated squads as soon as they publish (historically Tuesday; in at least one 2026 club
+post this is timestamped 4pm). 
+Pull the 24-hour updates per match in a match-aware schedule keyed off fixture times. 
+Optionally pull the final 17 one hour pre-kick-off when latency allows, producing “late model refresh”
+predictions. 
+21
+22
+23
+24
+25 26
+6
+7
+1. 
+27
+2. 28
+3. 
+28
+4
+
+=== PAGE 5 ===
+
+Literature review on lineup and player-impact modelling
+Rugby league has less public research on lineup-aware win probability than sports with rich public play-by-
+play, but several strands transfer directly.
+Rugby league research has already built player contribution metrics tied to team success from multi-season
+professional data. One open-access study in Research Quarterly for Exercise and Sport (men’s rugby league,
+2018–2022 seasons) uses multiple machine learning algorithms and constructs “Wins Created”, “Losses
+Created”, and “Net Wins Added”; it reports strong match-winner classification performance and validates
+against  awards  and  representative  selection.   A  doctoral  thesis  in  Australia  reports  a  broader
+programme: literature review, player metrics in men’s and women’s rugby league, a match outcome model
+that incorporates lineup composition with team attributes (including an Elo component), and a decision
+support system that optimises lineups under constraints like availability and positional eligibility. 
+Expected-points and expected-possession-value (EPV) modelling in rugby league provides a mechanism to
+create  denser  rewards  than  match  outcome  alone.  Work  using  2010–2013  NRL  play-by-play  estimated
+expected point outcomes by field location and possession context, highlighting how possession origin and
+field position change try likelihood and expected points.  Later work in rugby league uses Markov chain
+framing of sets and produces EPV zone models, explicitly discussing data licensing restrictions when using
+Stats Perform style feeds.   Bayesian EPV variants model smooth pitch surfaces and use hierarchical
+priors to share information between league and team levels, which mirrors the same partial pooling logic
+needed for player effects. 
+In other invasion sports, lineup and player impact models largely fall into four families:
+Adjusted plus-minus (APM) and its regularised variants estimate player contributions by regressing stint
+outcomes on who was on the field, addressing teammate and opponent confounding; regularisation is
+central to stability and out-of-sample behaviour .   Soccer plus-minus work adapts the concept to low-
+scoring settings and introduces expected-goals-based plus-minus to reduce goal noise.  Rating-system
+extensions (Elo/Glicko) add uncertainty and dynamic updates; Glicko explicitly introduces rating deviation as
+a reliability measure beyond Elo.  Bayesian hierarchical models for match outcomes are widely used in
+football result prediction and provide a principled route to partial pooling across teams, seasons, and
+competitions.   Representation learning (embeddings, graph models) encodes player interactions and
+co-occurrence in compact vectors; recent work explicitly describes swapping player embeddings to analyse
+how personnel changes affect match outcome predictions. 
+Causal inference has become more explicit in sports analytics, including player evaluation. A causality-
+inspired APM model defines player value as a counterfactual score change under substitution, aligning with
+the core question “what is the effect of player X being in the team?”.   Broader causal sports work
+emphasises that different estimands (ATE vs ATT) and matching/weighting designs change interpretation,
+which is directly relevant when player selection is non-random. 
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+5
+
+=== PAGE 6 ===
+
+Methods to infer lineup impact in an NRL win-probability model
+A lineup-aware match model usually decomposes match outcome probability into three terms:
+team baseline strength (slow-moving, match-history learnable), 
+lineup adjustment (fast-moving, player and position dependent), and 
+uncertainty over the realised lineup at prediction time. 
+Modelling options and trade-offs
+Approach
+Minimum
+additional
+data
+What it can
+learn InterpretabilityMain failure
+modes in NRL
+Best role in
+your system
+Additive
+player-
+presence
+model
+(regularised
+logistic /
+Poisson for
+points)
+Final 17 and
+positions per
+match
+“Player X in
+team” effects,
+position-
+weighted
+High
+Collinearity
+(teammates
+play
+together),
+small samples
+for fringe
+players
+First
+upgrade;
+strong
+baseline for
+lineup
+effects 
+Bayesian
+hierarchical
+player effects
+Same as
+above, plus
+season/time
+structure
+Partial pooling,
+time-varying
+effects, team
+switches
+High to
+medium
+Prior
+sensitivity;
+requires
+careful
+identifiability
+constraints
+Best
+balance of
+rigour ,
+stability,
+and
+uncertainty
+estimates 
+APM / RAPM
+stint models
+Substitution
+times and
+on-field
+stints
+Context-
+adjusted on-
+field impact
+(per-minute)
+Medium
+Data access:
+stints often
+proprietary;
+sparse
+interchange
+exposure for
+some players
+Optimal if
+you can
+license
+event/stint
+data;
+otherwise
+hard 
+Elo/Glicko
+with lineup
+components
+Team rating
+history +
+lineup
+features
+Smooth
+dynamic
+updates;
+uncertainty via
+rating deviation
+Medium
+Hard to
+separate team
+vs player
+without
+shrinkage;
+rule changes
+across eras
+Useful as a
+backbone
+for team
+baseline
+and
+uncertainty 
+• 
+• 
+• 41
+42
+43
+44
+45
+6
+
+=== PAGE 7 ===
+
+Approach
+Minimum
+additional
+data
+What it can
+learn InterpretabilityMain failure
+modes in NRL
+Best role in
+your system
+Embeddings
+(player/
+position/
+team) +
+shallow head
+Same as
+additive,
+optionally
+event stats
+Non-linear
+interactions;
+similarity; “swap
+player”
+counterfactuals
+Medium to low
+Overfitting in
+small leagues;
+harder
+diagnostics
+Good
+second-
+phase once
+data
+pipeline is
+stable 
+Causal APM /
+propensity
+weighting
+designs
+Same as
+additive plus
+confounders
+Closer to causal
+“effect of
+inclusion”
+interpretation
+Medium
+Unmeasured
+confounding
+(injury
+severity,
+coaching
+intent)
+Use for
+sensitivity
+analysis of
+star-player
+effects 
+Handling uncertainty: named squads vs the final 17
+A match prediction made on Thursday should rarely assume the named squad equals the final 17, because
+selection rules and update windows explicitly permit changes up to one hour pre-kick-off.  Your model
+can represent this uncertainty explicitly:
+Fit a selection model: . 
+Fit an outcome model conditioned on a realised final 17. 
+Marginalise: , approximated via Monte Carlo over
+plausible final lineups. 
+The 2017 description of selection stages gives direct structure for this two-stage approach (21/19/17 with
+limited exceptions).  The 2026 club example shows that even the named squad size can differ (22-man),
+so the selection model should condition on observed squad size rather than assuming it. 
+Matchup and interaction features that are specific to rugby league
+Rugby league player contribution is context dependent. The men’s rugby league metric study explicitly splits
+variables  by  position  and  treats  offence  and  defence  separately,  indicating  that  position-conditioned
+modelling is not optional if you want stable estimates.   Practical lineup features that align with this
+include:
+position-weighted player ratings (spine vs middles vs edges vs outside backs), 
+“spine continuity” features (same 1/6/7/9 combination as last match, last month), 
+bench utility composition (e.g., presence of a hooker on bench) and interchange depth, 
+team-level strength-of-schedule and opponent-strength adjustments when estimating player form. 
+38
+46
+28
+• p(plays∣named,role,injury signals,travel,team context)
+• 
+• p(win)= p(win∣∑ℓ ℓ)p(ℓ∣current info)
+47
+6
+8
+48
+• 
+• 
+• 
+• 
+49
+7
+
+=== PAGE 8 ===
+
+Expected points / EPV models provide a principled way to turn play and field position into a denser signal
+than win/loss, which can stabilise player and lineup estimates when match counts per season are modest.
+Reinforcement learning for lineup optimisation and sequential
+decisions
+Two RL problem shapes matter in rugby league: pre-match selection and in-match interchange.
+Pre-match selection is closer to a contextual bandit: you observe a match context (opponent, venue, travel,
+injuries,  recent  form),  pick  a  lineup  action,  then  observe  a  reward  (points  differential,  win  probability
+change, or match result). The doctoral thesis described a decision support system that chooses optimal
+lineups under constraints such as availability and positional eligibility, which corresponds to a constrained
+decision problem even if implemented without RL. 
+In-match interchange is a sequential decision problem. The true physiological state (fatigue, knocks) is
+partially observed, so a POMDP is a closer formalisation than a fully observed MDP . Standard RL references
+define MDPs and POMDPs and show how belief states act as sufficient statistics under partial observability.
+RL formulation and reward design
+A useful modelling split is:
+State: time, score differential, current on-field lineup, interchange remaining, recent possession
+states, and latent fatigue proxy. 
+Action: substitution decisions (who off, who on), or pre-match roster selection. 
+Reward: dense rewards derived from expected points / EPV plus terminal match outcome, to reduce
+sparsity. Rugby league expected-points and EPV work shows that possession context and field
+position map to expected point equity, which naturally supports reward shaping. 
+Offline RL is the default regime because you cannot safely or ethically explore random interchange policies
+in the real competition. Offline RL surveys and tutorials describe the “distribution shift” problem: learned
+policies can choose actions not supported by the dataset, causing extrapolation error , so conservative
+learning  and  safe  policy  improvement  matter .   Off-policy  evaluation  methods  like  doubly  robust
+estimators are central when you want to evaluate a new policy using historical data logged under different
+behaviour policies. 
+Empirical work applying offline RL to professional basketball tactics indicates the feasibility of training
+policies from logged data, but that setting typically has richer possession-level data and more frequent
+decisions than rugby league, so transfer should be cautious. 
+flowchart TD
+  A[Context: opponent, venue, injuries, roster] --> B{Decision type}
+  B -->|Pre-match selection| C[Contextual bandit / constrained optimisation]
+  B -->|In-match interchange| D[POMDP: hidden fatigue + injury state]
+50
+30
+51
+• 
+51
+• 30
+• 
+50
+52
+53
+54
+8
+
+=== PAGE 9 ===
+
+  C --> E[Action: choose squad/17/bench roles]
+  D --> F[Action: substitution or role change]
+  E --> G[Reward: points diff, win, EPV-shaped]
+  F --> G
+  G --> H[Offline RL / OPE needed for counterfactual evaluation]
+  H --> I[Policy constraints to stay within data support]
+Simulation vs model-based planning
+Planning  methods  need  a  transition  model.  In  sports,  “world  models”  often  approximate  how  actions
+change win probability or expected outcome rather than simulate every micro-event. Action valuation work
+in football frames possessions with value functions, including deep RL approaches that estimate action-
+values  from  event  or  tracking  data.   Rugby  league  EPV  models  already  treat  sets  as  Markovian
+sequences, which is compatible with building a dynamics model at the level of field position and possession
+outcomes, even without full tracking. 
+Practical pipeline, validation, and implementation roadmap
+The pipeline should separate three concerns: (i) ingestion and canonicalisation, (ii) feature construction at a
+chosen “as-of time”, and (iii) modelling and evaluation.
+flowchart LR
+  subgraph Sources
+    S1[League team-list posts]
+    S2[Club team-list posts]
+    S3[Fixture/draw pages]
+    S4[Commercial feed (optional)]
+  end
+  S1 --> I[Ingest + snapshot raw HTML/JSON]
+  S2 --> I
+  S3 --> I
+  S4 --> I
+  I --> P[Parse to canonical schema\nmatch_id, team_id, player_id,
+\nlisted_position, status, timestamp]
+  P --> Q[Entity resolution\nname->player_id\nteam changes\nposition 
+normalisation]
+  Q --> L[Lineup store\nversioned by timestamp\n(named/24h/final/actual)]
+  L --> F[Feature store\n(as-of time)]
+  F --> M[Model training\n(time-respecting splits)]
+  F --> R[Realtime inference\nThursday snapshot + uncertainty]
+  M --> E[Evaluation\nlog loss, Brier, calibration,\nseason holdouts]
+  R --> O[Outputs\nwin prob + cred intervals\nplayer contribution deltas]
+55
+56
+9
+
+=== PAGE 10 ===
+
+Feature engineering blueprint
+A compact but high-yield set of features aligns with what rugby league performance work already models:
+offence/defence separation and position grouping, plus adjustments for opponent strength. 
+Feature block Examples Why it helps Data
+dependency
+Player availability
+and selection
+uncertainty
+For each named player:
+probability of making final
+17; bench vs reserve
+probabilities
+Converts squad lists into
+quantified uncertainty
+aligned with NRL selection
+stages 
+Historical
+named-vs-final
+mapping
+Lineup strength
+aggregates
+Sum/mean of player ratings
+by position group; spine-
+only strength; bench
+strength
+Captures “who is playing” in a
+low-dimensional way with
+shrinkage 
+Player rating
+system, position
+labels
+Matchup deltas
+Home spine strength minus
+away spine strength; edge
+forward mismatch index
+Encodes asymmetric game
+influence of key roles and
+matchups 
+Position
+mapping +
+ratings
+Continuity and
+cohesion
+Same halves pairing as last
+week; games played
+together for spine; recent
+lineup stability
+Approximates interaction
+effects with controlled
+dimensionality 
+Historical lineups
+Context beyond
+lineups
+Rest days, travel proxies,
+venue; baseline team rating
+Preserves what your current
+match-history model already
+captures 
+Fixture + team
+history
+EPV/expected-
+points derived
+(optional)
+Expected points from start
+sets, field position; EPV-
+based attack/defence
+profiles
+Provides denser signal for
+learning player impacts when
+outcomes are noisy 
+Play-by-play or
+event feed
+Training, validation, and evaluation metrics
+A time-ordered evaluation is essential because team rosters, rules, and playing styles shift across 2012–
+present. Rugby league research already reports order-preserved testing as a distinct evaluation mode for
+match prediction models. 
+A defensible protocol:
+Primary split: rolling-origin evaluation (train through season t, test on season t+1), repeated for
+multiple years. 
+Secondary split: within-season forecasting (train up to round r, test on rounds r+1…), matching
+“Thursday inference” operational reality. 
+29
+28
+10
+29
+57
+58
+50
+30
+• 
+30
+• 
+28
+10
+
+=== PAGE 11 ===
+
+Metrics: log loss and Brier score for probabilistic accuracy; reliability diagrams / calibration error;
+and discrimination metrics (AUC) as secondary. These are standard for probabilistic forecasts and
+align with the “win probability” output target. 
+Missing data, late changes, and player movement
+Late changes should not be treated as noise. The official selection cadence explicitly allows changes near
+kick-off and, in limited cases, outside the named squad for approved reasons.   Store every observed
+update  as  a  timestamped  lineup  version,  and  train  models  to  condition  on  “as-of  time”  because  the
+information set differs materially between Tuesday, Thursday, and match-day. 
+Transfers and position changes create identifiability problems if you model “player value” as static. Partial
+pooling helps: hierarchical priors shrink uncertain player effects toward position and team baselines, and
+time-varying components can capture form changes. This is consistent with how Bayesian hierarchical
+sports models handle heterogeneity and how causal APM frames substitution effects under uncertainty.
+Recommended experiments and ablations
+A small set of ablations can isolate what lineup information adds:
+Baseline match-history model vs match-history + “named squad only” features at the same cut-off
+time. 
+Replace binary “player present” with position-weighted player ratings and compare calibration and
+log loss. 
+Deterministic final-17 assumption vs probabilistic marginalisation over possible final 17s (Monte
+Carlo). 
+Additivity-only vs additivity + limited interaction terms (spine pairings), with strong regularisation, to
+test whether synergy is learnable without overfit. 
+Sensitivity analysis: causal-inspired adjustment (weighting/matching) for a small set of star-player
+treatments to test confounding magnitude. 
+Prioritised implementation roadmap with effort and risks
+Phase Deliverable
+Estimated
+effort (no
+stack
+constraints)
+Main risks Risk controls
+Foundation
+Canonical lineup store
+(2012–present) from
+official league + club
+posts; versioned
+snapshots
+1–3 weeks
+Template drift;
+name
+collisions
+Snapshot raw pages;
+regression tests;
+deterministic
+name→ID rules with
+manual override queue
+• 
+59
+28
+60
+43
+• 
+61
+• 
+62
+• 
+63
+• 
+64
+• 
+46
+65
+11
+
+=== PAGE 12 ===
+
+Phase Deliverable
+Estimated
+effort (no
+stack
+constraints)
+Main risks Risk controls
+First
+modelling lift
+Regularised additive
+player/position
+model; Thursday
+inference using
+named squads
+2–4 weeksOverfitting;
+collinearity
+Ridge/Lasso + position
+pooling; strict time
+splits; ablation gating 
+Uncertainty
+upgrade
+Selection-probability
+model + marginalised
+win probabilities;
+credible intervals
+3–6 weeks
+Mis-
+calibration;
+sparse
+historical
+examples
+Calibration curves;
+hierarchical priors;
+backtesting by “as-of
+time” 
+High-fidelity
+impacts
+(optional)
+Stint-based APM/
+RAPM from
+substitution timelines
+6–12+ weeksData access;
+licensing
+Consider licensing
+commercial feeds;
+otherwise deprioritise 
+RL
+exploration
+(research
+track)
+Contextual bandit for
+selection; POMDP for
+interchange with OPE
+8–16+ weeks
+Dataset
+support
+mismatch;
+unreliable OPE
+Conservative offline RL;
+doubly robust OPE;
+safe policy
+improvement
+constraints 
+Deployment considerations: latency, compute, and monitoring
+The dataset scale is modest: 2012–present yields only a few thousand matches, so model training is not
+compute-bound  unless  you  add  heavy  neural  components.  The  operational  risk  is  data  freshness  and
+schema  breakage,  not  GPU  time.  Community  tooling  explicitly  emphasises  rate  limiting,  caching,  and
+handling missing elements as first-class engineering issues, which matches the realities of lineup scraping.
+“Thursday inference” latency is dominated by ingestion (waiting for squad updates) rather than feature
+computation. A production system benefits from two inference modes: (i) scheduled refresh keyed to the
+24-hour update windows, and (ii) rapid re-score when last-minute lineup changes publish. The selection-
+stage descriptions justify this design. 
+Compliance is a non-technical blocker . The league site’s terms include non-commercial use language and
+restrictions on reproducing site material without consent, which is incompatible with broad redistribution of
+scraped lineups. If predictions are used beyond personal research, licensing discussions with official data
+providers are the cleanest route. 
+66
+67
+68
+69
+70
+71
+72
+12
+
+=== PAGE 13 ===
+
+References
+Alam, S., Moodie, E. E. M., Wu, L. Y., & Swartz, T. B. (2025). Framing causal questions in sports analytics: A case
+study of crossing in soccer. 
+Baio, G., & Blangiardo, M. (2010). Bayesian hierarchical models for the prediction of football results. 
+Cameron, S., Radwan, I., & Mara, J. (2024). What the Eyes Don’t See: An objective assessment of players’
+contribution to team success in men’s rugby league. Research Quarterly for Exercise and Sport. 
+De Bacco, C., Wang, Y., & Blei, D. M. (2024). A causality-inspired adjusted plus-minus model for player
+evaluation in team sports. 
+Glickman, M. E. (1995/1999). The Glicko system. 
+Hvattum, L. M. (2019). A comprehensive review of plus-minus ratings for evaluating individual players in
+team sports. 
+Jiang, N., & Li, L. (2016). Doubly robust off-policy value evaluation for reinforcement learning. 
+Kempton, T., & colleagues. (2016). The expected value of possession in professional rugby league match-
+play (2010–2013 NRL matches). Journal of Sports Sciences. 
+Prudencio, R. F., & colleagues. (2022). A survey on offline reinforcement learning. 
+Sawczuk, T., Palczewska, A., & Jones, B. (2021). Development of an expected possession value model to
+analyse team attacking performances in rugby league. PLOS ONE, 16(11), e0259536. 
+Sawczuk, T., & colleagues. (2024). A Bayesian mixture model approach to expected possession values in
+rugby league. 
+Sill, J. (2010). Improved NBA adjusted plus-minus using regularisation and out-of-sample testing. 
+Stats Perform. (2018). National Rugby League names STATS official data provider (press release). 
+Sutton, R. S., & Barto, A. G. (2014–2018). Reinforcement learning: An introduction (2nd ed., draft). 
+The league and club official communications on team list timing and updates: league team announcements
+(2012, 2019) and club explainer (2017), plus a 2026 club team list example. 
+https://www.nrl.com/news/2019/08/06/round-21-nrl-team-announcements/
+https://www.nrl.com/news/2019/08/06/round-21-nrl-team-announcements/
+https://www.nrl.com/news/2012/03/02/updated-round-1-official-team-lists/
+https://www.nrl.com/news/2012/03/02/updated-round-1-official-team-lists/
+73
+37
+29
+39
+36
+74
+75
+31
+76
+32
+33
+77
+12
+78
+79
+1 7
+2 5 15 61 79
+13
+
+=== PAGE 14 ===
+
+https://www.broncos.com.au/news/2017/02/27/changes-for-team-list-
+tuesday/
+https://www.broncos.com.au/news/2017/02/27/changes-for-team-list-tuesday/
+https://arxiv.org/pdf/2203.01387
+https://arxiv.org/pdf/2203.01387
+https://www.newcastleknights.com.au/news/2026/02/24/round-1-nrl-team-list/
+https://www.newcastleknights.com.au/news/2026/02/24/round-1-nrl-team-list/
+https://researchsystem.canberra.edu.au/ws/portalfiles/portal/98899088/
+What_the_Eyes_Don_t_See_An_Objective_Assessment_of_Players_Contribution_to_Team_Success_in_Men_s_Rugby_League.pdf
+https://researchsystem.canberra.edu.au/ws/portalfiles/portal/98899088/
+What_the_Eyes_Don_t_See_An_Objective_Assessment_of_Players_Contribution_to_Team_Success_in_Men_s_Rugby_League.pdf
+https://www.nrl.com/terms-of-use/
+https://www.nrl.com/terms-of-use/
+https://www.statsperform.com/press/national-rugby-league-names-stats-official-data-provider/
+https://www.statsperform.com/press/national-rugby-league-names-stats-official-data-provider/
+https://journals.plos.org/plosone/article?id=10.1371%2Fjournal.pone.0259536
+https://journals.plos.org/plosone/article?id=10.1371%2Fjournal.pone.0259536
+https://www.nrl.com/draw/nrl-premiership/2026/round-1/knights-v-cowboys/
+https://www.nrl.com/draw/nrl-premiership/2026/round-1/knights-v-cowboys/
+https://www.nrl.com/stats/
+https://www.nrl.com/stats/
+https://cran.r-project.org/web/packages/nrlR/refman/nrlR.html
+https://cran.r-project.org/web/packages/nrlR/refman/nrlR.html
+https://github.com/cran/nrlR
+https://github.com/cran/nrlR
+https://www.sportingnews.com/au/rugby-league/news/nrl-injury-list-2025-casualty-ward-latest-medical-
+news-updates/a6c3029cfcfed910f00b3cac
+https://www.sportingnews.com/au/rugby-league/news/nrl-injury-list-2025-casualty-ward-latest-medical-news-updates/
+a6c3029cfcfed910f00b3cac
+https://www.foxsports.com.au/nrl/nrl-premiership/nrl-2026-round-1-teams-for-las-vegas-full-squad-lists-
+for-knights-vs-cowboys-bulldogs-vs-dragons/news-story/fda81aa6ec968f68d3a9ee1e41deb8c4
+https://www.foxsports.com.au/nrl/nrl-premiership/nrl-2026-round-1-teams-for-las-vegas-full-squad-lists-for-knights-vs-cowboys-
+bulldogs-vs-dragons/news-story/fda81aa6ec968f68d3a9ee1e41deb8c4
+https://researchprofiles.canberra.edu.au/en/studentTheses/saberlmetrics-a-quantitative-approach-to-
+valuing-rugby-league-pla/
+https://researchprofiles.canberra.edu.au/en/studentTheses/saberlmetrics-a-quantitative-approach-to-valuing-rugby-league-pla/
+https://opus.lib.uts.edu.au/handle/10453/36626
+https://opus.lib.uts.edu.au/handle/10453/36626
+https://pmc.ncbi.nlm.nih.gov/articles/PMC11581272/
+https://pmc.ncbi.nlm.nih.gov/articles/PMC11581272/
+3 6 14 28 41 47 60 63 67 71
+4 52 59 69 76
+8 9 27
+10 29 48 49 62
+11 16 22 72
+12 20 68
+13 32 56
+17 18 58
+19
+21 23
+24 65 70
+25
+26
+30
+31 50
+33
+14
+
+=== PAGE 15 ===
+
+https://reference-global.com/download/article/10.2478/ijcss-2019-0001.pdf
+https://reference-global.com/download/article/10.2478/ijcss-2019-0001.pdf
+https://www.sciencedirect.com/science/article/abs/pii/S0377221719309373
+https://www.sciencedirect.com/science/article/abs/pii/S0377221719309373
+https://www.glicko.net/glicko/glicko.pdf
+https://www.glicko.net/glicko/glicko.pdf
+https://discovery.ucl.ac.uk/16040/1/16040.pdf
+https://discovery.ucl.ac.uk/16040/1/16040.pdf
+https://arxiv.org/html/2507.10626v1
+https://arxiv.org/html/2507.10626v1
+https://proceedings.mlr .press/v236/bacco24a/bacco24a.pdf
+https://proceedings.mlr .press/v236/bacco24a/bacco24a.pdf
+https://arxiv.org/html/2505.11841v1
+https://arxiv.org/html/2505.11841v1
+https://supermariogiacomazzo.github.io/STOR538_WEBSITE/Articles/Basketball/Basketball_Sill.pdf
+https://supermariogiacomazzo.github.io/STOR538_WEBSITE/Articles/Basketball/Basketball_Sill.pdf
+https://web.stanford.edu/class/psych209/Readings/SuttonBartoIPRLBook2ndEd.pdf
+https://web.stanford.edu/class/psych209/Readings/SuttonBartoIPRLBook2ndEd.pdf
+https://proceedings.mlr .press/v48/jiang16.pdf
+https://proceedings.mlr .press/v48/jiang16.pdf
+https://dl.acm.org/doi/pdf/10.1145/3511808.3557105
+https://dl.acm.org/doi/pdf/10.1145/3511808.3557105
+https://openaccess.thecvf.com/content/CVPR2025W/CVSPORTS/papers/
+Xarles_Action_Valuation_in_Sports_A_Survey_CVPRW_2025_paper .pdf
+https://openaccess.thecvf.com/content/CVPR2025W/CVSPORTS/papers/
+Xarles_Action_Valuation_in_Sports_A_Survey_CVPRW_2025_paper .pdf
+34 42 66 74
+35
+36 45
+37 43
+38 57 64
+39 46
+40 73
+44 77
+51 78
+53 75
+54
+55
+15

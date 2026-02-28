@@ -1,13 +1,5 @@
-from pipeline.utils import run_script
+from pipeline.cli import main
 
-# Define the scripts to run for prediction
-scripts = [
-    "FOOTY_TIPPER_PREP_MODE=infer Rscript pipeline/data-prep.R",
-    "python pipeline/inference.py",
-    "python pipeline/send.py"
-]
 
 if __name__ == "__main__":
-    for script in scripts:
-        print(f"Running script: {script}")
-        run_script(script)
+    raise SystemExit(main(["predict"]))

@@ -1,0 +1,1099 @@
+
+
+=== PAGE 1 ===
+
+Data acquisition options for historical and
+upcoming NRL team lists and squad
+announcements
+Executive summary
+Primary,  lowest-friction  acquisition  comes  from  the  official  NRL  website’s  own  structured  payloads
+embedded in HTML. The draw and ladder pages expose JSON in q-data attributes (#vue-draw, #vue-
+ladder) that can be scraped without a headless browser , and those payloads include per-match match-
+centre URLs for downstream capture. 
+Historical and upcoming team lists are best treated as “versioned documents”, not single facts. The official
+“Team Lists” topic hub provides a canonical stream of Tuesday team-list articles and game-day “Late Mail”
+updates, each with its own publish timestamp. 
+Terms matter . The official Terms of Use explicitly constrain use of NRL digital platforms to “personal, non-
+commercial use” and restrict reproduction without written consent, which is a practical trigger for licensing
+if your prediction system is commercial or redistributed. 
+For structured, ID-rich data (player IDs, team IDs, schedule IDs) and operational stability, commercial feeds
+(notably Stats Perform as the league’s official data partner) are the cleanest path. 
+A pragmatic build order is: (1) fixtures via q-data draw; (2) team-list URLs via the “Team Lists” topic page
+plus  sitemap  crawling;  (3)  parsing  team-list  articles  into  a  normalised  “named  17/extended  squad  +
+timestamp + source”; (4) monitoring and diffing for late changes; (5) only then add redundancy (club sites,
+media, community archives) and/or licensed feeds. 
+Official and primary English-language sources
+Inventory table of official endpoints and pages
+Effort scale: S (≤1 day), M (2–5 days), L (1–2 weeks), XL (multi-week, usually because of reverse-engineering
+or brittle JS).
+1
+2
+3
+4 5
+6
+1
+
+=== PAGE 2 ===
+
+Candidate
+source URL / endpoint Data fields typically availableHistorical
+coverage
+Access
+method Reliability Rate limits /
+ToS / caveats
+Est.
+engineering
+effort
+Team Lists
+hub
+(canonical
+discovery
+stream)
+https://www.nrl.com/news/
+topic/team-lists/
+Article list: title, section (“Team
+Lists”), publish date/time;
+includes links to team-list
+articles and “Late Mail” items
+At least 2025–
+2026 are
+visible on
+page; back-
+crawl needed
+to confirm
+earliest
+available on
+hub
+HTML (hub/
+listing page)
+High for 
+discovery;
+content
+stable but
+pagination/
+loading
+may
+change
+Subject to
+Terms of Use
+constraints on
+personal/non-
+commercial use
+and
+reproduction
+S–M
+Team list
+article
+(Tuesday
+squads,
+round-
+specific)
+Example: 
+https://www.nrl.com/news/
+2025/08/05/nrl-team-lists-
+round-23/
+Per match: home/away team
+names, player names, roles/
+positions and ordering; article
+timestamp; often includes
+links to casualty/judiciary
+extras
+Confirmed for
+2025–2026;
+use sitemap
+backfill to
+enumerate
+2012–present
+availability
+HTML scrape
+(article body
+markup)
+High
+Terms of Use
+constraints;
+templates can
+drift across
+years
+M
+Current
+season
+opener team
+list article
+(example of
+“special
+round”
+naming)
+https://www.nrl.com/news/
+2026/02/24/nrl-team-lists-
+rugby-league-las-
+vegas-2026/
+As above, plus special event
+context; still a structured
+team list article
+2026 exampleHTML scrapeHigh
+Terms of Use
+constraints;
+naming
+conventions
+vary (“Round X”
+vs event title)
+M
+Draw page
+with
+embedded
+JSON (q-
+data)
+https://www.nrl.com/draw/?
+competition={comp}
+&round={round_number}
+&season={season}
+Embedded JSON includes
+fixtures list with venue, city,
+home/away team objects (incl.
+nicknames, scores), kickoff
+time
+( clock.kickOffTimeLong),
+and matchCentreUrl per
+fixture
+The endpoint
+is
+parameterised
+by season
+and round;
+validate back
+to 2012 by
+test crawl
+HTML fetch +
+parse 
+#vue-draw
+→ q-data
+JSON
+High (if the
+q-data
+pattern
+remains)
+Terms of Use
+constraints;
+needs caching
+and polite
+intervals
+S
+Ladder page
+with
+embedded
+JSON (q-
+data)
+https://www.nrl.com/
+ladder/?competition={comp}
+&round={round_number}
+&season={season}
+Embedded JSON includes
+ladder positions (team
+nickname) and stats (played,
+wins, losses, points for/
+against/diff, points, etc.)
+Similar:
+parameterised
+by season
+and optional 
+round;
+validate back
+to 2012 by
+test crawl
+HTML fetch +
+parse 
+#vue-
+ladder → 
+q-data
+JSON
+High Terms of Use
+constraints S
+2
+
+=== PAGE 3 ===
+
+Candidate
+source URL / endpoint Data fields typically availableHistorical
+coverage
+Access
+method Reliability Rate limits /
+ToS / caveats
+Est.
+engineering
+effort
+Match-
+centre URL
+discovery
+(downstream
+fetch target)
+Derived: https://
+www.nrl.com{matchCentreUrl}
+from draw q-data
+Match centre URL per fixture
+enabling later extraction of
+final team confirmations or
+late changes (actual fields
+depend on match-centre
+payload/template)
+Per-season Derived from
+draw JSON
+High for
+URL
+discovery
+Match-centre
+internal
+structure must
+be probed per
+season; may
+require JS/
+network
+inspection
+M–L
+Clubs
+directory
+(official club-
+site registry)
+https://www.nrl.com/clubs/
+Official club site links (and
+club profile links). Useful for
+building your club-site seed
+list programmatically
+Current HTML scrapeHigh Terms of Use
+constraints S
+Club site
+sitemaps
+(per-club
+URL
+discovery)
+Examples: https://
+www.parraeels.com.au/
+sitemap/current.xml.gz, 
+https://www.warriors.kiwi/
+sitemap/current.xml.gz
+Sitemap URL lists for a club
+site, enabling discovery of
+team list posts and “late mail”
+equivalents hosted on that
+club domain
+“Current”
+view; you’ll
+need
+historical
+sitemaps or
+archive
+crawling for
+older years
+XML
+(gzipped)
+Medium–
+High
+Sitemap format
+stable, but
+“current.xml.gz”
+is not a full
+historical
+archive
+M
+Casualty
+Ward page
+(official
+injury UI)
+https://www.nrl.com/
+casualty-ward/ and filtered
+form like 
+https://www.nrl.com/
+casualty-ward/?
+competition=111&team=500023
+Intended UI fields: player
+name, team, injury, expected
+return; also links to injury
+news articles
+Present;
+historic
+coverage
+unclear
+JS-driven UI
+(HTML shows
+templated
+placeholders;
+data likely
+loaded via
+API)
+Medium
+(UI
+changes;
+bulk
+extraction
+may be
+non-trivial)
+Terms of Use
+constraints;
+page may
+require
+reverse-
+engineering
+the underlying
+data calls
+L
+Terms of Use
+(governs
+scraping and
+reuse)
+https://www.nrl.com/terms-
+of-use
+Key restrictions: personal/
+non-commercial use;
+limitations on reproduction/
+transmission; monitoring and
+access controls reserved to
+operator
+Current page
+last updated
+12 Dec 2017
+Legal text
+page
+High as a
+governing
+document
+Treat as
+binding;
+assume any
+production/
+commercial use
+needs explicit
+permission/
+licensing
+S
+Evidence for the q-data strategy is direct: fixture code in the nrlR package scrapes the draw page and
+reads  #vue-draw’s  q-data JSON (fromJSON(q-data)), then uses  fixtures$matchCentreUrl to
+build match-centre links.  Ladder extraction uses the same technique on #vue-ladder. 7 8
+3
+
+=== PAGE 4 ===
+
+Evidence  that  team-list  articles  carry  an  internal  timestamp  is  visible  on  official  team  list  pages  (e.g.,
+“Timestamp Tue 22 Jul 2025, 03:59 PM”). 
+Competition IDs used by official NRL draw/ladder parameters
+The draw/ladder endpoints use a  competition query parameter . A practical mapping (used by  nrlR)
+includes 111 → NRL and IDs for State of Origin and other comps. This is useful when you want to monitor
+multiple competitions consistently (NRL, NRLW, Origin). 
+Commercial and licensed feeds
+Commercial feeds become attractive when you need (a) stable IDs across years, (b) guaranteed uptime and
+SLAs, (c) explicit rights to use the data in a product, and (d) richer metadata (team lists as structured objects,
+player IDs, injury status, late swaps) than you can reliably infer from web pages.
+Inventory table of commercial/licensed options
+Candidate
+source URL / endpoint Data fields typically
+available
+Historical
+coverage
+Access
+method Reliability
+Rate limits /
+ToS / licensing
+caveats
+Est.
+engineering
+effort
+Stats Perform
+ rugby
+league products
+(official partner
+positioning)
+https://
+www.statsperform.com/
+team-performance/
+rugby-league/
+Marketed coverage
+includes
+comprehensive match
+and performance data;
+live and post-game
+products; may include
+IDs and richer feeds
+depending on contract
+Varies by
+contract
+Commercial
+API/feed
+(JSON/XML)
+High
+(commercial
+provider)
+Requires
+contract;
+access/pricing
+via sales; use
+governed by
+licence
+L–XL
+Official-data-
+provider
+announcements
+(context for
+procurement)
+https://
+www.statsperform.com/
+press/national-rugby-
+league-names-stats-
+official-data-
+provider/ and
+partnership messaging 
+https://
+www.statsperform.com/
+2024/07/stats-
+perform-
+celebrates-10-years-
+as-the-official-data-
+partner-of-the-nrl/
+Confirms official data
+partner relationship
+(useful for
+procurement
+justification)
+2018 onward
+(announcement
+history)
+Reference/
+material
+High as
+contextual
+evidence
+Not a data
+endpoint;
+supports
+vendor
+selection
+rationale
+S
+9
+10
+4
+4
+
+=== PAGE 5 ===
+
+Candidate
+source URL / endpoint Data fields typically
+available
+Historical
+coverage
+Access
+method Reliability
+Rate limits /
+ToS / licensing
+caveats
+Est.
+engineering
+effort
+Stats Perform
+acquisition/
+contact
+guidance
+https://
+www.statsperform.com/
+stats-perform-faqs-
+apis-and-data-
+delivery/
+Explains delivery
+modes (APIs, feeds),
+formats (JSON/XML),
+and directs to sales for
+access/pricing
+Current Procurement
+guidance High
+Requires sales
+contact;
+licensing
+governs use;
+rate limits
+depend on plan
+S
+STATS “Rugby
+League Web
+Service” (likely
+gated)
+https://rugbyleague-
+api.stats.com/
+Appears to describe
+endpoints (e.g.,
+squads/players in
+season)
+Unknown Commercial
+API
+Likely high
+if licensed
+Treat as
+undocumented/
+gated until
+contract grants
+documentation
+and credentials
+L
+Champion Data
+ match-
+centre JSON
+endpoints
+(publicly
+reachable,
+status unclear)
+https://
+mc.championdata.com/
+data/
+competitions.json
+and https://
+mc.championdata.com/
+data/{comp}/
+fixture.json and 
+https://
+mc.championdata.com/
+data/{comp}/
+{match_id}.json
+competitions.json
+provides competition
+IDs; fixture.json
+provides per-match IDs
+and squads; per-match
+JSON includes 
+matchStats with 
+playerStats and 
+playerInfo
+including playerId,
+names, and display
+names
+Depends on
+what
+competitions
+and seasons
+are published
+under a comp
+id
+JSON fetch
+Medium–
+High
+technically,
+but
+operational/
+legal risk if
+terms
+disallow
+Licensing status
+for these
+endpoints is
+unclear; treat as
+potentially
+subject to
+contractual
+restrictions
+even if
+reachable
+M–L
+Sportradar
+Rugby League
+API
+https://
+www.postman.com/
+sportradar-media-
+apis/sportradar-
+media-apis/
+collection/v6db9ub/
+sportradar-rugby-
+league-v3
+Marketed: real-time
+scoring, match stats
+(when available),
+seasons/competitions/
+teams/players; push
+feeds for real-time
+plans
+Varies by
+coverage tier
+Commercial
+API High
+Requires key/
+licence; rate
+limits plan-
+dependent
+L
+The most concrete, developer-friendly “structured” option you can start experimenting with immediately is
+the Champion Data JSON family of endpoints listed above, because they are straightforward JSON URLs and
+include  playerId and fixture  matchId. Those exact endpoints and join logic are visible in the open-
+source nrlR code. 
+That said, the legal posture differs between “technically reachable” and “permitted to use”. The Terms of Use
+for the NRL web properties explicitly restrict use to personal, non-commercial use and restrict reproduction
+11
+12
+13
+5
+
+=== PAGE 6 ===
+
+without consent. Apply a similar caution to any third-party endpoints until you have explicit licence terms.
+Community tools and secondary fallback sources
+Secondary sources are mainly valuable for redundancy (when an official page template breaks), gap-filling
+for older seasons, and cross-checking late changes when official sources lag.
+Inventory table of community and fallback sources
+Candidate
+source URL / endpoint
+Data fields
+typically
+available
+Historical
+coverage
+Access
+method Reliability Rate limits / ToS
+/ caveats
+Est.
+engineering
+effort
+nrlR codebase
+and package
+docs (documents
+working
+endpoints)
+Code excerpts via rdrr.io, e.g. draw
+parsing 
+https://rdrr.io/cran/nrlR/src/R/
+fetch_fixture.R
+Demonstrates
+how to scrape
+NRL draw/
+ladder q-
+data, and
+how to parse
+team list
+articles; also
+documents
+Champion
+Data JSON
+endpoints
+Current
+package
+(published
+2025)
+Reference/
+code
+High as a 
+reference,
+not an
+official
+source
+Not affiliated;
+treat as
+implementation
+guidance not
+legal
+permission
+S
+Rugby League
+Project
+season/
+competition
+pages
+https://
+www.rugbyleagueproject.org/
+competitions/nrl/summary.html
+and team index https://
+www.rugbyleagueproject.org/
+competitions/nrl/teams.html
+Season
+summaries,
+teams,
+historical
+stats; site
+positions
+itself as an
+archive of
+historical
+results
+Very broad
+(claims
+back to
+1908 for
+history
+pages)
+HTML
+scrape
+Medium
+(community-
+maintained;
+good for
+history, but
+not “official”)
+Must respect
+site’s terms/
+robots; validate
+against official
+sources
+M
+Fox Sports
+Australia
+team-list
+coverage
+Example: https://
+www.foxsports.com.au/nrl/nrl-
+premiership/nrl-2025-round-1-
+team-lists-ins-and-outs-squads-
+eels-roosters-cowboys-debutants-
+cory-paix-broncos-michael-
+maguire-news-videos/news-story/
+3fa438ba9662fb7e6629c79d291a70f2
+Typically
+publishes full
+lists (1–17,
+extended
+bench) with
+commentary;
+timestamps
+Multi-year
+HTML
+scrape
+(often
+heavy
+scripts/
+ads)
+Medium
+ToS/paywall/
+ads; content
+can be
+rewritten or
+updated
+without strong
+versioning
+M–L
+3
+14
+15
+6
+
+=== PAGE 7 ===
+
+Candidate
+source URL / endpoint
+Data fields
+typically
+available
+Historical
+coverage
+Access
+method Reliability Rate limits / ToS
+/ caveats
+Est.
+engineering
+effort
+The Roar
+team-list tags
+https://www.theroar.com.au/tag/
+nrl-team-lists/ and https://
+www.theroar.com.au/tag/nrl-team-
+list-tuesday/
+Aggregated
+posts about
+team lists;
+often includes
+per-team lists
+embedded in
+article text
+Multi-year HTML
+scrape Medium
+Opinion-driven;
+formatting
+varies; not
+authoritative
+M
+Zero Tackle team
+lists
+https://www.zerotackle.com/nrl/
+team-lists/
+Round-by-
+round lists
+and updates
+Current
+seasons
+emphasised
+HTML
+scrape Medium Not official; use
+for redundancyS–M
+LeagueUnlimited
+“Teamlist
+Tuesday”
+aggregation
+(timing
+reference)
+https://leagueunlimited.com/
+news/leagueunlimited-nrl-
+teams-2025-round-18/
+Text indicates
+the cadence
+(“from 4pm
+each
+Tuesday”) and
+presents
+compiled lists
+Multi-year HTML
+scrape Medium
+Not official; use
+only as a timing
+hint and
+backup
+S–M
+GitHub
+repos
+documenting
+scraping practice
+Example: https://github.com/
+beauhobba/NRL-Data
+Shows
+Selenium/
+requests
+scraping
+patterns and
+a workflow
+structure
+(manual/
+weekly in
+README)
+Project-
+specific
+Reference/
+code Medium
+Not a data
+source; treat as
+engineering
+patterns
+S
+The  nrlR fixture  function  is  particularly  valuable  because  it  explicitly  shows  that
+https://www.nrl.com/draw/ contains a #vue-draw node with a q-data JSON payload, which is the
+key to scraping without a headless browser . 
+The community archive site positions itself as “an archive of historical rugby league results” and provides
+competition summary pages and team indexes that can help validate team names and historical club
+identities. 
+16
+17
+7
+18
+7
+
+=== PAGE 8 ===
+
+Implementation guidance for data acquisition
+Discovering historical team list URLs (2012–present)
+Sitemap-driven enumeration is the most robust way to backfill 2012–present because it doesn’t assume
+today’s topic pages include older content.
+NRL  publishes  a  sitemap  location  in  robots.txt,  which  gives  you  a  stable  starting  point  for  URL
+discovery. 
+The sitemap index itself references multiple gzipped sitemap shards and a current.xml.gz feed (useful
+for incremental monitoring). 
+A practical backfill strategy is to download each referenced .xml.gz, extract URLs, and filter by patterns
+like: - /news/ AND (team-lists OR late-mail), for the official team list and late change articles. 
+For upcoming rounds, the “Team Lists” topic hub is your highest-signal feed for new team list pages and
+late mail entries. 
+Scraping strategies for JS-driven pages
+The single best tactic on NRL pages is to  avoid rendering and instead  extract embedded JSON when
+present.
+Fixture and match-centre URL discovery can be done by reading the  q-data attribute on  #vue-draw
+from  the  draw  endpoint:  -  https://www.nrl.com/draw/?competition={comp}
+&round={round_number}&season={season} -  Parse  q-data into  JSON.  -  Read
+fixtures[*].matchCentreUrl to build match-centre URLs. 
+Ladder extraction works the same way via #vue-ladder and its q-data. 
+Team list articles themselves are scrape-friendly HTML pages. The nrlR implementation demonstrates a
+selector-based approach that identifies each game header (match-header) and then reads  li.team-
+list items to extract home/away player names and roles. 
+Some pages appear to be JS-driven without embedding  q-data in the initial HTML. The Casualty Ward
+page shows templated placeholders and error messaging in the HTML served to non-JS clients, which
+strongly suggests the data is loaded from an API call at runtime. 
+When a page behaves like Casualty Ward, there are three escalating options: 1.  Reverse-engineer JSON
+endpoints by capturing network calls once (browser devtools) and then reproduce them with requests
+plus caching and headers. 2. Use a headless browser only for the “API discovery” step, then revert to direct
+JSON calls. 3. If the endpoint is private or volatile, fall back to scraping the linked injury-news articles, which
+are stable HTML pages. 
+19
+20
+21
+22
+7
+8
+23
+24
+25
+8
+
+=== PAGE 9 ===
+
+Entity resolution and IDs
+Stable IDs are the main difference between “a scraper that works today” and “a dataset you can train on for
+2012–present”.
+If you consume the Champion Data JSONs, playerId is included alongside player names (firstname, 
+surname, displayName), and fixtures provide matchId, homeSquadId, and awaySquadId. This is
+the fastest route to a consistent cross-season identity graph, assuming you have the rights to use the data.
+If  you  scrape  team  list  articles,  you  should  assume  you’ll  initially  see  only  names  and  roles.  A  robust
+resolution strategy is: - Create a canonical player table with your own surrogate key. - Attach multiple
+external identifiers when you have them (e.g., Champion Data playerId, NRL player-page slug, historical
+aliases). - Maintain an alias table (name_variant,  from,  to,  effective_dates) for spelling and
+diacritics  (e.g.,  apostrophes).  This  is  motivated  by  the  fact  that  public  sites  mix  display  names  and
+abbreviated forms. 
+Timestamping, versioning, and change capture
+Team  list  data  is  inherently  versioned.  Your  storage  should  preserve:  -  source_url -
+source_published_at (from the article’s timestamp where available) - scraped_at - raw_html (or
+raw  JSON)  -  parsed_payload (normalised  roster  object)  -  content_hash and/or
+diff_from_previous
+Because NRL Terms of Use explicitly reserve the right to modify the network and content, and note that
+availability is not guaranteed, you should treat breakage as normal and engineer for easy reprocessing. 
+Handling template drift
+Template drift is easiest to manage if you test parsers against representative pages from different eras: -
+modern round team lists (e.g., 2025 and 2026 examples), - late mail pages from finals, - and at least one
+older team list page once your sitemap backfill finds them. 
+Unit-test  the  parsing  logic,  and  keep  a  “known-good  HTML  fixture”  corpus.  The  nrlR package  itself
+includes tests for fixtures, ladders, and lineups, which is a useful pattern to emulate even if you write your
+own pipeline. 
+Monitoring and automation blueprint for weekly capture
+Ingestion and monitoring pipeline
+flowchart LR
+  A[Scheduler] --> B[Fetch draw q-data<br/>season/round/comp]
+  B --> C[Extract fixtures + matchCentreUrl]
+  C --> D[Discover team-list URLs<br/>Topic hub + sitemap deltas]
+  D --> E[Fetch team-list articles]
+13
+13
+26
+3
+21
+27
+9
+
+=== PAGE 10 ===
+
+  E --> F[Parse to normalised roster model<br/>home/away, slot, jersey, role]
+  C --> G[Fetch match-centre pages<br/>(optional for final 17)]
+  G --> H[Parse lineups/confirmed teams<br/>(if extractable)]
+  F --> I[(Raw store: HTML/JSON snapshots)]
+  H --> I
+  I --> J[Versioning + diff engine<br/>hash, field-level changes]
+  J --> K[(Warehouse feature tables)]
+  J --> L[Alerting<br/>Slack/email/webhook]
+Practical scheduling design for “Thursday/24h/final-17” inference
+A match-centric schedule works better than a single weekly cron, because the round spans multiple days.
+A minimal schedule is: - Initial capture: when the official team list article is published on Tuesday (widely
+reported as “Teamlist Tuesday”, commonly 4pm; use as a starting heuristic). 
+-  Pre-match refresh: run an automatic refetch and diff at a fixed offset (e.g., 24 hours pre kick-off per
+fixture), using the fixture kickoff time from draw q-data. 
+-  Final  refresh:  refetch  shortly  before  kick-off  (e.g.,  60–120  minutes)  and  on  kick-off  for  a  definitive
+snapshot. This is where match-centre parsing (if feasible) usually produces the cleanest “final 17” record,
+because it is aligned to the game object rather than a news article. 
+When  official  sources  fail  or  lag,  you  can  cross-check  with  secondary  round  aggregators  (media  or
+community), but treat them as non-authoritative and record provenance. 
+Automation mechanics: diffing, webhooks, and polling
+Diffing  should  operate  on  a  canonical  representation  (e.g.,  team_id,  player_id,  named_slot, 
+status) rather than raw text, so that formatting edits don’t look like roster changes.
+For event propagation: - Convert “diff detected” into a webhook call to your model-inference service (or
+queue message). - Keep a human-readable “change log” for auditability (“Player X moved from 18th to 14;
+player Y omitted”). 
+If you adopt RSS/Atom feeds (where available), WebSub is a standard pattern to push updates rather than
+poll, but it depends on the publisher supporting it. 
+Prioritised checklist of minimum viable sources and add-ons
+A minimum viable, mostly-official pipeline can start without any headless browsing.
+First  build:  -  Pull  fixtures  and  match-centre  URLs  from  https://www.nrl.com/draw/?
+competition={comp}&round={round}&season={season} by extracting #vue-drawq-data. 
+- Pull team list URLs from  https://www.nrl.com/news/topic/team-lists/ and then scrape each
+team-list article into a structured roster snapshot. 
+- Backfill history by crawling NRL sitemaps (discover via robots.txt → sitemap index → gz shards) and
+filtering for team-lists and late-mail URL patterns. 
+28
+7
+7
+29
+30
+7
+31
+32
+10
+
+=== PAGE 11 ===
+
+-  Store  snapshots  with  timestamps  and  diff  them  to  detect  changes.  Use  the  article  timestamp  when
+present. 
+Then add-ons: - Pull official club-site domains from https://www.nrl.com/clubs/, then discover each
+club’s team list announcements via their sitemap feeds (e.g., /sitemap/current.xml.gz). 
+- Attempt match-centre parsing for “final 17” snapshots, using match-centre URLs derived from draw  q-
+data. 
+- If you need injuries in a structured form, either reverse-engineer the Casualty Ward data calls (because the
+non-JS HTML doesn’t expose the table) or rely on the linked injury news articles as a stable proxy. 
+- If your use case is commercial or redistributed, move to licensed feeds (Stats Perform and/or Champion
+Data) to align with rights, stability, and consistent IDs. 
+Risks to flag early: - Legal risk if you reuse or redistribute scraped NRL content outside “personal, non-
+commercial use”. 
+- Breakage risk on JS-only pages (Casualty Ward) and on hub pagination mechanisms. 
+- Entity-resolution risk if you rely only on player names without IDs across 2012–present. 
+https://rdrr .io/cran/nrlR/src/R/fetch_fixture.R
+https://rdrr .io/cran/nrlR/src/R/fetch_fixture.R
+https://www.nrl.com/news/topic/team-lists/
+https://www.nrl.com/news/topic/team-lists/
+https://www.nrl.com/terms-of-use
+https://www.nrl.com/terms-of-use
+https://www.statsperform.com/resource/nrl-and-stats-perform/
+https://www.statsperform.com/resource/nrl-and-stats-perform/
+https://rdrr .io/cran/nrlR/src/R/fetch_ladder .R
+https://rdrr .io/cran/nrlR/src/R/fetch_ladder .R
+https://www.nrl.com/news/2025/07/22/nrl-team-lists-round-21/
+https://www.nrl.com/news/2025/07/22/nrl-team-lists-round-21/
+https://rdrr .io/cran/nrlR/src/R/helper-fetch-fixture.R
+https://rdrr .io/cran/nrlR/src/R/helper-fetch-fixture.R
+https://rdrr .io/cran/nrlR/src/R/fetch_player_stats.R
+https://rdrr .io/cran/nrlR/src/R/fetch_player_stats.R
+https://www.rugbyleagueproject.org/
+https://www.rugbyleagueproject.org/
+https://www.nrl.com/robots.txt
+https://www.nrl.com/robots.txt
+https://www.nrl.com/sitemap/sitemap.xml
+https://www.nrl.com/sitemap/sitemap.xml
+https://www.nrl.com/news/2025/08/05/nrl-team-lists-round-23/
+https://www.nrl.com/news/2025/08/05/nrl-team-lists-round-23/
+9
+33
+7
+24
+34
+3
+35
+13
+1 7
+2 6 14 22 31
+3 4 15 16 34
+5
+8 17
+9 11 26
+10
+12 13
+18
+19 32
+20
+21
+11
+
+=== PAGE 12 ===
+
+https://rdrr .io/cran/nrlR/src/R/fetch_lineup.R
+https://rdrr .io/cran/nrlR/src/R/fetch_lineup.R
+https://www.nrl.com/casualty-ward/
+https://www.nrl.com/casualty-ward/
+https://rdrr .io/cran/nrlR/f/
+https://rdrr .io/cran/nrlR/f/
+https://leagueunlimited.com/news/leagueunlimited-nrl-teams-2025-round-18/
+https://leagueunlimited.com/news/leagueunlimited-nrl-teams-2025-round-18/
+https://www.foxsports.com.au/nrl/nrl-premiership/nrl-2025-round-1-team-lists-ins-and-outs-squads-
+eels-roosters-cowboys-debutants-cory-paix-broncos-michael-maguire-news-videos/news-story/
+3fa438ba9662fb7e6629c79d291a70f2
+https://www.foxsports.com.au/nrl/nrl-premiership/nrl-2025-round-1-team-lists-ins-and-outs-squads-eels-roosters-cowboys-
+debutants-cory-paix-broncos-michael-maguire-news-videos/news-story/3fa438ba9662fb7e6629c79d291a70f2
+https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap
+https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap
+https://www.nrl.com/clubs/
+https://www.nrl.com/clubs/
+23
+24 25 35
+27
+28
+29
+30
+33
+12
