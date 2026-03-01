@@ -26,9 +26,21 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 def sanitize_feature_names(names):
     """
-    Replace any non-alphanumeric or underscore characters with underscore.
+    Replace any non-alphanumeric or underscore characters with underscore,
+    then enforce uniqueness for downstream libraries like LightGBM.
     """
-    return [re.sub(r'[^0-9a-zA-Z_]', '_', name) for name in names]
+    sanitized = []
+    seen = {}
+    for name in names:
+        base = re.sub(r'[^0-9a-zA-Z_]', '_', name)
+        count = seen.get(base, 0)
+        if count == 0:
+            sanitized_name = base
+        else:
+            sanitized_name = f"{base}__dup{count}"
+        seen[base] = count + 1
+        sanitized.append(sanitized_name)
+    return sanitized
 
 
 def get_training_data(db_path, sql_file):
