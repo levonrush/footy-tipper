@@ -31,13 +31,15 @@ sapply(data_prep_functions, source, .GlobalEnv)
 
 print(paste0("Prep mode: ", prep_mode))
 print(paste0("Season scope: ", min(year_span), " to ", max(year_span)))
+db_path <- here("data", "footy-tipper-db.sqlite")
 
 # Run the data pipeline function (defined in one of the helper files) with specified parameters
 print("Running the data pipeline...")
 pipeline_data <- data_pipeline(
     year_span, pipeline = "binomial",
     form_period, carry_over, k_val,
-    elo_init, use_odds, include_performance, prep_mode
+    elo_init, use_odds, include_performance, prep_mode,
+    db_path = db_path
 )
 
 # Separate the datasets from the pipeline
@@ -48,7 +50,7 @@ inference_data <- pipeline_data[["inference_data"]]
 
 # Connect to the SQLite database located in '/data/footy-tipper-db.sqlite'
 print("Connecting to the SQLite database...")
-con <- dbConnect(SQLite(), paste0(here(), "/data/footy-tipper-db.sqlite"))
+con <- dbConnect(SQLite(), db_path)
 
 # Write processed data to SQLite.
 # - full/train: overwrite all prepared tables.

@@ -452,10 +452,21 @@ def _add_prep_mode_args(
     choices=("full", "train", "infer"),
     include_infer_context_arg=True,
 ):
-    if "infer" in choices:
+    if "train" in choices and "infer" in choices:
         prep_help = (
-            "Data prep strategy. full/train rebuild tables from configured season range; "
-            "infer limits season scope and performs incremental upserts."
+            "Data prep strategy. full forces a fresh API pull for all requested seasons; "
+            "train rebuilds prepared tables after a smart cache refresh of missing/current seasons; "
+            "infer limits season scope and performs incremental upserts using the same smart refresh."
+        )
+    elif "train" in choices:
+        prep_help = (
+            "Data prep strategy. full forces a fresh API pull for all requested seasons; "
+            "train rebuilds prepared tables after a smart cache refresh of missing/current seasons."
+        )
+    elif "infer" in choices:
+        prep_help = (
+            "Data prep strategy. full forces a fresh API pull for all requested seasons in scope; "
+            "infer limits season scope and performs incremental upserts using smart cache refresh."
         )
     else:
         prep_help = "Data prep strategy for this command."
@@ -547,7 +558,7 @@ def build_parser():
     _add_season_args(train)
     _add_prep_mode_args(
         train,
-        default_mode="full",
+        default_mode="train",
         choices=("full", "train"),
         include_infer_context_arg=False,
     )

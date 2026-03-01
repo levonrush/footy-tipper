@@ -240,95 +240,118 @@ get_year_performance <- function(password, year){
   return(year_performance)
 }
 
-# A function to extract all ladder data within a specific year span
-get_ladders <- function(password, year_span){
-  
-  every_ladder <- list()
-  
-  for (year in year_span){
-    
-    # Get the ladder data for each year and store it in the 'every_ladder' list
-    table <- get_year_ladder(password, year)
-    if (nrow(table) > 0){
-      every_ladder[[as.character(year)]] <- table
-    }
-    
+fetch_fixture_year <- function(password, year){
+  base_url <- Sys.getenv("BASE_URL")
+  fixtures_ext <- Sys.getenv("NRL_FIXTURES_EXTENTION")
+
+  fixtures_xml <- read_feed_xml(
+    paste0("http://", password, base_url, fixtures_ext, year),
+    password,
+    context_message = paste0("Get Data: No fixture feed available for ", year, "."),
+    log_error = TRUE
+  )
+  if (is.null(fixtures_xml)) {
+    return(NULL)
   }
-  
-  if (length(every_ladder) == 0){
-    return(tibble())
-  }
-  
-  ladder_df <- bind_rows(every_ladder)
-  
-  return(ladder_df)
-  
+
+  fixture_info <- get_fixture_info(fixtures_xml)
+  game_results <- get_game_results(fixtures_xml)
+
+  fixture_info %>%
+    inner_join(game_results, by = "gameId") %>%
+    mutate(competition_year = year) %>%
+    clean_names() %>%
+    type_convert()
 }
 
-# A function to extract all performance data within a specific year span
-get_performance <- function(password, year_span){
-  
-  every_performance <- list()
-  
-  for (year in year_span){
-    
-    # Get the performance data for each year and store it in the 'every_performance' list
-    table <- get_year_performance(password, year)
-    if (nrow(table) > 0){
-      every_performance[[as.character(year)]] <- table
-    }
-    
+fetch_ladder_year <- function(password, year){
+  table <- get_year_ladder(password, year)
+  if (nrow(table) == 0) {
+    return(NULL)
   }
-  
-  if (length(every_performance) == 0){
-    return(tibble())
+
+  table %>%
+    clean_names() %>%
+    type_convert()
+}
+
+fetch_performance_year <- function(password, year){
+  table <- get_year_performance(password, year)
+  if (nrow(table) == 0) {
+    return(NULL)
   }
-  
-  performance_df <- bind_rows(every_performance)
-  
-  return(performance_df)
-  
+
+  table %>%
+    clean_names() %>%
+    type_convert()
 }
 
 # The main function to extract all data
-get_data <- function(year_span, include_performance = TRUE){
+get_data <- function(year_span, include_performance = TRUE, prep_mode = "full", db_path = NULL){
   
   password <- Sys.getenv("PASSWORD")
-  base_url <- Sys.getenv("BASE_URL")
-  fixtures_ext <- Sys.getenv("NRL_FIXTURES_EXTENTION")
-  
-  print("Get Data: Fetching fixture data...")
-  
-  # Fetch fixture data for each year. Missing future seasons are skipped.
-  all_fixtures <- list()
-  available_years <- c()
-  for (year in year_span){
-    fixtures_xml <- read_feed_xml(
-      paste0("http://", password, base_url, fixtures_ext, year),
-      password,
-      context_message = paste0("Get Data: No fixture feed available for ", year, ". Skipping year."),
-      log_error = TRUE
-    )
-    if (is.null(fixtures_xml)) next
-    
-    fixture_info <- get_fixture_info(fixtures_xml)
-    game_results <- get_game_results(fixtures_xml)
-    
-    all_fixtures[[as.character(year)]] <- fixture_info %>% 
-      inner_join(game_results, by = "gameId") %>% 
-      mutate(competition_year = year)
-    available_years <- c(available_years, year)
+  if (is.null(db_path) || !nzchar(db_path)) {
+    stop("Get Data: db_path is required for feed cache access.")
   }
-  
-  if (length(all_fixtures) == 0){
+
+  refresh_mode <- if (tolower(prep_mode) == "full") "full" else "smart"
+  current_year <- as.integer(format(Sys.Date(), "%Y"))
+  requested_years <- normalize_year_vector(year_span)
+
+  con <- dbConnect(SQLite(), db_path)
+  on.exit(dbDisconnect(con), add = TRUE)
+
+  print(paste0("Get Data: Feed refresh mode = ", refresh_mode))
+  print("Get Data: Fetching fixture data...")
+
+  fixture_cache_table <- feed_cache_table_name("fixtures")
+  cached_fixtures <- load_cached_feed(con, fixture_cache_table, requested_years)
+  fixture_refresh_years <- resolve_fixture_refresh_years(
+    requested_years,
+    cached_fixtures$competition_year,
+    current_year,
+    refresh_mode = refresh_mode
+  )
+  print(paste0("Get Data: Fixture refresh years = ", format_year_vector(fixture_refresh_years)))
+  refresh_feed_cache_years(
+    con,
+    fixture_cache_table,
+    fixture_refresh_years,
+    function(year) fetch_fixture_year(password, year),
+    "fixture"
+  )
+
+  fixtures_df <- load_cached_feed(con, fixture_cache_table, requested_years)
+  if (nrow(fixtures_df) == 0){
     stop("Get Data: No fixture data available for the configured year span.")
   }
-  
-  fixtures_df <- bind_rows(all_fixtures) %>% clean_names() %>% type_convert()
-  available_years <- sort(unique(available_years))
-  
+
+  available_years <- normalize_year_vector(fixtures_df$competition_year)
+  print(paste0("Get Data: Loaded fixture cache for seasons ", format_year_vector(available_years)))
+
   print("Get Data: Fetching ladder data...")
-  ladders_raw <- get_ladders(password, available_years)
+  ladder_cache_table <- feed_cache_table_name("ladders")
+  cached_ladders <- load_cached_feed(con, ladder_cache_table, available_years)
+  fixture_rounds <- year_max_round_lookup(fixtures_df)
+  cached_ladder_rounds <- year_max_round_lookup(cached_ladders)
+  ladder_refresh_years <- resolve_ladder_refresh_years(
+    available_years,
+    cached_ladders$competition_year,
+    fixture_rounds,
+    cached_ladder_rounds,
+    current_year,
+    refresh_mode = refresh_mode
+  )
+  print(paste0("Get Data: Ladder refresh years = ", format_year_vector(ladder_refresh_years)))
+  refresh_feed_cache_years(
+    con,
+    ladder_cache_table,
+    ladder_refresh_years,
+    function(year) fetch_ladder_year(password, year),
+    "ladder"
+  )
+
+  ladders_raw <- load_cached_feed(con, ladder_cache_table, available_years)
   if (nrow(ladders_raw) == 0){
     stop("Get Data: No ladder data available for available fixture years.")
   }
@@ -371,15 +394,32 @@ get_data <- function(year_span, include_performance = TRUE){
   
   if(include_performance){
     print("Get Data: Fetching performance data...")
-    performance_df <- get_performance(password, available_years)
+    performance_cache_table <- feed_cache_table_name("performance")
+    cached_performance <- load_cached_feed(con, performance_cache_table, available_years)
+    final_fixture_rounds <- year_max_round_lookup(fixtures_df, state_name = "Final")
+    cached_performance_rounds <- year_max_round_lookup(cached_performance)
+    performance_refresh_years <- resolve_performance_refresh_years(
+      available_years,
+      cached_performance$competition_year,
+      final_fixture_rounds,
+      cached_performance_rounds,
+      current_year,
+      refresh_mode = refresh_mode
+    )
+    print(paste0("Get Data: Performance refresh years = ", format_year_vector(performance_refresh_years)))
+    refresh_feed_cache_years(
+      con,
+      performance_cache_table,
+      performance_refresh_years,
+      function(year) fetch_performance_year(password, year),
+      "performance"
+    )
+
+    performance_df <- load_cached_feed(con, performance_cache_table, available_years)
     
     if (nrow(performance_df) == 0){
       stop("Get Data: include_performance is TRUE but no performance data is available. Set FOOTY_TIPPER_INCLUDE_PERFORMANCE=false to run without these features.")
     }
-    
-    performance_df <- performance_df %>%
-      clean_names() %>%
-      type_convert()
     
     # Ensure all necessary columns are numeric
     numeric_cols <- names(performance_df)[sapply(performance_df, is.numeric)]
