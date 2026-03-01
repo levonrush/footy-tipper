@@ -298,6 +298,21 @@ def load_models(model_name, project_root):
     return pipeline
 
 
+def _ensure_prediction_table_columns(con):
+    expected_columns = {
+        "draw_prob": "REAL",
+        "bayes_factor": "REAL",
+        "evidence_strength": "TEXT",
+        "predicted_home_score": "INTEGER",
+        "predicted_away_score": "INTEGER",
+        "predicted_margin": "INTEGER",
+    }
+    existing_columns = {row[1] for row in con.execute("PRAGMA table_info(predictions_table)").fetchall()}
+    for column_name, column_ddl in expected_columns.items():
+        if column_name not in existing_columns:
+            con.execute(f"ALTER TABLE predictions_table ADD COLUMN {column_name} {column_ddl}")
+
+
 def save_predictions_to_db(predictions_df, db_path, create_table_sql_file, insert_into_table_sql_file):
     print("Saving predictions to database...")
     con = sqlite3.connect(str(db_path))
@@ -305,6 +320,7 @@ def save_predictions_to_db(predictions_df, db_path, create_table_sql_file, inser
     with open(create_table_sql_file, "r") as file:
         create_table_query = file.read()
     con.execute(create_table_query)
+    _ensure_prediction_table_columns(con)
 
     with open(insert_into_table_sql_file, "r") as file:
         insert_into_table_query = file.read()
@@ -317,6 +333,12 @@ def save_predictions_to_db(predictions_df, db_path, create_table_sql_file, inser
                 row["home_team_result"],
                 row["home_team_win_prob"],
                 row["home_team_lose_prob"],
+                row["draw_prob"],
+                row["bayes_factor"],
+                row["evidence_strength"],
+                row["predicted_home_score"],
+                row["predicted_away_score"],
+                row["predicted_margin"],
             ),
         )
 

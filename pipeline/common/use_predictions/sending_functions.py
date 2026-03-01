@@ -33,11 +33,15 @@ except Exception:
 # The 'get_predictions' function reads the predictions from the SQLite database and returns them as a pandas DataFrame.
 def get_predictions(db_path, project_root):
     con = sqlite3.connect(str(db_path))
+    with open(project_root / 'pipeline/common' / 'sql/create_table.sql', 'r') as file:
+        create_table_query = file.read()
+    con.execute(create_table_query)
+    _ensure_predictions_table_columns(con)
     with open(project_root / 'pipeline/common' / 'sql/prediction_table.sql', 'r') as file:
         query = file.read()
     predictions = pd.read_sql_query(query, con)
     con.close()
-    return predictions
+    return _sort_predictions_for_display(predictions)
 
 
 def _load_json_file(path):
@@ -954,6 +958,95 @@ def _format_number(value, decimals=2):
     return f"{float(numeric):.{decimals}f}"
 
 
+def _ensure_predictions_table_columns(con):
+    expected_columns = {
+        "draw_prob": "REAL",
+        "bayes_factor": "REAL",
+        "evidence_strength": "TEXT",
+        "predicted_home_score": "INTEGER",
+        "predicted_away_score": "INTEGER",
+        "predicted_margin": "INTEGER",
+    }
+    existing_columns = {row[1] for row in con.execute("PRAGMA table_info(predictions_table)").fetchall()}
+    for column_name, column_ddl in expected_columns.items():
+        if column_name not in existing_columns:
+            con.execute(f"ALTER TABLE predictions_table ADD COLUMN {column_name} {column_ddl}")
+
+
+def _coerce_int(value):
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return None
+    return int(round(float(numeric)))
+
+
+def _sort_predictions_for_display(predictions):
+    if predictions.empty:
+        return predictions.copy()
+
+    sort_columns = [column for column in ("start_time", "game_number", "game_id") if column in predictions.columns]
+    if not sort_columns:
+        return predictions.reset_index(drop=True)
+
+    ordered = predictions.copy()
+    helper_columns = []
+    for column in sort_columns:
+        helper_column = f"__sort_{column}"
+        helper_columns.append(helper_column)
+        ordered[helper_column] = pd.to_numeric(ordered[column], errors="coerce")
+
+    ordered = ordered.sort_values(helper_columns, kind="stable", na_position="last")
+    return ordered.drop(columns=helper_columns, errors="ignore").reset_index(drop=True)
+
+
+def _prediction_winner(row):
+    return row["team_home"] if row.get("home_team_result") == "Win" else row["team_away"]
+
+
+def _format_predicted_score_numbers(row):
+    home_score = _coerce_int(row.get("predicted_home_score"))
+    away_score = _coerce_int(row.get("predicted_away_score"))
+    if home_score is None or away_score is None:
+        return "n/a"
+    return f"{home_score}-{away_score}"
+
+
+def _format_predicted_scoreline(row):
+    score_numbers = _format_predicted_score_numbers(row)
+    if score_numbers == "n/a":
+        return "Score tip unavailable"
+    return f"{row['team_home']} {score_numbers} {row['team_away']}"
+
+
+def _format_predicted_margin(row):
+    margin = _coerce_int(row.get("predicted_margin"))
+    if margin is None:
+        return "n/a"
+    if margin == 0:
+        return "Draw"
+    return f"{_prediction_winner(row)} by {abs(margin)}"
+
+
+def _first_game_callout(predictions):
+    if predictions.empty:
+        return None
+
+    first_game = predictions.iloc[0]
+    is_home_tip = first_game.get("home_team_result") == "Win"
+    tip_probability = (
+        first_game.get("home_team_win_prob")
+        if is_home_tip
+        else first_game.get("home_team_lose_prob")
+    )
+    return {
+        "fixture": f"{first_game['team_home']} vs {first_game['team_away']}",
+        "tip": _prediction_winner(first_game),
+        "tip_probability": _format_probability(tip_probability),
+        "scoreline": _format_predicted_scoreline(first_game),
+        "margin": _format_predicted_margin(first_game),
+    }
+
+
 def _joker_summary_lines(joker_recommendation):
     if not isinstance(joker_recommendation, dict):
         return ["Joker call: unavailable (no recommendation data provided)."]
@@ -1100,11 +1193,13 @@ def _special_event_context(round_name, competition_year):
 def _build_prompt_input(predictions, tipper_picks, joker_recommendation=None):
     fixture_lines = []
     for _, row in predictions.iterrows():
-        winner = row['team_home'] if row['home_team_result'] == 'Win' else row['team_away']
+        winner = _prediction_winner(row)
         fixture_lines.append(
             f"- {row['team_home']} vs {row['team_away']}: tip {winner} "
             f"(home win {_format_probability(row['home_team_win_prob'])}, "
             f"away win {_format_probability(row['home_team_lose_prob'])}, "
+            f"score tip {_format_predicted_score_numbers(row)}, "
+            f"margin {_format_predicted_margin(row)}, "
             f"market {row['team_home']} {_format_price(row['team_head_to_head_odds_home'])}, "
             f"{row['team_away']} {_format_price(row['team_head_to_head_odds_away'])})"
         )
@@ -1262,13 +1357,29 @@ def _to_html_paragraphs(text):
 
 
 def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None):
-    lines = [subject, "", opening, "", "Predicted winners:"]
+    first_game = _first_game_callout(predictions)
+    lines = [subject, "", opening]
+    if first_game is not None:
+        lines.extend(
+            [
+                "",
+                "First game spotlight:",
+                f"- {first_game['fixture']}",
+                f"- Tip: {first_game['tip']} ({first_game['tip_probability']})",
+                f"- Score tip: {first_game['scoreline']}",
+                f"- Margin: {first_game['margin']}",
+            ]
+        )
+
+    lines.extend(["", "Predicted winners:"])
     for _, row in predictions.iterrows():
-        winner = row['team_home'] if row['home_team_result'] == 'Win' else row['team_away']
+        winner = _prediction_winner(row)
         lines.append(
             f"- {row['team_home']} vs {row['team_away']}: {winner} "
             f"(home {_format_probability(row['home_team_win_prob'])}, "
-            f"away {_format_probability(row['home_team_lose_prob'])})"
+            f"away {_format_probability(row['home_team_lose_prob'])}, "
+            f"score {_format_predicted_score_numbers(row)}, "
+            f"margin {_format_predicted_margin(row)})"
         )
 
     lines.append("")
@@ -1308,10 +1419,11 @@ def _render_html_email(
 ):
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
+    first_game = _first_game_callout(predictions)
 
     match_rows = []
     for _, row in predictions.iterrows():
-        winner = row['team_home'] if row['home_team_result'] == 'Win' else row['team_away']
+        winner = _prediction_winner(row)
         match_rows.append(
             "<tr>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#111827; "
@@ -1320,7 +1432,13 @@ def _render_html_email(
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#0f766e; "
             "font-family:Arial, sans-serif; font-size:14px; font-weight:700;\">"
-            f"{html.escape(str(winner))}"
+            f"<div>{html.escape(str(winner))}</div>"
+            "<div style=\"margin-top:4px; color:#4b5563; font-size:12px; font-weight:400;\">"
+            f"Score tip: {html.escape(_format_predicted_score_numbers(row))}"
+            "</div>"
+            "<div style=\"margin-top:2px; color:#4b5563; font-size:12px; font-weight:400;\">"
+            f"Margin: {html.escape(_format_predicted_margin(row))}"
+            "</div>"
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#374151; "
             "font-family:Arial, sans-serif; font-size:13px;\">"
@@ -1387,6 +1505,29 @@ def _render_html_email(
             f"{''.join(pick_rows)}"
             "</tbody>"
             "</table>"
+        )
+
+    first_game_section = ""
+    if first_game is not None:
+        first_game_section = (
+            "<tr><td style=\"padding:10px 24px 6px;\">"
+            "<div style=\"padding:16px 18px; border-radius:12px; background:#ecfeff; border:1px solid #67e8f9;\">"
+            "<p style=\"margin:0 0 8px; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; "
+            "font-size:16px; font-weight:700;\">First game spotlight</p>"
+            "<p style=\"margin:0 0 6px; color:#0f172a; font-family:Arial, sans-serif; font-size:14px;\">"
+            f"{html.escape(first_game['fixture'])}"
+            "</p>"
+            "<p style=\"margin:0 0 4px; color:#0f172a; font-family:Arial, sans-serif; font-size:14px;\">"
+            f"Tip: {html.escape(first_game['tip'])} ({html.escape(first_game['tip_probability'])})"
+            "</p>"
+            "<p style=\"margin:0 0 4px; color:#0f172a; font-family:Arial, sans-serif; font-size:14px;\">"
+            f"Score tip: {html.escape(first_game['scoreline'])}"
+            "</p>"
+            "<p style=\"margin:0; color:#0f172a; font-family:Arial, sans-serif; font-size:14px;\">"
+            f"Margin: {html.escape(first_game['margin'])}"
+            "</p>"
+            "</div>"
+            "</td></tr>"
         )
 
     joker_lines = _joker_summary_lines(joker_recommendation)
@@ -1462,6 +1603,7 @@ def _render_html_email(
         "<tr><td style=\"padding:6px 24px 6px;\">"
         f"{_to_html_paragraphs(opening)}"
         "</td></tr>"
+        f"{first_game_section}"
         "<tr><td style=\"padding:10px 24px 8px;\">"
         "<h3 style=\"margin:0 0 10px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Predicted winners</h3>"
         "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" "
@@ -1509,6 +1651,7 @@ def generate_reg_regan_email_payload(
     use_openai=True,
     joker_recommendation=None,
 ):
+    predictions = _sort_predictions_for_display(predictions)
     fallback_copy = _build_fallback_copy(
         predictions,
         folder_url,
