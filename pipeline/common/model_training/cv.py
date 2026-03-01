@@ -32,7 +32,7 @@ class InSeasonSplit(BaseCrossValidator):
     def __init__(self, n_splits=5):
         self.n_splits = n_splits
 
-    def split(self, X, y=None, groups=None):
+    def _season_rounds(self, X, groups):
         if groups is None:
             raise ValueError("InSeasonSplit requires 'groups' (competition_year) to be passed.")
         if not isinstance(X, pd.DataFrame):
@@ -43,12 +43,19 @@ class InSeasonSplit(BaseCrossValidator):
         round_col = _resolve_round_id_column(X)
         round_ids = pd.to_numeric(X[round_col], errors="coerce").to_numpy()
         seasons = np.unique(groups)
+        season_rounds = []
         for season in seasons:
             idx = np.where(groups == season)[0]
-            season_rounds = np.sort(np.unique(round_ids[idx]))
-            if len(season_rounds) < 2:
+            rounds = np.sort(np.unique(round_ids[idx][~np.isnan(round_ids[idx])]))
+            if len(rounds) < 2:
                 continue
+            season_rounds.append((idx, rounds))
+        return season_rounds
 
+    def split(self, X, y=None, groups=None):
+        round_col = _resolve_round_id_column(X)
+        round_ids = pd.to_numeric(X[round_col], errors="coerce").to_numpy()
+        for idx, season_rounds in self._season_rounds(X, groups):
             n_splits = min(self.n_splits, len(season_rounds) - 1)
             if n_splits < 1:
                 continue
@@ -65,4 +72,10 @@ class InSeasonSplit(BaseCrossValidator):
                 yield train_idx, test_idx
 
     def get_n_splits(self, X=None, y=None, groups=None):
-        return 0 if groups is None else len(np.unique(groups)) * self.n_splits
+        if X is None or groups is None:
+            return 0
+
+        total = 0
+        for _, season_rounds in self._season_rounds(X, groups):
+            total += min(self.n_splits, len(season_rounds) - 1)
+        return total

@@ -38,7 +38,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 
 ## Critical Runtime Config
 - Season controls:
-  - `FOOTY_TIPPER_START_YEAR` (default: `2018`)
+  - `FOOTY_TIPPER_START_YEAR` (default: `2010`)
   - `FOOTY_TIPPER_END_YEAR` (default: current year)
   - `FOOTY_TIPPER_INCLUDE_PERFORMANCE` (default: `true`)
 - Lineup controls:
@@ -119,7 +119,7 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `python -m compileall -q pipeline footy-tipper-train.py footy-tipper-predict.py`
   - `Rscript -e "parse(file='pipeline/data-prep.R')"`
 - Lineup backfill:
-  - `footy-tipper lineups --lineups-mode backfill --start-year 2018 --end-year 2026 --lineups-max-articles 2000`
+  - `footy-tipper lineups --lineups-mode backfill --start-year 2010 --end-year 2026 --lineups-max-articles 2000`
 
 ## Safety / Repo Hygiene
 - Never commit secrets (`secrets.env`, service-account token, passwords, API keys).

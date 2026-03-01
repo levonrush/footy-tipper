@@ -129,7 +129,7 @@ def _lineup_backfill_db_path(root: pathlib.Path) -> pathlib.Path:
 
 
 def _lineup_requested_year_window(env):
-    start_year = _env_int(env, "FOOTY_TIPPER_START_YEAR", 2018)
+    start_year = _env_int(env, "FOOTY_TIPPER_START_YEAR", 2010)
     end_year = _env_int(env, "FOOTY_TIPPER_END_YEAR", time.gmtime().tm_year)
     if end_year < start_year:
         end_year = start_year
