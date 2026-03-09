@@ -313,9 +313,9 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
     else:
         _log("Drive upload skipped.")
 
-    api_key = os.getenv("OPENAI_KEY") if use_openai else None
+    api_key = os.getenv("ANTHROPIC_API_KEY") if use_openai else None
     if test_mode and not use_openai:
-        _log("Test mode active: using fallback email content (OpenAI disabled).")
+        _log("Test mode active: using fallback email content (Claude disabled).")
 
     email_payload = sf.generate_reg_regan_email_payload(
         predictions,

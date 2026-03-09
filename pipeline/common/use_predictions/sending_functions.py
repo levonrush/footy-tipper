@@ -24,11 +24,11 @@ from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-# For direct OpenAI API calls (removing langchain)
+# For direct Anthropic API calls
 try:
-    from openai import OpenAI
+    from anthropic import Anthropic
 except Exception:
-    OpenAI = None
+    Anthropic = None
 
 # The 'get_predictions' function reads the predictions from the SQLite database and returns them as a pandas DataFrame.
 def get_predictions(db_path, project_root):
@@ -1218,15 +1218,43 @@ def _build_prompt_input(predictions, tipper_picks, joker_recommendation=None):
     return "\n".join(fixture_lines), "\n".join(pick_lines), _joker_prompt_block(joker_recommendation)
 
 
+def _sanitize_json_newlines(text):
+    """Replace literal newlines inside JSON string values with escaped \\n."""
+    result = []
+    in_string = False
+    escape_next = False
+    for ch in text:
+        if escape_next:
+            result.append(ch)
+            escape_next = False
+        elif ch == "\\":
+            result.append(ch)
+            escape_next = True
+        elif ch == '"':
+            result.append(ch)
+            in_string = not in_string
+        elif in_string and ch == "\n":
+            result.append("\\n")
+        elif in_string and ch == "\r":
+            pass  # strip CR
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
 def _parse_json_object(text):
     if not text:
         return None
-    candidates = [text.strip()]
-    start = text.find("{")
-    end = text.rfind("}")
+    # Strip markdown code fences if present
+    stripped = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.IGNORECASE)
+    stripped = re.sub(r"\s*```$", "", stripped).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
     if 0 <= start < end:
-        candidates.append(text[start:end + 1].strip())
+        stripped = stripped[start:end + 1]
 
+    sanitized = _sanitize_json_newlines(stripped)
+    candidates = [stripped, sanitized]
     for candidate in candidates:
         try:
             payload = json.loads(candidate)
@@ -1237,14 +1265,14 @@ def _parse_json_object(text):
     return None
 
 
-def _generate_openai_copy(predictions, tipper_picks, api_key, folder_url, temperature, joker_recommendation=None):
+def _generate_claude_copy(predictions, tipper_picks, api_key, folder_url, temperature, joker_recommendation=None):
     if predictions.empty:
         return None
     if not api_key:
-        print("OPENAI_KEY is not configured. Using fallback email content.")
+        print("ANTHROPIC_API_KEY is not configured. Using fallback email content.")
         return None
-    if OpenAI is None:
-        print("OpenAI SDK is unavailable. Using fallback email content.")
+    if Anthropic is None:
+        print("Anthropic SDK is unavailable. Using fallback email content.")
         return None
 
     fixtures_text, picks_text, joker_text = _build_prompt_input(
@@ -1257,7 +1285,7 @@ def _generate_openai_copy(predictions, tipper_picks, api_key, folder_url, temper
     special_event_context = _special_event_context(round_name, competition_year)
     folder_line = folder_url if folder_url else "No public folder URL is configured this run."
     prompt = f"""
-You are writing copy for an NRL tipping email from Reg Reagan.
+Write Reg Reagan's weekly NRL tipping email. Reg is loud, passionate, and deeply invested — he doesn't hedge, he doesn't whisper, and he definitely doesn't forgive bad footy. Write like he's been awake since 5am thinking about this round.
 
 Round: {round_name} {competition_year}
 Special event context: {special_event_context['event_name']}
@@ -1276,25 +1304,26 @@ Joker recommendation:
 Return JSON only with this exact schema:
 {{
   "subject": "short email subject line, max 75 chars",
-  "opening": "2-4 short paragraphs in plain text, with cheeky NRL banter",
-  "closing": "1-2 short paragraphs and must end with Bring back the biff."
+  "opening": "2-3 paragraphs — Reg's take on the round with some personality and genuine opinions on the key games",
+  "closing": "1-2 short paragraphs. Must end with: Bring back the biff."
 }}
 
 Rules:
 - Mention the Newcastle Knights positively.
-- Take a light dig at Manly.
+- Take a dig at Manly.
 - Include this disclaimer naturally: if people are in tipping comps at Seven Seas Hotel in Carrington or the Hunter Water work comp, they should not use these tips.
 - Include one explicit sentence that starts with "Joker call:" and states PLAY or HOLD for this round.
-- Keep it punchy and readable.
+- Keep it punchy and readable — a touch of colour, not a wall of slang.
+- Output raw JSON only. No markdown fences, no preamble, no text before {{ or after }}.
 - Do not include markdown, HTML, or extra keys.
 """
 
-    client = OpenAI(api_key=api_key)
-    configured_model = os.getenv("OPENAI_MODEL")
+    client = Anthropic(api_key=api_key)
+    configured_model = os.getenv("CLAUDE_MODEL")
     model_candidates = (
         [configured_model]
         if configured_model
-        else ["gpt-5.2", "gpt-5.1", "gpt-5", "gpt-4.1"]
+        else ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
     )
     last_exception = None
 
@@ -1302,31 +1331,25 @@ Rules:
         if not model_name:
             continue
         try:
-            request_kwargs = {
-                "model": model_name,
-                "messages": [
-                    {"role": "system", "content": "You are a witty Australian NRL writer with concise, readable style."},
-                    {"role": "user", "content": prompt},
-                ],
-                "max_completion_tokens": 600,
-                "response_format": {"type": "json_object"},
-            }
-            # Keep GPT-5 calls minimal for widest SDK compatibility.
-            if not str(model_name).lower().startswith("gpt-5"):
-                request_kwargs["temperature"] = temperature
-
-            response = client.chat.completions.create(**request_kwargs)
-            payload = _parse_json_object(response.choices[0].message.content or "")
+            response = client.messages.create(
+                model=model_name,
+                system="You are Reg Reagan — an opinionated Australian NRL tragic who writes weekly tipping emails. You're enthusiastic and direct, use occasional Australian slang, and have genuine strong opinions on footy. You're entertaining but not over the top — think passionate pub regular, not raving lunatic.",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1200,
+                temperature=temperature,
+            )
+            raw_text = response.content[0].text or ""
+            payload = _parse_json_object(raw_text)
             if not payload:
-                print(f"OpenAI email generation returned non-JSON payload for model '{model_name}'.")
+                print(f"Claude email generation returned non-JSON payload for model '{model_name}'.")
                 continue
             subject = str(payload.get("subject", "")).strip()
             opening = str(payload.get("opening", "")).strip()
             closing = str(payload.get("closing", "")).strip()
             if not subject or not opening or not closing:
-                print(f"OpenAI email generation returned incomplete JSON keys for model '{model_name}'.")
+                print(f"Claude email generation returned incomplete JSON keys for model '{model_name}'.")
                 continue
-            print(f"OpenAI email generation model: {model_name}")
+            print(f"Claude email generation model: {model_name}")
             return {
                 "subject": subject,
                 "opening": opening,
@@ -1334,12 +1357,12 @@ Rules:
             }
         except Exception as exc:
             last_exception = exc
-            print(f"OpenAI email generation failed for model '{model_name}' ({exc}).")
+            print(f"Claude email generation failed for model '{model_name}' ({exc}).")
             if configured_model:
                 break
 
     if last_exception is not None:
-        print(f"OpenAI email generation failed ({last_exception}). Using fallback email content.")
+        print(f"Claude email generation failed ({last_exception}). Using fallback email content.")
     return None
 
 
@@ -1658,9 +1681,9 @@ def generate_reg_regan_email_payload(
         joker_recommendation=joker_recommendation,
     )
     if not use_openai:
-        print("OpenAI generation disabled. Using fallback email content.")
+        print("Claude generation disabled. Using fallback email content.")
     openai_copy = (
-        _generate_openai_copy(
+        _generate_claude_copy(
             predictions,
             tipper_picks,
             api_key,
