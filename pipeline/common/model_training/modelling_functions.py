@@ -208,6 +208,91 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var)
     return oof_preds.values
 
 
+def train_binary_classifier(data, predictors, outcome_var, best_params, preprocessor_steps):
+    """Train a binary LightGBM classifier (objective='binary') on win/loss outcome.
+
+    Reuses the already-fitted preprocessor from the score models and the best
+    hyperparameters found by BayesSearchCV, avoiding a second expensive tuning run.
+    Returns a full sklearn Pipeline so predict_proba works on raw feature DataFrames.
+    """
+    df_sorted = data.sort_values(['competition_year', 'round_id']).reset_index(drop=True)
+    X = df_sorted[predictors].copy()
+    y = df_sorted[outcome_var].values.astype(int)
+
+    X_t = preprocessor_steps.transform(X)
+
+    clf = lgb.LGBMClassifier(objective='binary', n_jobs=-1, verbose=-1, **best_params)
+    clf.fit(X_t, y)
+
+    # Wrap into a Pipeline so inference can call predict_proba on raw DataFrames.
+    from sklearn.pipeline import Pipeline as _Pipeline
+    binary_pipeline = _Pipeline(
+        list(preprocessor_steps.steps) + [('binary_clf', clf)]
+    )
+    return binary_pipeline
+
+
+def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocessor_steps, best_params):
+    """Generate OOF binary win/loss predictions using an expanding year window.
+
+    Mirrors generate_oof_score_predictions but trains a binary classifier on
+    non-draw games only. Returns an array aligned to data.index with P(home win).
+    """
+    years = sorted(
+        pd.to_numeric(data["competition_year"], errors="coerce")
+        .dropna().astype(int).unique()
+    )
+
+    nd = np.asarray(non_draw_mask, dtype=bool)
+    y_col = (
+        data["team_final_score_home"].to_numpy(dtype=float)
+        > data["team_final_score_away"].to_numpy(dtype=float)
+    ).astype(int)
+
+    oof_preds = pd.Series(np.nan, index=data.index, dtype=float)
+
+    for i, test_year in enumerate(years):
+        if i == 0:
+            continue
+
+        year_col = pd.to_numeric(data["competition_year"], errors="coerce")
+        train_mask = (year_col < test_year).values & nd
+        test_mask = (year_col == test_year).values & nd
+
+        if train_mask.sum() < 10 or test_mask.sum() == 0:
+            continue
+
+        X_train = data.loc[train_mask, predictors]
+        y_train = y_col[train_mask]
+        X_test = data.loc[test_mask, predictors]
+
+        try:
+            X_train_t = preprocessor_steps.transform(X_train)
+            X_test_t = preprocessor_steps.transform(X_test)
+
+            fold_clf = lgb.LGBMClassifier(objective='binary', n_jobs=-1, verbose=-1, **best_params)
+            fold_clf.fit(X_train_t, y_train)
+            oof_preds.loc[test_mask] = fold_clf.predict_proba(X_test_t)[:, 1]
+        except Exception as exc:
+            print(f"OOF binary generation failed for year {test_year}: {exc}")
+
+    # Fallback for first year and any failed folds: train on all non-draw data.
+    nan_mask = oof_preds.isna() & nd
+    if nan_mask.any():
+        try:
+            X_all_t = preprocessor_steps.transform(data.loc[nd, predictors])
+            fallback_clf = lgb.LGBMClassifier(objective='binary', n_jobs=-1, verbose=-1, **best_params)
+            fallback_clf.fit(X_all_t, y_col[nd])
+            fallback_preds = fallback_clf.predict_proba(preprocessor_steps.transform(data.loc[nan_mask, predictors]))[:, 1]
+            oof_preds.loc[nan_mask] = fallback_preds
+        except Exception as exc:
+            print(f"OOF binary fallback failed: {exc}")
+            oof_preds = oof_preds.fillna(0.5)
+
+    oof_preds = oof_preds.fillna(0.5)
+    return oof_preds.values
+
+
 def save_models(pipeline, name, project_root):
     path = project_root / 'models' / f"{name}.pkl"
     with open(path, 'wb') as f:

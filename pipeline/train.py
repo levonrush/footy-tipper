@@ -8,7 +8,7 @@ import sys
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import brier_score_loss, log_loss, mean_poisson_deviance
+from sklearn.metrics import brier_score_loss, log_loss
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
@@ -23,23 +23,34 @@ from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
 
 
-def _select_blend_weight(y_true, baseline_mu, model_mu):
-    candidates = np.linspace(0.0, 1.0, 21)
-    best_weight = 1.0
-    best_score = np.inf
+def _select_blend_weight_by_accuracy(y_binary, non_draw, baseline_mu_home, baseline_mu_away, oof_mu_home, oof_mu_away):
+    """Joint grid search over (w_home, w_away) selecting weights that maximise OOF tipping accuracy.
 
-    y_true = np.asarray(y_true, dtype=float)
-    baseline_mu = np.asarray(baseline_mu, dtype=float)
-    model_mu = np.asarray(model_mu, dtype=float)
+    Uses OOF score predictions so the criterion is unbiased — in-sample would almost
+    always select w=1.0 because the fitted LightGBM memorises training scores.
+    An 11-point grid (step 0.1) reduces overfitting risk vs a finer grid.
+    """
+    candidates = np.linspace(0.0, 1.0, 11)
+    best_wh, best_wa, best_acc = 1.0, 1.0, -1.0
 
-    for weight in candidates:
-        blended = np.maximum((1.0 - weight) * baseline_mu + weight * model_mu, 1e-6)
-        score = mean_poisson_deviance(y_true, blended)
-        if score < best_score:
-            best_score = score
-            best_weight = float(weight)
+    bh = np.asarray(baseline_mu_home, dtype=float)[non_draw]
+    ba = np.asarray(baseline_mu_away, dtype=float)[non_draw]
+    oh = np.asarray(oof_mu_home, dtype=float)[non_draw]
+    oa = np.asarray(oof_mu_away, dtype=float)[non_draw]
+    y = np.asarray(y_binary, dtype=int)
 
-    return best_weight, best_score
+    for wh in candidates:
+        blended_h = np.maximum((1.0 - wh) * bh + wh * oh, 1e-6)
+        for wa in candidates:
+            blended_a = np.maximum((1.0 - wa) * ba + wa * oa, 1e-6)
+            win_probs = np.array(
+                [pf.conditional_home_win_prob(float(h), float(a)) for h, a in zip(blended_h, blended_a)]
+            )
+            acc = float(((win_probs > 0.5) == y.astype(bool)).mean())
+            if acc > best_acc:
+                best_acc, best_wh, best_wa = acc, float(wh), float(wa)
+
+    return best_wh, best_wa, best_acc
 
 
 def _estimate_lambda3(y_home, y_away, mu_home, mu_away):
@@ -151,15 +162,25 @@ away_model_mu = np.maximum(away_model.predict(training_data[selected_predictors]
 baseline_mu_home = training_data["baseline_mu_home"].to_numpy(dtype=float)
 baseline_mu_away = training_data["baseline_mu_away"].to_numpy(dtype=float)
 
-home_weight, home_dev = _select_blend_weight(
-    training_data["team_final_score_home"].to_numpy(dtype=float),
-    baseline_mu_home,
-    home_model_mu,
+non_draw = _non_draw_mask(training_data)
+y_binary = (
+    training_data.loc[non_draw, "team_final_score_home"].to_numpy(dtype=float)
+    > training_data.loc[non_draw, "team_final_score_away"].to_numpy(dtype=float)
+).astype(int)
+
+# Generate OOF score predictions BEFORE blend weight selection so weights are
+# chosen on unbiased OOF tipping accuracy rather than in-sample Poisson deviance.
+print("Generating OOF score predictions for blend weight selection and stacker training...")
+home_model_mu_oof = mf.generate_oof_score_predictions(
+    training_data, selected_predictors, home_model, "team_final_score_home"
 )
-away_weight, away_dev = _select_blend_weight(
-    training_data["team_final_score_away"].to_numpy(dtype=float),
-    baseline_mu_away,
-    away_model_mu,
+away_model_mu_oof = mf.generate_oof_score_predictions(
+    training_data, selected_predictors, away_model, "team_final_score_away"
+)
+
+home_weight, away_weight, blend_acc = _select_blend_weight_by_accuracy(
+    y_binary, non_draw, baseline_mu_home, baseline_mu_away,
+    home_model_mu_oof, away_model_mu_oof,
 )
 
 blended_mu_home = np.maximum((1.0 - home_weight) * baseline_mu_home + home_weight * home_model_mu, 1e-6)
@@ -172,8 +193,7 @@ lambda3 = _estimate_lambda3(
     blended_mu_away,
 )
 
-print(f"Selected blend weights: home={home_weight:.2f}, away={away_weight:.2f}")
-print(f"In-sample blended deviance: home={home_dev:.4f}, away={away_dev:.4f}")
+print(f"Selected blend weights: home={home_weight:.2f}, away={away_weight:.2f} (OOF tipping accuracy={blend_acc:.1%})")
 print(f"Estimated bivariate shared component lambda3={lambda3:.4f}")
 
 print("Fitting stacking model and beta calibrator")
@@ -206,23 +226,7 @@ if "odds_missing" in training_data.columns:
 else:
     odds_missing = np.zeros(len(training_data), dtype=float)
 
-non_draw = _non_draw_mask(training_data)
-y_binary = (
-    training_data.loc[non_draw, "team_final_score_home"].to_numpy(dtype=float)
-    > training_data.loc[non_draw, "team_final_score_away"].to_numpy(dtype=float)
-).astype(int)
-
-# ── OOF Tier-B predictions ────────────────────────────────────────────────────
-# Train LightGBM with best hyperparameters on each prior year, predict on the
-# next year. This removes in-sample bias so the stacker learns honest weights.
-# Uses deterministic (no MC) score-to-prob conversion for speed.
-print("Generating OOF score predictions for stacker training...")
-home_model_mu_oof = mf.generate_oof_score_predictions(
-    training_data, selected_predictors, home_model, "team_final_score_home"
-)
-away_model_mu_oof = mf.generate_oof_score_predictions(
-    training_data, selected_predictors, away_model, "team_final_score_away"
-)
+# OOF blended mus for stacker training (use weights selected above).
 blended_mu_home_oof = np.maximum(
     (1.0 - home_weight) * baseline_mu_home + home_weight * home_model_mu_oof, 1e-6
 )
@@ -234,13 +238,37 @@ tier_b_cond_oof = np.array(
     dtype=float,
 )
 
-# ── Stacker (trained on OOF Tier-B) ──────────────────────────────────────────
+# ── Tier-C: binary LightGBM (OOF) ────────────────────────────────────────────
+# Trains a direct binary win/loss classifier using the same hyperparameters as
+# the Poisson models. OOF predictions are used for stacker training to avoid bias.
+print("Generating OOF binary predictions for stacker training...")
+best_params = dict(home_model.named_steps["hyperparamtuning"].best_params_)
+preprocessor_steps = home_model[:-1]
+
+binary_model_oof = mf.generate_oof_binary_predictions(
+    training_data, non_draw, selected_predictors, preprocessor_steps, best_params
+)
+tier_c_cond_oof = np.clip(binary_model_oof, 1e-6, 1 - 1e-6)
+
+print("Training final binary classifier...")
+training_data["_y_binary_col"] = (
+    training_data["team_final_score_home"].to_numpy(dtype=float)
+    > training_data["team_final_score_away"].to_numpy(dtype=float)
+).astype(int)
+binary_model = mf.train_binary_classifier(
+    training_data[non_draw], selected_predictors, "_y_binary_col",
+    best_params, preprocessor_steps,
+)
+training_data.drop(columns=["_y_binary_col"], inplace=True)
+
+# ── Stacker (trained on OOF Tier-B + OOF Tier-C) ─────────────────────────────
 stacker = calib.LogisticStacker()
 stacker.fit(
     tier_a=tier_a_cond[non_draw],
     tier_b=tier_b_cond_oof[non_draw],
     market=market_cond[non_draw],
     odds_missing=odds_missing[non_draw],
+    tier_c=tier_c_cond_oof[non_draw],
     y=y_binary,
 )
 
@@ -248,14 +276,13 @@ stacker.fit(
 if stacker._is_fitted and hasattr(stacker._model, "coef_"):
     if hasattr(stacker._model, "C_"):
         print(f"Stacker selected C={stacker._model.C_[0]:.4f} (cross-validated from {calib.LogisticStacker._DEFAULT_CS})")
-    coef_names = ["tier_a", "tier_b", "market", "odds_missing", "disagree_tier_a", "disagree_tier_b"]
+    coef_names = ["tier_a", "tier_b", "market", "odds_missing", "disagree_tier_a", "disagree_tier_b", "tier_c"]
     coef_vals = stacker._model.coef_[0]
     coef_str = ", ".join(f"{n}={v:.3f}" for n, v in zip(coef_names, coef_vals))
     print(f"Stacker coefficients: {coef_str}")
 
 # ── Calibrator (trained on OOF stacked predictions) ───────────────────────────
-# Using OOF Tier-B keeps the calibration honest — no in-sample leak into BetaCalibrator.
-stacked_cond_oof = stacker.predict(tier_a_cond, tier_b_cond_oof, market_cond, odds_missing)
+stacked_cond_oof = stacker.predict(tier_a_cond, tier_b_cond_oof, market_cond, odds_missing, tier_c=tier_c_cond_oof)
 calibrator = calib.BetaCalibrator()
 calibrator.fit(stacked_cond_oof[non_draw], y_binary)
 calibrated_oof = calibrator.predict(stacked_cond_oof)
@@ -377,6 +404,7 @@ except Exception as exc:
 print("Save model artefacts")
 mf.save_models(home_model, "home_model", project_root)
 mf.save_models(away_model, "away_model", project_root)
+mf.save_models(binary_model, "binary_model", project_root)
 calib.save_artifact(stacker, project_root / "models" / "stacker.pkl")
 calib.save_artifact(calibrator, project_root / "models" / "win_prob_calibrator.pkl")
 

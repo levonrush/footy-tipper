@@ -98,7 +98,7 @@ class LogisticStacker:
         self._is_fitted = False
 
     @staticmethod
-    def _to_meta_features(tier_a, tier_b, market, odds_missing):
+    def _to_meta_features(tier_a, tier_b, market, odds_missing, tier_c=None):
         pa = _clip_probs(tier_a)
         pb = _clip_probs(tier_b)
         pm = _clip_probs(market)
@@ -118,15 +118,19 @@ class LogisticStacker:
                 lb - lm,    # Tier B disagreement with market (value-over-market signal)
             ]
         )
+        if tier_c is not None:
+            lc = _safe_logit(_clip_probs(tier_c)).reshape(-1, 1)
+            X = np.column_stack([X, lc])  # Tier C: binary classifier log-odds
+
         return np.nan_to_num(X, nan=0.0, posinf=MAX_LOGIT, neginf=-MAX_LOGIT)
 
-    def fit(self, tier_a, tier_b, market, odds_missing, y):
+    def fit(self, tier_a, tier_b, market, odds_missing, y, tier_c=None):
         y = np.asarray(y, dtype=int)
         if len(np.unique(y)) < 2:
             self._is_fitted = False
             return self
 
-        X = self._to_meta_features(tier_a, tier_b, market, odds_missing)
+        X = self._to_meta_features(tier_a, tier_b, market, odds_missing, tier_c=tier_c)
         if not np.isfinite(X).all():
             self._is_fitted = False
             return self
@@ -140,8 +144,8 @@ class LogisticStacker:
             self._is_fitted = False
         return self
 
-    def predict(self, tier_a, tier_b, market, odds_missing):
-        X = self._to_meta_features(tier_a, tier_b, market, odds_missing)
+    def predict(self, tier_a, tier_b, market, odds_missing, tier_c=None):
+        X = self._to_meta_features(tier_a, tier_b, market, odds_missing, tier_c=tier_c)
         if not self._is_fitted:
             return _clip_probs(tier_b)
         return self._model.predict_proba(X)[:, 1]

@@ -49,12 +49,16 @@ away_model = pf.load_models("away_model", project_root)
 
 stacker = None
 calibrator = None
+binary_model = None
 stacker_path = project_root / "models" / "stacker.pkl"
 calibrator_path = project_root / "models" / "win_prob_calibrator.pkl"
+binary_model_path = project_root / "models" / "binary_model.pkl"
 if stacker_path.exists():
     stacker = calib.load_artifact(stacker_path)
 if calibrator_path.exists():
     calibrator = calib.load_artifact(calibrator_path)
+if binary_model_path.exists():
+    binary_model = calib.load_artifact(binary_model_path)
 
 inference_data = pf.get_inference_data(db_path, project_root / "pipeline/common/sql/inference_data.sql")
 if inference_data.empty:
@@ -149,8 +153,17 @@ if "odds_missing" in inference_data.columns:
 else:
     odds_missing = np.zeros(len(inference_data), dtype=float)
 
+tier_c_cond = None
+if binary_model is not None:
+    try:
+        tier_c_cond = np.clip(
+            binary_model.predict_proba(inference_data[predictors])[:, 1], 1e-6, 1 - 1e-6
+        )
+    except Exception as exc:
+        print(f"Binary model prediction skipped ({exc}).")
+
 if stacker is not None:
-    stacked_cond = stacker.predict(tier_a_cond, tier_b_cond, market_cond, odds_missing)
+    stacked_cond = stacker.predict(tier_a_cond, tier_b_cond, market_cond, odds_missing, tier_c=tier_c_cond)
 else:
     stacked_cond = tier_b_cond
 
