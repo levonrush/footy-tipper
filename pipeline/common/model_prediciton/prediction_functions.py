@@ -91,14 +91,22 @@ def marginalized_conditional_home_win_prob(
 
 
 def derive_market_home_probability(df: pd.DataFrame) -> np.ndarray:
-    """Get market-implied home win probability with robust fallbacks."""
-    if "home_market_prob_basic" in df.columns:
-        p = pd.to_numeric(df["home_market_prob_basic"], errors="coerce")
-    else:
-        p = pd.Series(np.nan, index=df.index)
+    """Get market-implied home win probability with robust fallbacks.
+
+    Preference order: Shin-adjusted → power-normalised → basic-normalised → raw odds ratio.
+    Shin (1993) adjustment is most principled as it corrects for insider-trading bias
+    in the bookmaker overround.
+    """
+    p = pd.Series(np.nan, index=df.index)
+
+    if "home_market_prob_shin" in df.columns:
+        p = p.fillna(pd.to_numeric(df["home_market_prob_shin"], errors="coerce"))
 
     if "home_market_prob_power" in df.columns:
         p = p.fillna(pd.to_numeric(df["home_market_prob_power"], errors="coerce"))
+
+    if "home_market_prob_basic" in df.columns:
+        p = p.fillna(pd.to_numeric(df["home_market_prob_basic"], errors="coerce"))
 
     if "team_head_to_head_odds_home" in df.columns and "team_head_to_head_odds_away" in df.columns:
         home_odds = pd.to_numeric(df["team_head_to_head_odds_home"], errors="coerce")

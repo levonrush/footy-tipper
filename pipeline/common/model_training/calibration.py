@@ -1,7 +1,7 @@
 import dill as pickle
 import numpy as np
 import warnings
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 
 PROB_EPS = 1e-4
 MAX_LOGIT = 8.0
@@ -78,10 +78,23 @@ class BetaCalibrator:
 
 
 class LogisticStacker:
-    """Simple meta-model for combining Tier A/Tier B/market probabilities."""
+    """Meta-model for combining Tier A/Tier B/market probabilities.
 
-    def __init__(self, c=0.25, max_iter=1000):
-        self._model = LogisticRegression(C=c, max_iter=max_iter, solver="lbfgs")
+    Uses LogisticRegressionCV to cross-validate the L2 regularisation strength C,
+    preventing the market term from dominating unchecked.
+    """
+
+    _DEFAULT_CS = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0]
+
+    def __init__(self, cs=None, max_iter=2000):
+        cs = cs if cs is not None else self._DEFAULT_CS
+        self._model = LogisticRegressionCV(
+            Cs=cs,
+            cv=5,
+            max_iter=max_iter,
+            solver="lbfgs",
+            scoring="neg_log_loss",
+        )
         self._is_fitted = False
 
     @staticmethod
@@ -91,12 +104,18 @@ class LogisticStacker:
         pm = _clip_probs(market)
         miss = np.nan_to_num(np.asarray(odds_missing, dtype=float), nan=0.0, posinf=1.0, neginf=0.0)
 
+        la = _safe_logit(pa)
+        lb = _safe_logit(pb)
+        lm = _safe_logit(pm)
+
         X = np.column_stack(
             [
-                _safe_logit(pa),
-                _safe_logit(pb),
-                _safe_logit(pm),
-                miss,
+                la,         # Tier A log-odds
+                lb,         # Tier B log-odds
+                lm,         # Market log-odds
+                miss,       # Odds missing flag
+                la - lm,    # Tier A disagreement with market (value-over-market signal)
+                lb - lm,    # Tier B disagreement with market (value-over-market signal)
             ]
         )
         return np.nan_to_num(X, nan=0.0, posinf=MAX_LOGIT, neginf=-MAX_LOGIT)

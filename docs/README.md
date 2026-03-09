@@ -11,5 +11,6 @@ Use this map based on what you need:
 - Understand lineup ingestion and lineup-aware features: `docs/lineup-integration.md`
 - Understand joker strategy and simulation policy: `docs/joker-strategy.md`
 - Understand reruns, safety, and reliability contracts: `docs/operations-reliability.md`
+- Understand how bookmaker odds are integrated (Shin, stacker, value-over-market): `docs/principled-odds-integration.md`
 
 If you only read one doc first, read `docs/how-it-works.md`.

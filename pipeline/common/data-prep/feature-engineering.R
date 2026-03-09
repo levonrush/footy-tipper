@@ -169,6 +169,40 @@ compute_fair_probs_power <- function(home_odds, away_odds) {
   c(p_home_raw / normalizer, p_away_raw / normalizer, overround)
 }
 
+compute_fair_probs_shin <- function(home_odds, away_odds) {
+  q_home <- suppressWarnings(1 / as.numeric(home_odds))
+  q_away <- suppressWarnings(1 / as.numeric(away_odds))
+
+  if (is.na(q_home) || is.na(q_away) || q_home <= 0 || q_away <= 0) {
+    return(c(NA_real_, NA_real_, NA_real_))
+  }
+
+  overround <- q_home + q_away
+  if (overround <= 0) {
+    return(c(NA_real_, NA_real_, NA_real_))
+  }
+
+  # Shin (1993): estimate insider-trading parameter z via closed-form discriminant.
+  # z represents the fraction of bets from informed traders.
+  disc <- overround^2 - 4 * (overround - 1) * (q_home^2 + q_away^2) / overround
+  if (is.na(disc) || disc < 0) {
+    # Fallback to basic normalization
+    return(c(q_home / overround, q_away / overround, overround))
+  }
+
+  z <- tryCatch(
+    (overround - sqrt(disc)) / (2 * (overround - 1)),
+    error = function(e) 0
+  )
+  z <- max(0, min(z, 0.5))
+
+  p_home <- (sqrt(z^2 + 4 * (1 - z) * (q_home / overround)^2) - z) / (2 * (1 - z))
+  p_home <- max(0, min(1, p_home))
+  p_away <- 1 - p_home
+
+  c(p_home, p_away, overround)
+}
+
 col_or_na <- function(data, col_name) {
   if (col_name %in% names(data)) {
     suppressWarnings(as.numeric(data[[col_name]]))
@@ -360,10 +394,12 @@ market_features <- function(data) {
   data <- data %>%
     select(-any_of(c(
       "home_market_prob_basic", "away_market_prob_basic", "home_market_prob_power", "away_market_prob_power",
-      "market_overround_h2h", "home_market_logit_basic", "home_market_logit_power",
+      "home_market_prob_shin", "away_market_prob_shin",
+      "market_overround_h2h", "home_market_logit_basic", "home_market_logit_power", "home_market_logit_shin",
       "market_entropy_basic", "market_entropy_power", "market_prob_delta_basic", "market_prob_delta_power",
       "home_line_cover_prob_basic", "away_line_cover_prob_basic", "line_overround_basic",
       "home_line_cover_prob_power", "away_line_cover_prob_power", "line_overround_power",
+      "home_line_cover_prob_shin", "away_line_cover_prob_shin",
       "line_market_logit_home_basic", "line_market_logit_home_power",
       "implied_spread_home", "implied_spread_away", "implied_spread_diff"
     )))
@@ -378,6 +414,11 @@ market_features <- function(data) {
     data$team_head_to_head_odds_home,
     data$team_head_to_head_odds_away
   ))
+  h2h_shin <- t(mapply(
+    compute_fair_probs_shin,
+    data$team_head_to_head_odds_home,
+    data$team_head_to_head_odds_away
+  ))
 
   line_basic <- t(mapply(
     compute_fair_probs_basic,
@@ -389,6 +430,11 @@ market_features <- function(data) {
     data$team_line_odds_home,
     data$team_line_odds_away
   ))
+  line_shin <- t(mapply(
+    compute_fair_probs_shin,
+    data$team_line_odds_home,
+    data$team_line_odds_away
+  ))
 
   data <- data %>%
     mutate(
@@ -397,8 +443,11 @@ market_features <- function(data) {
       market_overround_h2h = as.numeric(h2h_basic[, 3]),
       home_market_prob_power = as.numeric(h2h_power[, 1]),
       away_market_prob_power = as.numeric(h2h_power[, 2]),
+      home_market_prob_shin = as.numeric(h2h_shin[, 1]),
+      away_market_prob_shin = as.numeric(h2h_shin[, 2]),
       home_market_logit_basic = safe_logit(home_market_prob_basic),
       home_market_logit_power = safe_logit(home_market_prob_power),
+      home_market_logit_shin = safe_logit(home_market_prob_shin),
       market_entropy_basic = ifelse(
         is.na(home_market_prob_basic),
         NA_real_,
@@ -420,6 +469,8 @@ market_features <- function(data) {
       home_line_cover_prob_power = as.numeric(line_power[, 1]),
       away_line_cover_prob_power = as.numeric(line_power[, 2]),
       line_overround_power = as.numeric(line_power[, 3]),
+      home_line_cover_prob_shin = as.numeric(line_shin[, 1]),
+      away_line_cover_prob_shin = as.numeric(line_shin[, 2]),
       line_market_logit_home_basic = safe_logit(home_line_cover_prob_basic),
       line_market_logit_home_power = safe_logit(home_line_cover_prob_power),
       implied_spread_home = suppressWarnings(as.numeric(team_line_amount_home)),

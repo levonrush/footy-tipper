@@ -21,10 +21,7 @@ predictors = [
     "round_id", "round_name", "game_number", "game_state_name",
     "start_time", "start_time_utc", "venue_name", "city", "crowd",
     "broadcast_channel1", "broadcast_channel2", "broadcast_channel3",
-    "team_home", "team_head_to_head_odds_home",
-    "team_line_odds_home", "team_line_amount_home", "team_away",
-    "team_head_to_head_odds_away", "team_line_odds_away",
-    "team_line_amount_away", "competition_year", "position_home_ladder",
+    "team_home", "team_away", "competition_year", "position_home_ladder",
     "wins_home_ladder", "draws_home_ladder", "losses_home_ladder",
     "byes_home_ladder", "competition_points_home_ladder", "points_for_home_ladder",
     "points_against_home_ladder", "points_difference_home_ladder",
@@ -153,16 +150,10 @@ predictors = [
     "ptb_in_opposition_20_away_performance", "linebreak_involvement_away_performance", "short_dropout_away_performance"
 ]
 
-# New market, missingness, and delta features.
+# Missingness, delta, and other non-market features.
+# Market/odds features removed from base learners (naïve market integration).
+# Market signal enters only at the stacker level where it is cross-validated.
 predictors += [
-    "home_market_prob_basic", "away_market_prob_basic", "home_market_prob_power", "away_market_prob_power",
-    "market_overround_h2h", "home_market_logit_basic", "home_market_logit_power",
-    "market_entropy_basic", "market_entropy_power", "market_prob_delta_basic", "market_prob_delta_power",
-    "home_line_cover_prob_basic", "away_line_cover_prob_basic", "line_overround_basic",
-    "home_line_cover_prob_power", "away_line_cover_prob_power", "line_overround_power",
-    "line_market_logit_home_basic", "line_market_logit_home_power",
-    "implied_spread_home", "implied_spread_away", "implied_spread_diff",
-    "odds_missing", "line_odds_missing", "market_features_missing",
     "performance_home_missing", "performance_away_missing", "performance_features_missing",
     "ladder_points_delta", "ladder_points_difference_delta", "ladder_rank_delta",
     "ladder_win_rate_delta", "ladder_close_game_rate_delta",
@@ -276,19 +267,9 @@ def filter_predictors(include_performance=True, predictor_list=predictors):
 sparse_feature_whitelist = {
     "state_of_origin",
     "post_origin",
-    "odds_missing",
-    "line_odds_missing",
-    "market_features_missing",
     "performance_home_missing",
     "performance_away_missing",
     "performance_features_missing",
-    "home_market_prob_basic",
-    "home_market_prob_power",
-    "home_line_cover_prob_basic",
-    "home_line_cover_prob_power",
-    "implied_spread_home",
-    "implied_spread_away",
-    "implied_spread_diff",
     "baseline_mu_home",
     "baseline_mu_away",
     "baseline_draw_prob",

@@ -8,7 +8,7 @@ import sys
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import log_loss, mean_poisson_deviance
+from sklearn.metrics import brier_score_loss, log_loss, mean_poisson_deviance
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
@@ -184,6 +184,8 @@ lineup_unc_home = pd.to_numeric(training_data.get("lineup_selection_uncertainty_
 lineup_unc_away = pd.to_numeric(training_data.get("lineup_selection_uncertainty_away", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
 
 tier_a_cond = np.clip(training_data["baseline_home_win_prob_conditional"].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
+
+# In-sample Tier B predictions (used for inference at prediction time).
 tier_b_cond = np.array(
     [
         pf.marginalized_conditional_home_win_prob(
@@ -210,25 +212,167 @@ y_binary = (
     > training_data.loc[non_draw, "team_final_score_away"].to_numpy(dtype=float)
 ).astype(int)
 
+# ── OOF Tier-B predictions ────────────────────────────────────────────────────
+# Train LightGBM with best hyperparameters on each prior year, predict on the
+# next year. This removes in-sample bias so the stacker learns honest weights.
+# Uses deterministic (no MC) score-to-prob conversion for speed.
+print("Generating OOF score predictions for stacker training...")
+home_model_mu_oof = mf.generate_oof_score_predictions(
+    training_data, selected_predictors, home_model, "team_final_score_home"
+)
+away_model_mu_oof = mf.generate_oof_score_predictions(
+    training_data, selected_predictors, away_model, "team_final_score_away"
+)
+blended_mu_home_oof = np.maximum(
+    (1.0 - home_weight) * baseline_mu_home + home_weight * home_model_mu_oof, 1e-6
+)
+blended_mu_away_oof = np.maximum(
+    (1.0 - away_weight) * baseline_mu_away + away_weight * away_model_mu_oof, 1e-6
+)
+tier_b_cond_oof = np.array(
+    [pf.conditional_home_win_prob(mh, ma) for mh, ma in zip(blended_mu_home_oof, blended_mu_away_oof)],
+    dtype=float,
+)
+
+# ── Stacker (trained on OOF Tier-B) ──────────────────────────────────────────
 stacker = calib.LogisticStacker()
 stacker.fit(
     tier_a=tier_a_cond[non_draw],
-    tier_b=tier_b_cond[non_draw],
+    tier_b=tier_b_cond_oof[non_draw],
     market=market_cond[non_draw],
     odds_missing=odds_missing[non_draw],
     y=y_binary,
 )
-stacked_cond = stacker.predict(tier_a_cond, tier_b_cond, market_cond, odds_missing)
 
+# Log selected regularisation strength and coefficients.
+if stacker._is_fitted and hasattr(stacker._model, "coef_"):
+    if hasattr(stacker._model, "C_"):
+        print(f"Stacker selected C={stacker._model.C_[0]:.4f} (cross-validated from {calib.LogisticStacker._DEFAULT_CS})")
+    coef_names = ["tier_a", "tier_b", "market", "odds_missing", "disagree_tier_a", "disagree_tier_b"]
+    coef_vals = stacker._model.coef_[0]
+    coef_str = ", ".join(f"{n}={v:.3f}" for n, v in zip(coef_names, coef_vals))
+    print(f"Stacker coefficients: {coef_str}")
+
+# ── Calibrator (trained on OOF stacked predictions) ───────────────────────────
+# Using OOF Tier-B keeps the calibration honest — no in-sample leak into BetaCalibrator.
+stacked_cond_oof = stacker.predict(tier_a_cond, tier_b_cond_oof, market_cond, odds_missing)
 calibrator = calib.BetaCalibrator()
-calibrator.fit(stacked_cond[non_draw], y_binary)
-calibrated_cond = calibrator.predict(stacked_cond)
+calibrator.fit(stacked_cond_oof[non_draw], y_binary)
+calibrated_oof = calibrator.predict(stacked_cond_oof)
 
+# ── Evaluation metrics ────────────────────────────────────────────────────────
 try:
-    nd_log_loss = log_loss(y_binary, np.clip(calibrated_cond[non_draw], 1e-6, 1 - 1e-6))
-    print(f"Non-draw calibrated log loss (train): {nd_log_loss:.4f}")
-except Exception:
-    print("Skipped non-draw log-loss calculation (insufficient class variation).")
+    nd_preds = np.clip(calibrated_oof[non_draw], 1e-6, 1 - 1e-6)
+    market_nd = market_cond[non_draw]
+    # Use odds_missing flag to identify games with real odds (not 0.5 fallback).
+    # market_cond clips everything to (0,1) so range checks can't detect missing odds.
+    odds_missing_nd = odds_missing[non_draw].astype(bool)
+    valid_market = ~odds_missing_nd
+
+    # ── PRIMARY: Tipping accuracy ─────────────────────────────────────────────
+    tip_correct = (nd_preds > 0.5) == y_binary.astype(bool)
+    tip_acc = tip_correct.mean()
+    naive_home_acc = float(y_binary.mean())  # always-pick-home baseline
+
+    print(f"\n── Tipping accuracy (OOF, non-draw) ────────────────────────────")
+    print(f"  Model:       {tip_acc:.1%}  ({tip_correct.sum()}/{len(tip_correct)} correct)")
+    print(f"  Always home: {naive_home_acc:.1%}")
+
+    if valid_market.sum() >= 10:
+        market_tip = (market_nd[valid_market] > 0.5) == y_binary[valid_market].astype(bool)
+        model_tip_on_mkt = (nd_preds[valid_market] > 0.5) == y_binary[valid_market].astype(bool)
+        diff = model_tip_on_mkt.mean() - market_tip.mean()
+        print(f"  Market fav:  {market_tip.mean():.1%}  (on {valid_market.sum()} games with odds)")
+        print(f"  Model (same games): {model_tip_on_mkt.mean():.1%}  ({'▲' if diff > 0 else '▼'} {abs(diff):.1%} vs market)")
+
+    # ── SECONDARY: Probabilistic calibration ──────────────────────────────────
+    nd_log_loss = log_loss(y_binary, nd_preds)
+    nd_brier = brier_score_loss(y_binary, nd_preds)
+    print(f"\n── Calibration (OOF, non-draw) ─────────────────────────────────")
+    print(f"  Log-loss  (model):   {nd_log_loss:.4f}")
+    print(f"  Brier     (model):   {nd_brier:.4f}")
+
+    if valid_market.sum() >= 10:
+        market_ll = log_loss(y_binary[valid_market], np.clip(market_nd[valid_market], 1e-6, 1 - 1e-6))
+        market_br = brier_score_loss(y_binary[valid_market], np.clip(market_nd[valid_market], 1e-6, 1 - 1e-6))
+        model_ll  = log_loss(y_binary[valid_market], np.clip(nd_preds[valid_market], 1e-6, 1 - 1e-6))
+        model_br  = brier_score_loss(y_binary[valid_market], np.clip(nd_preds[valid_market], 1e-6, 1 - 1e-6))
+        print(f"  Log-loss  (market benchmark): {market_ll:.4f}  |  model: {model_ll:.4f}  ({'▲ better' if model_ll < market_ll else '▼ worse'})")
+        print(f"  Brier     (market benchmark): {market_br:.4f}  |  model: {model_br:.4f}  ({'▲ better' if model_br < market_br else '▼ worse'})")
+
+    # Calibration reliability table (predicted probability bins vs actual win rate).
+    n_bins = 10
+    bins = np.linspace(0, 1, n_bins + 1)
+    print(f"\n── Calibration reliability (non-draw, {n_bins} bins) ───────────────")
+    print(f"  {'Pred range':<14} {'Pred mean':>10} {'Actual':>8} {'Count':>7}")
+    for i in range(n_bins):
+        mask = (nd_preds >= bins[i]) & (nd_preds < bins[i + 1])
+        if mask.sum() < 3:
+            continue
+        pred_mean = nd_preds[mask].mean()
+        actual_mean = y_binary[mask].mean()
+        gap = actual_mean - pred_mean
+        flag = "  ◄ over" if gap < -0.05 else ("  ► under" if gap > 0.05 else "")
+        print(f"  {bins[i]:.1f}–{bins[i+1]:.1f}         {pred_mean:>10.3f} {actual_mean:>8.3f} {mask.sum():>7}{flag}")
+
+except Exception as exc:
+    print(f"Skipped evaluation metrics ({exc}).")
+
+# ── Holdout year evaluation (last year) ───────────────────────────────────────
+try:
+    comp_years = pd.to_numeric(training_data["competition_year"], errors="coerce")
+    last_year = int(comp_years.max())
+    holdout_mask = (comp_years == last_year).values
+
+    nd_holdout = non_draw & holdout_mask
+    if nd_holdout.sum() >= 5:
+        model_p = calibrated_oof[nd_holdout]
+        market_p = market_cond[nd_holdout]
+        # y_binary is indexed over non_draw games only.
+        actuals = y_binary[holdout_mask[non_draw]]
+
+        # ── PRIMARY: Tipping accuracy on holdout ──────────────────────────────
+        tip_correct_holdout = (model_p > 0.5) == actuals.astype(bool)
+        tip_acc_holdout = tip_correct_holdout.mean()
+
+        odds_missing_holdout = odds_missing[nd_holdout].astype(bool)
+        valid_mkt_holdout = ~odds_missing_holdout
+        print(f"\n── Tipping accuracy ({last_year} holdout, non-draw) ─────────────────")
+        print(f"  Model:       {tip_acc_holdout:.1%}  ({tip_correct_holdout.sum()}/{len(tip_correct_holdout)} correct)")
+        if valid_mkt_holdout.sum() >= 3:
+            mkt_tip_holdout = (market_p[valid_mkt_holdout] > 0.5) == actuals[valid_mkt_holdout].astype(bool)
+            print(f"  Market fav:  {mkt_tip_holdout.mean():.1%}  (on {valid_mkt_holdout.sum()} games with odds)")
+
+        # ── SECONDARY: ROI betting simulation ─────────────────────────────────
+        home_odds_col = training_data["team_head_to_head_odds_home"] if "team_head_to_head_odds_home" in training_data.columns else pd.Series(np.nan, index=training_data.index)
+        away_odds_col = training_data["team_head_to_head_odds_away"] if "team_head_to_head_odds_away" in training_data.columns else pd.Series(np.nan, index=training_data.index)
+        home_odds_raw = pd.to_numeric(home_odds_col, errors="coerce").values[nd_holdout]
+        away_odds_raw = pd.to_numeric(away_odds_col, errors="coerce").values[nd_holdout]
+
+        edge = model_p - market_p
+        threshold = 0.05
+        total_bets, wins, profit = 0, 0, 0.0
+
+        for e, act, oh, oa in zip(edge, actuals, home_odds_raw, away_odds_raw):
+            if e > threshold and np.isfinite(oh):
+                total_bets += 1
+                profit += (oh - 1.0) if act == 1 else -1.0
+                wins += int(act == 1)
+            elif e < -threshold and np.isfinite(oa):
+                total_bets += 1
+                profit += (oa - 1.0) if act == 0 else -1.0
+                wins += int(act == 0)
+
+        print(f"\n── ROI simulation ({last_year} holdout, ≥{threshold:.0%} edge) ──────────────")
+        print(f"  Games in holdout: {nd_holdout.sum()},  edge bets placed: {total_bets}")
+        if total_bets > 0:
+            roi_pct = 100.0 * profit / total_bets
+            win_rate = 100.0 * wins / total_bets
+            print(f"  Wins: {wins}/{total_bets} ({win_rate:.1f}%),  flat-stake ROI: {roi_pct:+.1f}%")
+        else:
+            print("  No games exceeded the edge threshold.")
+except Exception as exc:
+    print(f"Holdout evaluation skipped ({exc}).")
 
 print("Save model artefacts")
 mf.save_models(home_model, "home_model", project_root)

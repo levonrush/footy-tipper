@@ -175,4 +175,33 @@ pf.save_predictions_to_db(
     project_root / "pipeline/common/sql/insert_into_table.sql",
 )
 
+# Log tips summary (primary) and edge summary (secondary).
+try:
+    model_prob = calibrated_cond
+    edge = model_prob - market_cond
+    edge_threshold = 0.05
+
+    teams_home = inference_data["team_home"].to_numpy() if "team_home" in inference_data.columns else ["?"] * len(inference_data)
+    teams_away = inference_data["team_away"].to_numpy() if "team_away" in inference_data.columns else ["?"] * len(inference_data)
+
+    # ── PRIMARY: Tips ─────────────────────────────────────────────────────────
+    print(f"\n── Tips ({len(inference_data)} game(s)) ──────────────────────────────────────")
+    for th, ta, mp in zip(teams_home, teams_away, model_prob):
+        tip = th if mp > 0.5 else ta
+        tip_prob = mp if mp > 0.5 else 1.0 - mp
+        confidence = "HIGH" if tip_prob >= 0.70 else ("MED" if tip_prob >= 0.55 else "LOW")
+        print(f"  TIP [{confidence}] {th} vs {ta}: {tip} ({tip_prob:.1%})")
+
+    # ── SECONDARY: Betting edge vs market ────────────────────────────────────
+    value_home = (edge > edge_threshold).sum()
+    value_away = (edge < -edge_threshold).sum()
+    if value_home + value_away > 0:
+        print(f"\n── Market edge (threshold ±{edge_threshold:.0%}) ────────────────────────────")
+        for th, ta, mp, mkp, e in zip(teams_home, teams_away, model_prob, market_cond, edge):
+            if abs(e) > edge_threshold:
+                direction = "HOME" if e > 0 else "AWAY"
+                print(f"  [{direction}] {th} vs {ta}: model={mp:.1%}, market={mkp:.1%}, edge={e:+.1%}")
+except Exception:
+    pass
+
 print("Predictions saved to the database!")

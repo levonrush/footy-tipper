@@ -149,6 +149,65 @@ def train_and_select_best_model(data, predictors, outcome_var,
     return best_pipe
 
 
+def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var):
+    """Generate out-of-fold score predictions using expanding year windows.
+
+    For each year Y (starting from the 2nd year in data), trains a LightGBM with
+    the best hyperparameters from `full_pipeline` on all years < Y, then predicts
+    on year Y. The first year has no prior history so falls back to in-sample
+    predictions from `full_pipeline`.
+
+    This gives the stacker unbiased (out-of-sample) Tier-B inputs, preventing it
+    from over-weighting Tier-B due to in-sample overfitting.
+    """
+    years = sorted(
+        pd.to_numeric(data["competition_year"], errors="coerce")
+        .dropna().astype(int).unique()
+    )
+
+    best_params = dict(full_pipeline.named_steps["hyperparamtuning"].best_params_)
+    best_estimator = full_pipeline.named_steps["hyperparamtuning"].best_estimator_
+    # Slice all steps except the final estimator (one_hot + to_df, already fitted).
+    preprocessor_steps = full_pipeline[:-1]
+
+    oof_preds = pd.Series(np.nan, index=data.index, dtype=float)
+
+    for i, test_year in enumerate(years):
+        if i == 0:
+            continue  # No prior history; will fall back to in-sample below.
+
+        year_col = pd.to_numeric(data["competition_year"], errors="coerce")
+        train_mask = year_col < test_year
+        test_mask = year_col == test_year
+
+        if train_mask.sum() < 10 or test_mask.sum() == 0:
+            continue
+
+        X_train = data.loc[train_mask, predictors]
+        y_train = data.loc[train_mask, outcome_var].values
+        X_test = data.loc[test_mask, predictors]
+
+        try:
+            X_train_t = preprocessor_steps.transform(X_train)
+            X_test_t = preprocessor_steps.transform(X_test)
+
+            fold_model = type(best_estimator)(
+                objective="poisson", n_jobs=-1, verbose=-1, **best_params
+            )
+            fold_model.fit(X_train_t, y_train)
+            oof_preds.loc[test_mask] = np.maximum(fold_model.predict(X_test_t), 1e-6)
+        except Exception as exc:
+            print(f"OOF generation failed for year {test_year}: {exc}")
+
+    # Fill NaN (first year + any failed folds) with in-sample predictions.
+    nan_mask = oof_preds.isna()
+    if nan_mask.any():
+        in_sample = np.maximum(full_pipeline.predict(data[predictors]), 1e-6)
+        oof_preds[nan_mask] = in_sample[nan_mask]
+
+    return oof_preds.values
+
+
 def save_models(pipeline, name, project_root):
     path = project_root / 'models' / f"{name}.pkl"
     with open(path, 'wb') as f:
