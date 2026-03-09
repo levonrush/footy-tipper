@@ -1272,7 +1272,7 @@ def _parse_json_object(text):
     return None
 
 
-def _generate_claude_copy(predictions, tipper_picks, api_key, folder_url, temperature, joker_recommendation=None):
+def _generate_claude_copy(predictions, tipper_picks, api_key, folder_url, temperature, joker_recommendation=None, news_context=None):
     if predictions.empty:
         return None
     if not api_key:
@@ -1307,6 +1307,9 @@ Value picks:
 
 Joker recommendation:
 {joker_text}
+
+Current NRL news this week (use if something is funny or worth a dig — otherwise ignore):
+{news_context if news_context else "Nothing notable found this week."}
 
 Return JSON only with this exact schema:
 {{
@@ -1672,21 +1675,79 @@ def _render_html_email(
     )
 
 
-def _build_banner_edit_instruction(copy, anthropic_client):
+def _fetch_nrl_news_context(anthropic_client):
+    """Search for notable NRL news this week. Returns a short summary or None if nothing worth using."""
+    try:
+        messages = [{"role": "user", "content": (
+            "Search for notable NRL or Australian Rugby League news from the past 7 days. "
+            "Only include news specifically about the NRL competition, NRL clubs, NRL players, or Australian rugby league — "
+            "not rugby union, not international rugby, not other sports. "
+            "Look for anything that would make good material for a funny weekly tipping email — "
+            "player drama, referee controversies, surprising results, big signings, funny moments, club feuds, coach blow-ups. "
+            "If you find something genuinely interesting or funny, summarise it in 2-3 sentences. "
+            "If there's nothing particularly juicy from NRL specifically, just reply: nothing notable this week."
+        )}]
+        response = anthropic_client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            max_tokens=500,
+            messages=messages,
+        )
+        # Handle multi-turn tool use if needed
+        while response.stop_reason == "tool_use":
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "Search results unavailable.",
+                    })
+            if not tool_results:
+                break
+            messages = messages + [
+                {"role": "assistant", "content": response.content},
+                {"role": "user", "content": tool_results},
+            ]
+            response = anthropic_client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                tools=[{"type": "web_search_20250305", "name": "web_search"}],
+                max_tokens=500,
+                messages=messages,
+            )
+        for block in response.content:
+            if hasattr(block, "text") and block.text:
+                text = block.text.strip()
+                if text and "nothing notable" not in text.lower():
+                    print(f"NRL news found: {text[:100]}...")
+                    return text
+        print("NRL news: nothing notable this week.")
+        return None
+    except Exception as exc:
+        print(f"NRL news fetch failed ({exc}). Skipping.")
+        return None
+
+
+def _build_banner_edit_instruction(copy, anthropic_client, news_context=None):
     """Ask Claude for a fun, topical scenario for the two banner characters this week."""
     subject = copy.get("subject", "")
     opening = copy.get("opening", "")[:400]
+    news_section = (
+        f"\nCurrent NRL news this week (use if it's funnier than the email themes):\n{news_context}"
+        if news_context else ""
+    )
     response = anthropic_client.messages.create(
         model="claude-haiku-4-5-20251001",
         system="You write short, vivid image editing instructions for a fun weekly sports email banner.",
         messages=[{"role": "user", "content": (
-            f"A weekly NRL tipping email banner features two cartoon characters. "
-            f"Based on the email content below, come up with a funny or energetic scenario for this week's banner — "
-            f"put the two characters in a situation that references the teams, games, rivalries, or themes in the email. "
-            f"The characters can be doing anything: celebrating, arguing, cowering, riding something, holding a sign, etc. "
-            f"Be creative and specific. Pick whatever is most fun and most relevant from the email.\n\n"
+            f"A weekly NRL tipping email banner features two cartoon characters: Reg Reagan (a bloke in a shirt that says 'Bring Back the Biff') and a dingo. "
+            f"Based on the email content and any news below, come up with a funny or energetic scenario for this week's banner — "
+            f"put Reg and the dingo in a situation that references the teams, games, rivalries, or anything topical from the news. "
+            f"They can be doing anything: celebrating, arguing, cowering, riding something, holding a sign, dressed up, etc. "
+            f"Be creative and specific. Pick whatever is most fun and most relevant.\n\n"
             f"Email subject: {subject}\n"
-            f"Email opening: {opening}\n\n"
+            f"Email opening: {opening}"
+            f"{news_section}\n\n"
             "Return 2-3 sentences describing the scene. Be visual and specific. No preamble."
         )}],
         max_tokens=150,
@@ -1694,13 +1755,15 @@ def _build_banner_edit_instruction(copy, anthropic_client):
     )
     topical = response.content[0].text.strip()
     return (
-        f"Reimagine this banner image with the following scene, keeping the same two cartoon characters and the same overall visual style, colour palette, and brand aesthetic: "
-        f"{topical} "
+        f"Reimagine this banner image with the following scene. "
+        f"The two characters are Reg Reagan (a bloke whose shirt reads 'Bring Back the Biff') and a dingo — keep both characters present. "
+        f"Maintain the same overall visual style, colour palette, and brand aesthetic as the original. "
+        f"Scene: {topical} "
         f"The image should feel like a fun, punchy sports editorial illustration."
     )
 
 
-def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key):
+def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None):
     """Edit the existing email banner with topical elements via Claude + gpt-image-1."""
     if not anthropic_api_key or not openai_api_key:
         return None
@@ -1723,7 +1786,7 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key):
             return None
 
         anthropic_client = Anthropic(api_key=anthropic_api_key)
-        edit_instruction = _build_banner_edit_instruction(copy, anthropic_client)
+        edit_instruction = _build_banner_edit_instruction(copy, anthropic_client, news_context=news_context)
         print(f"Banner edit: {edit_instruction[:120]}...")
 
         img = Image.open(banner_path).convert("RGBA")
@@ -1763,6 +1826,10 @@ def generate_reg_regan_email_payload(
         folder_url,
         joker_recommendation=joker_recommendation,
     )
+    news_context = None
+    if use_openai and api_key and Anthropic is not None:
+        news_context = _fetch_nrl_news_context(Anthropic(api_key=api_key))
+
     if not use_openai:
         print("Claude generation disabled. Using fallback email content.")
     openai_copy = (
@@ -1773,6 +1840,7 @@ def generate_reg_regan_email_payload(
             folder_url,
             temperature,
             joker_recommendation=joker_recommendation,
+            news_context=news_context,
         )
         if use_openai
         else None
@@ -1795,7 +1863,7 @@ def generate_reg_regan_email_payload(
         }
 
     banner_path = (
-        _generate_dynamic_banner(copy, api_key, openai_api_key)
+        _generate_dynamic_banner(copy, api_key, openai_api_key, news_context=news_context)
         or _resolve_banner_path()
     )
     plain_email = _render_plain_email(
