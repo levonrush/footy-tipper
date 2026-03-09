@@ -325,6 +325,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         0.9,
         use_openai=use_openai,
         joker_recommendation=joker_recommendation,
+        openai_api_key=os.getenv("OPENAI_KEY") if use_openai else None,
     )
 
     subject = email_payload["subject"]

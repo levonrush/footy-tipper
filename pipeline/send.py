@@ -60,12 +60,13 @@ sf.upload_df_to_drive(
 # Generate the Reg Regan email
 print("Generating the Reg Regan email...")
 email_payload = sf.generate_reg_regan_email_payload(
-    predictions, 
-    tipper_picks, 
+    predictions,
+    tipper_picks,
     os.getenv('ANTHROPIC_API_KEY'),
     os.getenv('FOLDER_URL'),
     0.9,
     joker_recommendation=joker_recommendation,
+    openai_api_key=os.getenv('OPENAI_KEY'),
 )
 
 print(email_payload["plain_text"])

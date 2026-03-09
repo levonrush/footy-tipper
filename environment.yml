@@ -53,3 +53,4 @@ dependencies:
       # Install the local CLI entrypoint (`footy-tipper`) during env creation.
       - -e .
       - anthropic>=0.40.0,<1.0.0
+      - openai>=1.0.0,<2.0.0
