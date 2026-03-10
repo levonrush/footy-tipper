@@ -1314,11 +1314,13 @@ Current NRL news this week (use if something is funny or worth a dig — otherwi
 Return JSON only with this exact schema:
 {{
   "subject": "short email subject line, max 75 chars",
+  "news_hit": "1 punchy paragraph where Reg calls out the biggest scandal or story from the news this week — opinionated, direct, sets the tone before the tips. Use null if there is genuinely nothing worth calling out.",
   "opening": "2-3 paragraphs — Reg's take on the round with some personality and genuine opinions on the key games",
   "closing": "1-2 short paragraphs. Must end with: Bring back the biff."
 }}
 
 Rules:
+- If there is a scandal or juicy news story, always write the news_hit — do not bury it in the opening.
 - Mention the Newcastle Knights positively.
 - Take a dig at Manly.
 - Include this disclaimer naturally: if people are in tipping comps at Seven Seas Hotel in Carrington or the Hunter Water work comp, they should not use these tips.
@@ -1359,9 +1361,12 @@ Rules:
             if not subject or not opening or not closing:
                 print(f"Claude email generation returned incomplete JSON keys for model '{model_name}'.")
                 continue
+            news_hit_raw = payload.get("news_hit")
+            news_hit = str(news_hit_raw).strip() if news_hit_raw and str(news_hit_raw).lower() != "null" else None
             print(f"Claude email generation model: {model_name}")
             return {
                 "subject": subject,
+                "news_hit": news_hit,
                 "opening": opening,
                 "closing": closing,
             }
@@ -1389,9 +1394,12 @@ def _to_html_paragraphs(text):
     return "".join(blocks)
 
 
-def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None):
+def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None):
     first_game = _first_game_callout(predictions)
-    lines = [subject, "", opening]
+    lines = [subject, ""]
+    if news_hit:
+        lines.extend(["--- THIS WEEK IN LEAGUE ---", news_hit, "---------------------------", ""])
+    lines.append(opening)
     if first_game is not None:
         lines.extend(
             [
@@ -1449,6 +1457,7 @@ def _render_html_email(
     closing,
     banner_available,
     joker_recommendation=None,
+    news_hit=None,
 ):
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
@@ -1633,6 +1642,15 @@ def _render_html_email(
         f"{html.escape(str(round_name))} {html.escape(str(competition_year))} Tips"
         "</h2>"
         "</td></tr>"
+        + (
+            "<tr><td style=\"padding:6px 24px 6px;\">"
+            "<div style=\"padding:14px 16px; background:#fef2f2; border-left:4px solid #dc2626; border-radius:6px;\">"
+            "<p style=\"margin:0 0 6px; color:#dc2626; font-family:'Trebuchet MS', Arial, sans-serif; font-size:12px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase;\">This Week In League</p>"
+            f"<p style=\"margin:0; color:#1f2937; font-family:'Trebuchet MS', Arial, sans-serif; font-size:14px; line-height:1.6;\">{html.escape(news_hit)}</p>"
+            "</div>"
+            "</td></tr>"
+            if news_hit else ""
+        ) +
         "<tr><td style=\"padding:6px 24px 6px;\">"
         f"{_to_html_paragraphs(opening)}"
         "</td></tr>"
@@ -1680,12 +1698,14 @@ def _fetch_nrl_news_context(anthropic_client):
     try:
         messages = [{"role": "user", "content": (
             "Search for notable NRL or Australian Rugby League news from the past 7 days. "
-            "Only include news specifically about the NRL competition, NRL clubs, NRL players, or Australian rugby league — "
-            "not rugby union, not international rugby, not other sports. "
-            "Look for anything that would make good material for a funny weekly tipping email — "
-            "player drama, referee controversies, surprising results, big signings, funny moments, club feuds, coach blow-ups. "
-            "If you find something genuinely interesting or funny, summarise it in 2-3 sentences. "
-            "If there's nothing particularly juicy from NRL specifically, just reply: nothing notable this week."
+            "The story must involve NRL clubs, NRL players, or the Australian rugby league competition. "
+            "Do not report on rugby union or other sports unless an NRL player or club is directly involved — "
+            "for example, an NRL player switching codes, a cross-code controversy, or a rugby union club poaching a league star are all fair game. "
+            "Prioritise scandalous or dramatic stories: player misbehaviour, off-field dramas, contract blow-ups, code switches, "
+            "salary cap rorts, public feuds, coach sackings, player arrests, controversial selections, anything embarrassing for a club. "
+            "Also look for: referee controversies, surprising results, big signings, funny moments, club feuds. "
+            "If you find something genuinely interesting, funny, or scandalous, summarise it in 2-3 sentences — be specific about who and what. "
+            "If there's nothing particularly juicy, just reply: nothing notable this week."
         )}]
         response = anthropic_client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -1866,6 +1886,7 @@ def generate_reg_regan_email_payload(
         _generate_dynamic_banner(copy, api_key, openai_api_key, news_context=news_context)
         or _resolve_banner_path()
     )
+    news_hit = copy.get("news_hit")
     plain_email = _render_plain_email(
         predictions,
         tipper_picks,
@@ -1874,6 +1895,7 @@ def generate_reg_regan_email_payload(
         copy["opening"],
         copy["closing"],
         joker_recommendation=joker_recommendation,
+        news_hit=news_hit,
     )
     html_email = _render_html_email(
         predictions,
@@ -1883,6 +1905,7 @@ def generate_reg_regan_email_payload(
         copy["closing"],
         banner_available=bool(banner_path),
         joker_recommendation=joker_recommendation,
+        news_hit=news_hit,
     )
 
     inline_images = []
