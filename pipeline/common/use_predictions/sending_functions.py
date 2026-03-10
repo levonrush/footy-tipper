@@ -1335,7 +1335,7 @@ Rules:
     model_candidates = (
         [configured_model]
         if configured_model
-        else ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
+        else ["claude-sonnet-4-6"]
     )
     last_exception = None
 
@@ -1773,7 +1773,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
     else:
         inspiration = f"Email subject: {subject}\nEmail opening: {opening}"
     response = anthropic_client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-4-6",
         system="You write short, vivid image editing instructions for a fun weekly sports email banner.",
         messages=[{"role": "user", "content": (
             f"A weekly NRL tipping email banner features two cartoon characters: Reg Reagan (a bloke in a shirt that says 'Bring Back the Biff') and a dingo. "
