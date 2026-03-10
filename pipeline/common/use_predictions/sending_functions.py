@@ -1314,13 +1314,13 @@ Current NRL news this week (use if something is funny or worth a dig — otherwi
 Return JSON only with this exact schema:
 {{
   "subject": "short email subject line, max 75 chars",
-  "news_hit": "1 punchy paragraph where Reg calls out the biggest scandal or story from the news this week — opinionated, direct, sets the tone before the tips. Use null if there is genuinely nothing worth calling out.",
+  "news_hit": "1 punchy paragraph where Reg calls out the biggest scandal or story from the news this week — opinionated, direct, sets the tone before the tips. If news is provided above, you MUST write this. Only use null if no news was provided.",
   "opening": "2-3 paragraphs — Reg's take on the round with some personality and genuine opinions on the key games",
   "closing": "1-2 short paragraphs. Must end with: Bring back the biff."
 }}
 
 Rules:
-- If there is a scandal or juicy news story, always write the news_hit — do not bury it in the opening.
+- If news is provided in "Current NRL news", you MUST write news_hit — do not bury it in the opening and do not set it to null.
 - Mention the Newcastle Knights positively.
 - Take a dig at Manly.
 - Include this disclaimer naturally: if people are in tipping comps at Seven Seas Hotel in Carrington or the Hunter Water work comp, they should not use these tips.
@@ -1386,8 +1386,8 @@ def _to_html_paragraphs(text):
     for paragraph in [p.strip() for p in text.split("\n\n") if p.strip()]:
         safe = html.escape(paragraph).replace("\n", "<br>")
         blocks.append(
-            "<p style=\"margin:0 0 14px; color:#1f2937; font-family:'Trebuchet MS', Arial, sans-serif; "
-            "font-size:16px; line-height:1.55;\">"
+            "<p style=\"margin:0 0 16px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; "
+            "font-size:17px; line-height:1.65;\">"
             f"{safe}"
             "</p>"
         )
@@ -1464,31 +1464,39 @@ def _render_html_email(
     first_game = _first_game_callout(predictions)
 
     match_rows = []
-    for _, row in predictions.iterrows():
+    for i, (_, row) in enumerate(predictions.iterrows()):
         winner = _prediction_winner(row)
+        row_bg = "#f9fafb" if i % 2 == 0 else "#ffffff"
+        home_prob = row['home_team_win_prob']
+        if home_prob >= 0.65:
+            badge_bg, badge_color = "#dcfce7", "#15803d"
+        elif home_prob >= 0.45:
+            badge_bg, badge_color = "#fef9c3", "#854d0e"
+        else:
+            badge_bg, badge_color = "#fee2e2", "#b91c1c"
         match_rows.append(
-            "<tr>"
+            f"<tr style=\"background:{row_bg};\">"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#111827; "
-            "font-family:Arial, sans-serif; font-size:14px;\">"
+            "font-family:Arial, sans-serif; font-size:14px; width:36%;\">"
             f"{html.escape(str(row['team_home']))} vs {html.escape(str(row['team_away']))}"
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#0f766e; "
-            "font-family:Arial, sans-serif; font-size:14px; font-weight:700;\">"
+            "font-family:Arial, sans-serif; font-size:15px; font-weight:700; width:32%;\">"
             f"<div>{html.escape(str(winner))}</div>"
             "<div style=\"margin-top:4px; color:#4b5563; font-size:12px; font-weight:400;\">"
             f"Score tip: {html.escape(_format_predicted_score_numbers(row))}"
             "</div>"
-            "<div style=\"margin-top:2px; color:#4b5563; font-size:12px; font-weight:400;\">"
-            f"Margin: {html.escape(_format_predicted_margin(row))}"
-            "</div>"
+            "</td>"
+            "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; width:16%;\">"
+            f"<span style=\"display:inline-block; padding:3px 7px; border-radius:12px; "
+            f"background:{badge_bg}; color:{badge_color}; font-family:Arial, sans-serif; font-size:12px; font-weight:700;\">"
+            f"H {_format_probability(row['home_team_win_prob'])}</span>"
+            f"<span style=\"display:block; margin-top:3px; color:#6b7280; font-family:Arial, sans-serif; font-size:12px;\">"
+            f"A {_format_probability(row['home_team_lose_prob'])}</span>"
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#374151; "
-            "font-family:Arial, sans-serif; font-size:13px;\">"
-            f"H {_format_probability(row['home_team_win_prob'])} | A {_format_probability(row['home_team_lose_prob'])}"
-            "</td>"
-            "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#374151; "
-            "font-family:Arial, sans-serif; font-size:13px;\">"
-            f"H {_format_price(row['team_head_to_head_odds_home'])} | A {_format_price(row['team_head_to_head_odds_away'])}"
+            "font-family:Arial, sans-serif; font-size:13px; width:16%;\">"
+            f"H {_format_price(row['team_head_to_head_odds_home'])}<br>A {_format_price(row['team_head_to_head_odds_away'])}"
             "</td>"
             "</tr>"
         )
@@ -1533,14 +1541,14 @@ def _render_html_email(
     else:
         value_section = (
             "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" "
-            "style=\"border-collapse:collapse; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;\">"
+            "style=\"border-collapse:collapse; border:1px solid #bbf7d0; border-radius:8px; overflow:hidden;\">"
             "<thead>"
-            "<tr style=\"background:#f9fafb;\">"
-            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Team</th>"
-            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Market</th>"
-            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Fair</th>"
-            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Edge</th>"
-            "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Stake Share</th>"
+            "<tr style=\"background:#dcfce7;\">"
+            "<th align=\"left\" style=\"padding:10px; color:#15803d; font-family:Arial, sans-serif; font-size:12px;\">Team</th>"
+            "<th align=\"left\" style=\"padding:10px; color:#15803d; font-family:Arial, sans-serif; font-size:12px;\">Market</th>"
+            "<th align=\"left\" style=\"padding:10px; color:#15803d; font-family:Arial, sans-serif; font-size:12px;\">Fair</th>"
+            "<th align=\"left\" style=\"padding:10px; color:#15803d; font-family:Arial, sans-serif; font-size:12px;\">Edge</th>"
+            "<th align=\"left\" style=\"padding:10px; color:#15803d; font-family:Arial, sans-serif; font-size:12px;\">Stake Share</th>"
             "</tr>"
             "</thead>"
             "<tbody>"
@@ -1606,11 +1614,11 @@ def _render_html_email(
     if banner_available:
         banner_html = (
             "<img src=\"cid:footy_tipper_email_banner\" alt=\"Footy Tipper\" "
-            "style=\"display:block; width:100%; max-width:680px; height:auto; border:0;\">"
+            "style=\"display:block; width:100%; max-width:680px; height:auto; border:0; border-radius:12px 12px 0 0;\">"
         )
     else:
         banner_html = (
-            "<div style=\"padding:26px 24px; background:linear-gradient(135deg, #115e59 0%, #0369a1 100%);\">"
+            "<div style=\"padding:26px 24px; background:linear-gradient(135deg, #115e59 0%, #0369a1 100%); border-radius:12px 12px 0 0;\">"
             "<h1 style=\"margin:0; color:#ffffff; font-family:'Trebuchet MS', Arial, sans-serif; font-size:30px; letter-spacing:0.5px;\">"
             "Footy Tipper"
             "</h1>"
@@ -1635,7 +1643,7 @@ def _render_html_email(
         "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">"
         "<tr><td align=\"center\">"
         "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"680\" "
-        "style=\"max-width:680px; width:100%; border-collapse:collapse; background:#ffffff; border-radius:12px; overflow:hidden;\">"
+        "style=\"max-width:680px; width:100%; border-collapse:collapse; background:#ffffff; border-radius:12px;\">"
         f"<tr><td>{banner_html}</td></tr>"
         "<tr><td style=\"padding:24px 24px 10px;\">"
         "<h2 style=\"margin:0; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:26px;\">"
@@ -1643,10 +1651,14 @@ def _render_html_email(
         "</h2>"
         "</td></tr>"
         + (
-            "<tr><td style=\"padding:6px 24px 6px;\">"
-            "<div style=\"padding:14px 16px; background:#fef2f2; border-left:4px solid #dc2626; border-radius:6px;\">"
-            "<p style=\"margin:0 0 6px; color:#dc2626; font-family:'Trebuchet MS', Arial, sans-serif; font-size:12px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase;\">This Week In League</p>"
-            f"<p style=\"margin:0; color:#1f2937; font-family:'Trebuchet MS', Arial, sans-serif; font-size:14px; line-height:1.6;\">{html.escape(news_hit)}</p>"
+            "<tr><td style=\"padding:6px 24px 10px;\">"
+            "<div style=\"border-radius:8px; overflow:hidden; border:1px solid #fca5a5;\">"
+            "<div style=\"background:#dc2626; padding:8px 14px;\">"
+            "<p style=\"margin:0; color:#ffffff; font-family:'Trebuchet MS', Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase;\">This Week In League</p>"
+            "</div>"
+            "<div style=\"padding:14px 16px; background:#fff7f7;\">"
+            f"<p style=\"margin:0; color:#1f2937; font-family:'Trebuchet MS', Arial, sans-serif; font-size:15px; line-height:1.65;\">{html.escape(news_hit)}</p>"
+            "</div>"
             "</div>"
             "</td></tr>"
             if news_hit else ""
@@ -1656,7 +1668,7 @@ def _render_html_email(
         "</td></tr>"
         f"{first_game_section}"
         "<tr><td style=\"padding:10px 24px 8px;\">"
-        "<h3 style=\"margin:0 0 10px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Predicted winners</h3>"
+        "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid #0f766e; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Predicted winners</h3>"
         "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" "
         "style=\"border-collapse:collapse; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;\">"
         "<thead><tr style=\"background:#f9fafb;\">"
@@ -1670,11 +1682,11 @@ def _render_html_email(
         "</tbody></table>"
         "</td></tr>"
         "<tr><td style=\"padding:14px 24px 8px;\">"
-        "<h3 style=\"margin:0 0 10px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Value picks</h3>"
+        "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid #16a34a; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Value picks</h3>"
         f"{value_section}"
         "</td></tr>"
         "<tr><td style=\"padding:14px 24px 8px;\">"
-        "<h3 style=\"margin:0 0 10px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Joker round call</h3>"
+        "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid #f59e0b; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Joker round call</h3>"
         f"{joker_section}"
         "</td></tr>"
         f"{folder_button}"
@@ -1682,9 +1694,8 @@ def _render_html_email(
         f"{_to_html_paragraphs(closing)}"
         "</td></tr>"
         "<tr><td style=\"padding:16px 24px 24px; border-top:1px solid #e5e7eb;\">"
-        "<p style=\"margin:0; color:#6b7280; font-family:Arial, sans-serif; font-size:12px; line-height:1.5;\">"
-        "Generated by Footy Tipper. Bring back the biff."
-        "</p>"
+        "<p style=\"margin:0 0 4px; color:#0f766e; font-family:'Trebuchet MS', Arial, sans-serif; font-size:13px; font-weight:700;\">Bring back the biff.</p>"
+        "<p style=\"margin:0; color:#9ca3af; font-family:Arial, sans-serif; font-size:11px;\">Generated by Footy Tipper.</p>"
         "</td></tr>"
         "</table>"
         "</td></tr>"
@@ -1693,81 +1704,83 @@ def _render_html_email(
     )
 
 
+_NRL_NEWS_FEEDS = [
+    "https://news.google.com/rss/search?q=NRL+rugby+league&hl=en-AU&gl=AU&ceid=AU:en",
+    "https://news.google.com/rss/search?q=NRL+rugby+league+scandal+drama&hl=en-AU&gl=AU&ceid=AU:en",
+]
+
+
+def _fetch_rss_headlines(max_items=20):
+    """Fetch recent NRL headlines from Google News RSS. Returns plain text list or empty string."""
+    import xml.etree.ElementTree as ET
+    headlines = []
+    for url in _NRL_NEWS_FEEDS:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                xml_bytes = resp.read()
+            root = ET.fromstring(xml_bytes)
+            for item in root.findall(".//item")[:max_items]:
+                title = (item.findtext("title") or "").strip()
+                desc = (item.findtext("description") or "").strip()
+                pub = (item.findtext("pubDate") or "").strip()
+                if title:
+                    headlines.append(f"- {title} ({pub}): {desc[:120]}")
+        except Exception:
+            continue
+    return "\n".join(headlines[:max_items])
+
+
 def _fetch_nrl_news_context(anthropic_client):
-    """Search for notable NRL news this week. Returns a short summary or None if nothing worth using."""
+    """Fetch NRL headlines then ask Claude to pick the top story. Always returns something."""
     try:
-        messages = [{"role": "user", "content": (
-            "Search for notable NRL or Australian Rugby League news from the past 7 days. "
-            "The story must involve NRL clubs, NRL players, or the Australian rugby league competition. "
-            "Do not report on rugby union or other sports unless an NRL player or club is directly involved — "
-            "for example, an NRL player switching codes, a cross-code controversy, or a rugby union club poaching a league star are all fair game. "
-            "Prioritise scandalous or dramatic stories: player misbehaviour, off-field dramas, contract blow-ups, code switches, "
-            "salary cap rorts, public feuds, coach sackings, player arrests, controversial selections, anything embarrassing for a club. "
-            "Also look for: referee controversies, surprising results, big signings, funny moments, club feuds. "
-            "If you find something genuinely interesting, funny, or scandalous, summarise it in 2-3 sentences — be specific about who and what. "
-            "If there's nothing particularly juicy, just reply: nothing notable this week."
-        )}]
+        headlines = _fetch_rss_headlines()
+        if not headlines:
+            print("NRL news: RSS fetch returned nothing.")
+            return None
+
         response = anthropic_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            max_tokens=500,
-            messages=messages,
+            model="claude-sonnet-4-6",
+            system=(
+                "You are a news editor. Given a list of NRL rugby league headlines, "
+                "pick the single most interesting, scandalous, or dramatic story from the past 7 days and summarise it in 2-3 sentences. "
+                "Be specific — name the player, club, or incident. "
+                "It could be anything: a scandal, a big signing, a code switch, a surprise result, a feud, a sacking, a comeback — whatever people in NRL circles are talking about most this week. "
+                "Return only the summary. No preamble."
+            ),
+            messages=[{"role": "user", "content": f"Headlines:\n{headlines}"}],
+            max_tokens=300,
         )
-        # Handle multi-turn tool use if needed
-        while response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": "Search results unavailable.",
-                    })
-            if not tool_results:
-                break
-            messages = messages + [
-                {"role": "assistant", "content": response.content},
-                {"role": "user", "content": tool_results},
-            ]
-            response = anthropic_client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                tools=[{"type": "web_search_20250305", "name": "web_search"}],
-                max_tokens=500,
-                messages=messages,
-            )
-        for block in response.content:
-            if hasattr(block, "text") and block.text:
-                text = block.text.strip()
-                if text and "nothing notable" not in text.lower():
-                    print(f"NRL news found: {text[:100]}...")
-                    return text
-        print("NRL news: nothing notable this week.")
+        text = response.content[0].text.strip() if response.content else None
+        if text:
+            print(f"NRL news: {text[:100]}...")
+            return text
         return None
     except Exception as exc:
         print(f"NRL news fetch failed ({exc}). Skipping.")
         return None
 
 
-def _build_banner_edit_instruction(copy, anthropic_client, news_context=None):
+def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, news_hit=None):
     """Ask Claude for a fun, topical scenario for the two banner characters this week."""
     subject = copy.get("subject", "")
-    opening = copy.get("opening", "")[:400]
-    news_section = (
-        f"\nCurrent NRL news this week (use if it's funnier than the email themes):\n{news_context}"
-        if news_context else ""
-    )
+    opening = copy.get("opening", "")[:300]
+    # news_hit is the primary source — it's already the most interesting story distilled
+    if news_hit:
+        inspiration = f"This week's big story (PRIMARY inspiration for the banner):\n{news_hit}"
+    elif news_context:
+        inspiration = f"NRL news this week:\n{news_context}"
+    else:
+        inspiration = f"Email subject: {subject}\nEmail opening: {opening}"
     response = anthropic_client.messages.create(
         model="claude-haiku-4-5-20251001",
         system="You write short, vivid image editing instructions for a fun weekly sports email banner.",
         messages=[{"role": "user", "content": (
             f"A weekly NRL tipping email banner features two cartoon characters: Reg Reagan (a bloke in a shirt that says 'Bring Back the Biff') and a dingo. "
-            f"Based on the email content and any news below, come up with a funny or energetic scenario for this week's banner — "
-            f"put Reg and the dingo in a situation that references the teams, games, rivalries, or anything topical from the news. "
-            f"They can be doing anything: celebrating, arguing, cowering, riding something, holding a sign, dressed up, etc. "
-            f"Be creative and specific. Pick whatever is most fun and most relevant.\n\n"
-            f"Email subject: {subject}\n"
-            f"Email opening: {opening}"
-            f"{news_section}\n\n"
+            f"Come up with a funny or energetic scenario for this week's banner inspired by the content below. "
+            f"Put Reg and the dingo in a situation that directly references the story or themes — they can be doing anything: celebrating, arguing, cowering, riding something, holding a sign, dressed up, etc. "
+            f"Be creative and specific.\n\n"
+            f"{inspiration}\n\n"
             "Return 2-3 sentences describing the scene. Be visual and specific. No preamble."
         )}],
         max_tokens=150,
@@ -1775,15 +1788,17 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None):
     )
     topical = response.content[0].text.strip()
     return (
-        f"Reimagine this banner image with the following scene. "
-        f"The two characters are Reg Reagan (a bloke whose shirt reads 'Bring Back the Biff') and a dingo — keep both characters present. "
+        f"Reimagine this image as a wide landscape email banner (roughly 3:1 aspect ratio — broad and horizontal). "
+        f"The banner must include the 'Reg's Footy Tips' logo/title text prominently, matching the style of the original. "
+        f"The two characters are Reg Reagan (a bloke whose shirt reads 'Bring Back the Biff') and a dingo — keep both present. "
         f"Maintain the same overall visual style, colour palette, and brand aesthetic as the original. "
         f"Scene: {topical} "
-        f"The image should feel like a fun, punchy sports editorial illustration."
+        f"Composition: logo/title on one side, characters and scene filling the rest of the banner. "
+        f"Fun, punchy sports editorial illustration style."
     )
 
 
-def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None):
+def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None, news_hit=None):
     """Edit the existing email banner with topical elements via Claude + gpt-image-1."""
     if not anthropic_api_key or not openai_api_key:
         return None
@@ -1806,7 +1821,7 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_conte
             return None
 
         anthropic_client = Anthropic(api_key=anthropic_api_key)
-        edit_instruction = _build_banner_edit_instruction(copy, anthropic_client, news_context=news_context)
+        edit_instruction = _build_banner_edit_instruction(copy, anthropic_client, news_context=news_context, news_hit=news_hit)
         print(f"Banner edit: {edit_instruction[:120]}...")
 
         img = Image.open(banner_path).convert("RGBA")
@@ -1826,7 +1841,9 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_conte
         print(f"Dynamic banner saved: {out_path.name}")
         return str(out_path)
     except Exception as exc:
-        print(f"Dynamic banner generation failed ({exc}). Using static banner.")
+        import traceback
+        print(f"Dynamic banner generation failed: {exc}")
+        traceback.print_exc()
         return None
 
 
@@ -1882,11 +1899,11 @@ def generate_reg_regan_email_payload(
             "inline_images": [],
         }
 
+    news_hit = copy.get("news_hit")
     banner_path = (
-        _generate_dynamic_banner(copy, api_key, openai_api_key, news_context=news_context)
+        _generate_dynamic_banner(copy, api_key, openai_api_key, news_context=news_context, news_hit=news_hit)
         or _resolve_banner_path()
     )
-    news_hit = copy.get("news_hit")
     plain_email = _render_plain_email(
         predictions,
         tipper_picks,

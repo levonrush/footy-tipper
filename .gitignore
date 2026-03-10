@@ -90,3 +90,6 @@ data/*.sqlite3
 data/*.db
 models/*.pkl
 models/*.joblib
+
+# Generated email banner
+images/email-banner-generated.png
