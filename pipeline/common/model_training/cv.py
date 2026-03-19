@@ -57,7 +57,7 @@ class InSeasonSplit(BaseCrossValidator):
         round_ids = pd.to_numeric(X[round_col], errors="coerce").to_numpy()
         for idx, season_rounds in self._season_rounds(X, groups):
             n_splits = min(self.n_splits, len(season_rounds) - 1)
-            if n_splits < 1:
+            if n_splits < 2:
                 continue
 
             tscv = TimeSeriesSplit(n_splits=n_splits)
@@ -77,5 +77,7 @@ class InSeasonSplit(BaseCrossValidator):
 
         total = 0
         for _, season_rounds in self._season_rounds(X, groups):
-            total += min(self.n_splits, len(season_rounds) - 1)
+            n = min(self.n_splits, len(season_rounds) - 1)
+            if n >= 2:
+                total += n
         return total
