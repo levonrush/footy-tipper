@@ -799,8 +799,8 @@ def get_tipper_picks(predictions, prod_run=False):
 
     predictions = predictions.copy()
 
-    # Use expected value per side (p * odds - 1) and select the strongest side
-    # per match, instead of forcing picks to align with the predicted winner.
+    # Use expected value (p * odds - 1) for the model's predicted winner only.
+    # Only tips the model expects to win are eligible as value picks.
     records = []
     for _, row in predictions.iterrows():
         game_id = row.get("game_id")
@@ -812,10 +812,17 @@ def get_tipper_picks(predictions, prod_run=False):
         away_odds = pd.to_numeric(pd.Series([row.get("team_head_to_head_odds_away")]), errors="coerce").iloc[0]
 
         side_candidates = []
+        predicted_result = row.get("home_team_result")
         for side, team, opp, prob, odds in [
             ("home", home_team, away_team, home_prob, home_odds),
             ("away", away_team, home_team, away_prob, away_odds),
         ]:
+            # Only evaluate sides the model tips to win
+            if side == "home" and predicted_result != "Win":
+                continue
+            if side == "away" and predicted_result != "Loss":
+                continue
+
             if pd.isna(prob) or pd.isna(odds) or odds <= 1 or prob <= 0 or prob >= 1:
                 continue
 
