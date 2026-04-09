@@ -1780,7 +1780,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
         model="claude-sonnet-4-6",
         system="You write short, vivid image editing instructions for a fun weekly sports email banner.",
         messages=[{"role": "user", "content": (
-            f"A weekly NRL tipping email banner features two cartoon characters: Reg Reagan (a bloke in a shirt that says 'Bring Back the Biff') and a dingo. "
+            f"A weekly NRL tipping email banner features two cartoon characters: Reg Reagan (a bloke in a shirt that says 'Bring Back the Biff' wearing green and gold Australian rugby league footy shorts) and a dingo. "
             f"Come up with a funny or energetic scenario for this week's banner inspired by the content below. "
             f"Put Reg and the dingo in a situation that directly references the story or themes — they can be doing anything: celebrating, arguing, cowering, riding something, holding a sign, dressed up, etc. "
             f"Be creative and specific.\n\n"
@@ -1796,7 +1796,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
         f"CRITICAL FRAMING RULE: Every character and every element must be completely within the frame — do not crop any part of any character at any edge. Use a wide establishing shot with clear margins on all sides. "
         f"The 'Reg's Footy Tips' logo badge must be FULLY VISIBLE and CENTRED in the image — do not crop or push it to an edge. "
         f"Maintain the original composition: one character on the far left with room to breathe, the logo badge prominently in the centre, the other character on the far right with room to breathe. "
-        f"The two characters are Reg Reagan (a bloke whose shirt reads 'Bring Back the Biff') and a dingo — both must be shown in full from head to toe, fully inside the canvas. "
+        f"The two characters are Reg Reagan (a bloke whose shirt reads 'Bring Back the Biff' wearing green and gold Australian rugby league footy shorts) and a dingo — both must be shown in full from head to toe, fully inside the canvas. "
         f"Maintain the same overall visual style, colour palette, and brand aesthetic as the original: bright blue background with circuit-board pattern. "
         f"Scene: {topical} "
         f"Fun, punchy sports editorial illustration style."
@@ -1837,7 +1837,7 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_conte
 
         openai_client = OpenAIClient(api_key=openai_api_key)
         response = openai_client.images.edit(
-            model="gpt-image-1",
+            model="gpt-image-1.5",
             image=("email-banner.png", img_bytes, "image/png"),
             prompt=edit_instruction,
             size="1536x1024",
