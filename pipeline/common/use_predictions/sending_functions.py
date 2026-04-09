@@ -1792,14 +1792,16 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
     )
     topical = response.content[0].text.strip()
     return (
-        f"Reimagine this image as a wide landscape email banner (roughly 3:1 aspect ratio — broad and horizontal). "
-        f"The banner must include the 'Reg's Footy Tips' logo/title text prominently, matching the style of the original. "
-        f"The two characters are Reg Reagan (a bloke whose shirt reads 'Bring Back the Biff') and a dingo — keep both present. "
-        f"Maintain the same overall visual style, colour palette, and brand aesthetic as the original. "
+        f"Reimagine this image as a wide landscape email banner. "
+        f"CRITICAL FRAMING RULE: Every character and every element must be completely within the frame — do not crop any part of any character at any edge. Use a wide establishing shot with clear margins on all sides. "
+        f"The 'Reg's Footy Tips' logo badge must be FULLY VISIBLE and CENTRED in the image — do not crop or push it to an edge. "
+        f"Maintain the original composition: one character on the far left with room to breathe, the logo badge prominently in the centre, the other character on the far right with room to breathe. "
+        f"The two characters are Reg Reagan (a bloke whose shirt reads 'Bring Back the Biff') and a dingo — both must be shown in full from head to toe, fully inside the canvas. "
+        f"Maintain the same overall visual style, colour palette, and brand aesthetic as the original: bright blue background with circuit-board pattern. "
         f"Scene: {topical} "
-        f"Composition: logo/title on one side, characters and scene filling the rest of the banner. "
         f"Fun, punchy sports editorial illustration style."
     )
+
 
 
 def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None, news_hit=None):
@@ -1838,6 +1840,7 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_conte
             model="gpt-image-1",
             image=("email-banner.png", img_bytes, "image/png"),
             prompt=edit_instruction,
+            size="1536x1024",
         )
         image_data = base64.b64decode(response.data[0].b64_json)
         out_path = project_root / "images" / "email-banner-generated.png"
