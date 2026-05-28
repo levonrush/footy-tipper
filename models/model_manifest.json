@@ -504,8 +504,8 @@
     "baseline_draw_prob",
     "baseline_home_win_prob_conditional"
   ],
-  "blend_weight_home": 0.7000000000000001,
-  "blend_weight_away": 1.0,
+  "blend_weight_home": 0.8,
+  "blend_weight_away": 0.8,
   "lambda3": 0.0,
   "lineup_monte_carlo_samples": 64,
   "lineup_mu_noise_scale": 0.12,
@@ -514,10 +514,10 @@
     "carryover": 0.6,
     "min_rate": 0.5,
     "max_rate": 80.0,
-    "base_home": 22.699329250510353,
-    "base_away": 19.64158646835812
+    "base_home": 22.68650922031705,
+    "base_away": 19.875121319961178
   },
   "joker_policy_file": "joker_policy.json",
   "joker_policy_default_strategy": "protect",
-  "joker_policy_seasons_evaluated": 10
+  "joker_policy_seasons_evaluated": 11
 }

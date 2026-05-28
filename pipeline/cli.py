@@ -4,6 +4,7 @@ import pathlib
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 
 try:
@@ -62,6 +63,7 @@ def _run_command(cmd, env, cwd=None):
 
 def _build_env(args):
     env = os.environ.copy()
+    env["R_LIBS_USER"] = os.path.expanduser("~/R/library")
     if getattr(args, "start_year", None) is not None:
         env["FOOTY_TIPPER_START_YEAR"] = str(args.start_year)
     if getattr(args, "end_year", None) is not None:
@@ -304,11 +306,12 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
 
     # In test mode, skip Drive upload by default unless explicitly requested.
     if not skip_drive:
+        temp_csv = os.path.join(tempfile.gettempdir(), "predictions.csv")
         sf.upload_df_to_drive(
             predictions,
             json_path,
             os.getenv("FOLDER_ID"),
-            "predictions.csv",
+            temp_csv,
         )
     else:
         _log("Drive upload skipped.")
