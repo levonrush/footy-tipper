@@ -95,3 +95,7 @@ models/*.joblib
 
 # Generated email banner
 images/email-banner-generated.png
+
+# launchd job logs
+logs/*
+!logs/.gitkeep

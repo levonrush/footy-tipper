@@ -1,22 +1,17 @@
-version: '3.8'
-
+# Docker Compose has no built-in scheduler: these services define how to run
+# the jobs in a container, not when. Scheduling lives in launchd on the host
+# (see ops/install-launchd.sh and docs/operations-reliability.md).
 services:
   train-job:
     build: .
-    command: python footy-tipper-train.py
+    command: python -m pipeline.cli train
     deploy:
       restart_policy:
         condition: on-failure
-    # Scheduling for Tuesday
-    labels:
-      - "com.docker.compose.job.schedule=cron(0 0 * * 2)"
 
   predict-job:
     build: .
-    command: python footy-tipper-predict.py
+    command: python -m pipeline.cli predict
     deploy:
       restart_policy:
         condition: on-failure
-    # Scheduling for Thursday at 3 PM
-    labels:
-      - "com.docker.compose.job.schedule=cron(0 15 * * 4)"
