@@ -18,10 +18,45 @@ from sklearn.exceptions import ConvergenceWarning
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
 
+from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.model_training.cv import InSeasonSplit
 
 # Suppress convergence warnings
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
+
+
+def select_blend_weights_by_log_loss(y, baseline_mu_home, baseline_mu_away, model_mu_home, model_mu_away):
+    """Grid-search (w_home, w_away) minimising log-loss of the conditional win prob.
+
+    All inputs must already be filtered to the rows used for selection
+    (typically non-draw, genuinely out-of-fold rows). Log-loss is a smooth
+    proper scoring rule, so the argmin is far more stable than maximising
+    0/1 tipping accuracy. Returns (w_home, w_away, log_loss, accuracy).
+    """
+    from sklearn.metrics import log_loss as _log_loss
+
+    y = np.asarray(y, dtype=int)
+    bh = np.asarray(baseline_mu_home, dtype=float)
+    ba = np.asarray(baseline_mu_away, dtype=float)
+    mh = np.asarray(model_mu_home, dtype=float)
+    ma = np.asarray(model_mu_away, dtype=float)
+
+    candidates = np.linspace(0.0, 1.0, 11)
+    best_wh, best_wa, best_ll = 1.0, 1.0, np.inf
+    for wh in candidates:
+        blended_h = np.maximum((1.0 - wh) * bh + wh * mh, 1e-6)
+        for wa in candidates:
+            blended_a = np.maximum((1.0 - wa) * ba + wa * ma, 1e-6)
+            win_probs = np.clip(pf.conditional_home_win_prob_vec(blended_h, blended_a), 1e-6, 1 - 1e-6)
+            ll = _log_loss(y, win_probs)
+            if ll < best_ll:
+                best_ll, best_wh, best_wa = float(ll), float(wh), float(wa)
+
+    best_h = np.maximum((1.0 - best_wh) * bh + best_wh * mh, 1e-6)
+    best_a = np.maximum((1.0 - best_wa) * ba + best_wa * ma, 1e-6)
+    best_probs = pf.conditional_home_win_prob_vec(best_h, best_a)
+    best_acc = float(((best_probs > 0.5) == y.astype(bool)).mean())
+    return best_wh, best_wa, best_ll, best_acc
 
 
 def sanitize_feature_names(names):

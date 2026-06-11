@@ -24,39 +24,14 @@ from pipeline.common.model_training import training_config as tc
 
 
 def _select_blend_weight_by_log_loss(y_binary, non_draw, baseline_mu_home, baseline_mu_away, oof_mu_home, oof_mu_away):
-    """Joint grid search over (w_home, w_away) minimising OOF log-loss.
-
-    Uses OOF score predictions so the criterion is unbiased — in-sample would
-    almost always select w=1.0 because the fitted LightGBM memorises training
-    scores. Log-loss is a smooth proper scoring rule, so the argmin is far more
-    stable than maximising 0/1 tipping accuracy (which is flat almost
-    everywhere and jumps at thresholds). Accuracy at the chosen weights is
-    returned for reporting.
-    """
-    candidates = np.linspace(0.0, 1.0, 11)
-    best_wh, best_wa, best_ll = 1.0, 1.0, np.inf
-
-    bh = np.asarray(baseline_mu_home, dtype=float)[non_draw]
-    ba = np.asarray(baseline_mu_away, dtype=float)[non_draw]
-    oh = np.asarray(oof_mu_home, dtype=float)[non_draw]
-    oa = np.asarray(oof_mu_away, dtype=float)[non_draw]
-    y = np.asarray(y_binary, dtype=int)
-
-    for wh in candidates:
-        blended_h = np.maximum((1.0 - wh) * bh + wh * oh, 1e-6)
-        for wa in candidates:
-            blended_a = np.maximum((1.0 - wa) * ba + wa * oa, 1e-6)
-            win_probs = np.clip(pf.conditional_home_win_prob_vec(blended_h, blended_a), 1e-6, 1 - 1e-6)
-            ll = log_loss(y, win_probs)
-            if ll < best_ll:
-                best_ll, best_wh, best_wa = float(ll), float(wh), float(wa)
-
-    best_h = np.maximum((1.0 - best_wh) * bh + best_wh * oh, 1e-6)
-    best_a = np.maximum((1.0 - best_wa) * ba + best_wa * oa, 1e-6)
-    best_probs = pf.conditional_home_win_prob_vec(best_h, best_a)
-    best_acc = float(((best_probs > 0.5) == y.astype(bool)).mean())
-
-    return best_wh, best_wa, best_ll, best_acc
+    """OOF blend weight selection; see mf.select_blend_weights_by_log_loss."""
+    return mf.select_blend_weights_by_log_loss(
+        y_binary,
+        np.asarray(baseline_mu_home, dtype=float)[non_draw],
+        np.asarray(baseline_mu_away, dtype=float)[non_draw],
+        np.asarray(oof_mu_home, dtype=float)[non_draw],
+        np.asarray(oof_mu_away, dtype=float)[non_draw],
+    )
 
 
 def _estimate_lambda3(y_home, y_away, mu_home, mu_away):

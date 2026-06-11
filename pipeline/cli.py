@@ -246,6 +246,12 @@ def _run_inference(env, skip_prep, root):
     _run_command([sys.executable, str(root / "pipeline" / "inference.py")], env, cwd=root)
 
 
+def _run_evaluate(env, skip_prep, root):
+    if not skip_prep:
+        _run_data_prep(env, root)
+    _run_command([sys.executable, str(root / "pipeline" / "evaluate.py")], env, cwd=root)
+
+
 def _model_artifacts_exist(root: pathlib.Path) -> bool:
     models_dir = root / "models"
     return all((models_dir / filename).exists() for filename in REQUIRED_MODEL_FILES)
@@ -682,6 +688,23 @@ def build_parser():
     _add_season_args(lineups)
     _add_lineup_args(lineups, default_mode="recent", include_skip=False)
 
+    evaluate = subparsers.add_parser(
+        "evaluate",
+        help="Honest nested season-out evaluation (meta-layer never sees the test season).",
+    )
+    _add_season_args(evaluate)
+    evaluate.add_argument(
+        "--seasons",
+        type=int,
+        default=None,
+        help="Number of recent seasons to hold out (default: FOOTY_TIPPER_EVAL_SEASONS or 3).",
+    )
+    evaluate.add_argument(
+        "--skip-prep",
+        action="store_true",
+        help="Skip R data prep and evaluate from existing SQLite tables.",
+    )
+
     return parser
 
 
@@ -722,6 +745,17 @@ def main(argv=None):
 
     if args.command == "lineups":
         _run_lineups(env, root)
+        return 0
+
+    if args.command == "evaluate":
+        if not _model_artifacts_exist(root):
+            _log("Model artifacts are missing. Run `footy-tipper train` first; evaluate reuses their tuned hyperparameters.")
+            return 1
+        if args.seasons is not None:
+            env["FOOTY_TIPPER_EVAL_SEASONS"] = str(args.seasons)
+        eval_env = env.copy()
+        eval_env.setdefault("FOOTY_TIPPER_PREP_MODE", "train")
+        _run_evaluate(eval_env, skip_prep=args.skip_prep, root=root)
         return 0
 
     if args.command == "send":
