@@ -276,7 +276,7 @@ def _ensure_models_for_prediction(env, root, auto_train=True, allow_lineup_boots
     return False
 
 
-def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
+def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run, force_resend=False):
     try:
         from pipeline.common.use_predictions import sending_functions as sf
     except ModuleNotFoundError as exc:
@@ -297,6 +297,30 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
     if predictions.empty:
         _log("No pre-game predictions available. Nothing to send.")
         return 0
+
+    send_year = None
+    send_round_id = None
+    try:
+        send_year = int(predictions.iloc[0]["competition_year"])
+        send_round_id = int(predictions.iloc[0]["round_id"])
+    except Exception:
+        pass
+
+    # Idempotency gate: never email the production list twice for one round.
+    if not test_mode and not dry_run:
+        prior_send = sf.email_send_already_recorded(db_path, send_year, send_round_id)
+        if prior_send and not force_resend:
+            _log(
+                f"Production email already sent for {send_year} round {send_round_id} "
+                f"(recorded {prior_send.get('sent_at_utc')} UTC). "
+                "Use --force-resend to send again."
+            )
+            return 0
+        if prior_send and force_resend:
+            _log(
+                f"Production email already sent for {send_year} round {send_round_id}; "
+                "resending because --force-resend was given."
+            )
 
     tipper_picks = sf.get_tipper_picks(predictions)
     joker_recommendation = sf.get_joker_round_recommendation(db_path, root, predictions)
@@ -381,6 +405,16 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
     if not sent:
         _log("Production email flow skipped or failed. Joker usage state unchanged.")
         return 0
+
+    recipients_count = sent if isinstance(sent, int) and not isinstance(sent, bool) else None
+    if sf.record_email_send(
+        db_path,
+        send_year,
+        send_round_id,
+        recipients_count=recipients_count,
+        source="cli_send_production",
+    ):
+        _log(f"Send recorded in ledger for {send_year} round {send_round_id}.")
 
     usage_outcome = sf.persist_joker_usage_if_applicable(
         db_path,
@@ -597,6 +631,11 @@ def build_parser():
     )
     _add_openai_args(send)
     send.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
+    send.add_argument(
+        "--force-resend",
+        action="store_true",
+        help="Send to the production list even if this round was already emailed.",
+    )
 
     predict = subparsers.add_parser("predict", help="Run full prediction workflow (prep -> infer -> send).")
     _add_season_args(predict)
@@ -621,6 +660,11 @@ def build_parser():
     predict.add_argument("--skip-drive", action="store_true", help="Skip Google Drive upload during send step.")
     _add_openai_args(predict)
     predict.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
+    predict.add_argument(
+        "--force-resend",
+        action="store_true",
+        help="Send to the production list even if this round was already emailed.",
+    )
 
     lineups = subparsers.add_parser("lineups", help="Run lineup ingestion only.")
     _add_season_args(lineups)
@@ -677,6 +721,7 @@ def main(argv=None):
             skip_drive=skip_drive,
             use_openai=use_openai,
             dry_run=args.dry_run,
+            force_resend=args.force_resend,
         )
 
     if args.command == "predict":
@@ -700,6 +745,7 @@ def main(argv=None):
             skip_drive=skip_drive,
             use_openai=args.use_openai,
             dry_run=args.dry_run,
+            force_resend=args.force_resend,
         )
 
     parser.error(f"Unknown command: {args.command}")

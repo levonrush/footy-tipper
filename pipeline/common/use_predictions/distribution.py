@@ -151,12 +151,24 @@ def _attach_inline_images(msg, inline_images):
             print(f"Inline image skipped ({path}): {exc}")
 
 
-def _build_mime_message(subject, sender_email, recipients, plain_message, html_message=None, inline_images=None):
+def _build_mime_message(
+    subject,
+    sender_email,
+    recipients,
+    plain_message,
+    html_message=None,
+    inline_images=None,
+    bcc_recipients=False,
+):
     has_html = bool(html_message)
     msg = MIMEMultipart("related") if has_html else MIMEMultipart()
     msg["From"] = sender_email
-    msg["To"] = ", ".join(recipients)
+    # For list sends, keep recipient addresses out of the headers (effective BCC):
+    # they only appear in the SMTP envelope. Recipients must not see each other.
+    msg["To"] = sender_email if bcc_recipients else ", ".join(recipients)
     msg["Subject"] = subject
+    if sender_email:
+        msg["List-Unsubscribe"] = f"<mailto:{sender_email}?subject=unsubscribe>"
 
     if has_html:
         alternatives = MIMEMultipart("alternative")
@@ -200,15 +212,99 @@ def send_emails(doc_name, subject, message, sender_email, sender_password, json_
         plain_message=message,
         html_message=html_message,
         inline_images=inline_images,
+        bcc_recipients=True,
     )
-    
+
     server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()
     server.login(sender_email, sender_password)
     text = msg.as_string()
     server.sendmail(sender_email, recipient_emails, text)
     server.quit()
-    return True
+    # Truthy on success; callers can use the count for the send ledger.
+    return len(recipient_emails)
+
+
+def _ensure_email_sends_table(db_path):
+    con = sqlite3.connect(str(db_path))
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS email_sends (
+                competition_year INTEGER NOT NULL,
+                round_id INTEGER NOT NULL,
+                sent_at_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                recipients_count INTEGER,
+                source TEXT NOT NULL DEFAULT 'unknown',
+                PRIMARY KEY (competition_year, round_id)
+            )
+            """
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def email_send_already_recorded(db_path, competition_year, round_id):
+    """Return the prior send record for (year, round) or None.
+
+    Used to keep production sends idempotent: a re-run of the predict/send
+    flow must not email the list twice for the same round.
+    """
+    if competition_year is None or round_id is None:
+        return None
+
+    row = None
+    con = None
+    try:
+        con = sqlite3.connect(str(db_path))
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            """
+            SELECT competition_year, round_id, sent_at_utc, recipients_count, source
+            FROM email_sends
+            WHERE competition_year = ? AND round_id = ?
+            LIMIT 1
+            """,
+            (int(competition_year), int(round_id)),
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc).lower():
+            print(f"Email send ledger lookup failed ({exc}).")
+    except Exception as exc:
+        print(f"Email send ledger lookup failed ({exc}).")
+    finally:
+        if con is not None:
+            con.close()
+
+    if row is None:
+        return None
+    return dict(row)
+
+
+def record_email_send(db_path, competition_year, round_id, recipients_count=None, source="send"):
+    """Record a successful production send for (year, round). Fail-soft."""
+    if competition_year is None or round_id is None:
+        return False
+
+    try:
+        _ensure_email_sends_table(db_path)
+        con = sqlite3.connect(str(db_path))
+        try:
+            con.execute(
+                """
+                INSERT OR IGNORE INTO email_sends (competition_year, round_id, recipients_count, source)
+                VALUES (?, ?, ?, ?)
+                """,
+                (int(competition_year), int(round_id), recipients_count, str(source or "send")),
+            )
+            con.commit()
+        finally:
+            con.close()
+        return True
+    except Exception as exc:
+        print(f"Email send ledger write failed ({exc}).")
+        return False
 
 
 def send_test_email(subject, message, sender_email, sender_password, recipient_email, html_message=None, inline_images=None):

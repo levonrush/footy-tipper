@@ -23,9 +23,12 @@ from pipeline.common.use_predictions.banner import (  # noqa: F401
 from pipeline.common.use_predictions.distribution import (  # noqa: F401
     _attach_inline_images,
     _build_mime_message,
+    _ensure_email_sends_table,
     _ensure_predictions_table_columns,
     _sort_predictions_for_display,
+    email_send_already_recorded,
     get_predictions,
+    record_email_send,
     send_emails,
     send_test_email,
     upload_df_to_drive,
