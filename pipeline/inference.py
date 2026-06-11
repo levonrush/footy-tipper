@@ -133,6 +133,7 @@ blended_mu_away = np.maximum((1.0 - blend_weight_away) * baseline_mu_away + blen
 tier_a_cond = np.clip(inference_data["baseline_home_win_prob_conditional"].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
 lineup_unc_home = pd.to_numeric(inference_data.get("lineup_selection_uncertainty_home", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
 lineup_unc_away = pd.to_numeric(inference_data.get("lineup_selection_uncertainty_away", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+infer_game_ids = inference_data["game_id"].to_numpy()
 tier_b_cond = np.array(
     [
         pf.marginalized_conditional_home_win_prob(
@@ -142,8 +143,13 @@ tier_b_cond = np.array(
             lineup_uncertainty_away=ua,
             n_samples=lineup_mc_samples,
             mu_noise_scale=lineup_mu_noise_scale,
+            # Deterministic per-game RNG: re-running inference on the same
+            # data must never flip a tip.
+            rng=pf.rng_for_game(gid, salt=2),
         )
-        for mh, ma, uh, ua in zip(blended_mu_home, blended_mu_away, lineup_unc_home, lineup_unc_away)
+        for mh, ma, uh, ua, gid in zip(
+            blended_mu_home, blended_mu_away, lineup_unc_home, lineup_unc_away, infer_game_ids
+        )
     ],
     dtype=float,
 )

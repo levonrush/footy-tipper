@@ -2,6 +2,7 @@ import dill as pickle
 import numpy as np
 import warnings
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
+from sklearn.model_selection import GroupKFold
 
 PROB_EPS = 1e-4
 MAX_LOGIT = 8.0
@@ -87,15 +88,19 @@ class LogisticStacker:
     _DEFAULT_CS = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0]
 
     def __init__(self, cs=None, max_iter=2000):
-        cs = cs if cs is not None else self._DEFAULT_CS
-        self._model = LogisticRegressionCV(
-            Cs=cs,
-            cv=5,
-            max_iter=max_iter,
+        self._cs = cs if cs is not None else self._DEFAULT_CS
+        self._max_iter = max_iter
+        self._model = self._build_model(cv=5)
+        self._is_fitted = False
+
+    def _build_model(self, cv):
+        return LogisticRegressionCV(
+            Cs=self._cs,
+            cv=cv,
+            max_iter=self._max_iter,
             solver="lbfgs",
             scoring="neg_log_loss",
         )
-        self._is_fitted = False
 
     @staticmethod
     def _to_meta_features(tier_a, tier_b, market, odds_missing, tier_c=None):
@@ -124,7 +129,13 @@ class LogisticStacker:
 
         return np.nan_to_num(X, nan=0.0, posinf=MAX_LOGIT, neginf=-MAX_LOGIT)
 
-    def fit(self, tier_a, tier_b, market, odds_missing, y, tier_c=None):
+    def fit(self, tier_a, tier_b, market, odds_missing, y, tier_c=None, groups=None):
+        """Fit the meta-model.
+
+        When `groups` (e.g. competition_year per row) is provided, the internal
+        regularisation search uses season-grouped CV instead of random k-fold,
+        keeping the meta-layer consistent with the time-aware CV used elsewhere.
+        """
         y = np.asarray(y, dtype=int)
         if len(np.unique(y)) < 2:
             self._is_fitted = False
@@ -134,6 +145,15 @@ class LogisticStacker:
         if not np.isfinite(X).all():
             self._is_fitted = False
             return self
+
+        cv = 5
+        if groups is not None:
+            groups = np.asarray(groups)
+            n_groups = len(np.unique(groups))
+            if n_groups >= 2:
+                splitter = GroupKFold(n_splits=min(5, n_groups))
+                cv = list(splitter.split(X, y, groups))
+        self._model = self._build_model(cv=cv)
 
         try:
             with warnings.catch_warnings():

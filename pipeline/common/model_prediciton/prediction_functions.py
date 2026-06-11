@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter
 
 import dill as pickle
 import numpy as np
 import pandas as pd
 from scipy.stats import poisson, skellam
+
+# Fixed base so every run over the same fixtures produces the same tips.
+GAME_SEED_BASE = 20100308
+
+
+def rng_for_game(game_id, salt=0):
+    """Deterministic per-game RNG so re-runs never flip a tip."""
+    try:
+        seed = GAME_SEED_BASE + int(game_id) * 1009 + int(salt)
+    except Exception:
+        seed = GAME_SEED_BASE + int(salt)
+    return np.random.default_rng(seed)
 
 
 def get_inference_data(db_path, sql_file):
@@ -42,6 +55,17 @@ def compute_outcome_probs_independent(mu_home, mu_away):
 def conditional_home_win_prob(mu_home, mu_away):
     home_win, away_win, _ = compute_outcome_probs_independent(mu_home, mu_away)
     non_draw = max(1e-9, home_win + away_win)
+    return home_win / non_draw
+
+
+def conditional_home_win_prob_vec(mu_home, mu_away):
+    """Vectorised p(home win | non-draw) under independent Poisson scores."""
+    mu_home = np.maximum(np.asarray(mu_home, dtype=float), 1e-9)
+    mu_away = np.maximum(np.asarray(mu_away, dtype=float), 1e-9)
+    draw_prob = skellam.pmf(0, mu_home, mu_away)
+    home_win = 1.0 - skellam.cdf(0, mu_home, mu_away)
+    away_win = np.maximum(0.0, 1.0 - home_win - draw_prob)
+    non_draw = np.maximum(1e-9, home_win + away_win)
     return home_win / non_draw
 
 
@@ -148,10 +172,12 @@ def simulate_game(home_score_avg, away_score_avg, n_simulations=100000, lambda3=
         "home_win_prob": home_wins / total_games,
         "away_win_prob": away_wins / total_games,
         "draw_prob": draws / total_games,
+        # Median margin is a far more stable point estimate than the margin of
+        # the modal exact scoreline.
+        "median_margin": int(round(float(np.median(home_goals_sim - away_goals_sim)))),
     }
 
-    scorelines = list(zip(home_goals_sim, away_goals_sim))
-    predicted_scoreline = max(set(scorelines), key=scorelines.count)
+    predicted_scoreline = Counter(zip(home_goals_sim, away_goals_sim)).most_common(1)[0][0]
 
     return probabilities, predicted_scoreline
 
@@ -232,9 +258,11 @@ def predict_match_outcome_and_scoreline_with_bayes(
         calibrated_home_win_conditional = np.full(len(working), np.nan)
     calibrated_home_win_conditional = np.asarray(calibrated_home_win_conditional, dtype=float)
 
-    rng = np.random.default_rng()
     results = []
     for idx, row in working.iterrows():
+        # Per-game deterministic RNG: identical inputs always yield the same
+        # tip, scoreline, and margin across re-runs.
+        rng = rng_for_game(row.get("game_id"), salt=1)
         probabilities, predicted_scoreline = simulate_game(
             row["home_goals_avg"],
             row["away_goals_avg"],
@@ -262,7 +290,11 @@ def predict_match_outcome_and_scoreline_with_bayes(
                 "draw_prob": probabilities["draw_prob"],
                 "predicted_home_score": predicted_scoreline[0],
                 "predicted_away_score": predicted_scoreline[1],
-                "predicted_margin": predicted_scoreline[0] - predicted_scoreline[1],
+                # Median simulated margin; may differ slightly from the modal
+                # scoreline's margin and that's fine — it's the better estimate.
+                "predicted_margin": probabilities.get(
+                    "median_margin", predicted_scoreline[0] - predicted_scoreline[1]
+                ),
                 "home_team_result": home_team_result,
                 "bayes_factor": bayes_factor,
                 "evidence_strength": evidence_strength,

@@ -149,7 +149,7 @@ def train_and_select_best_model(data, predictors, outcome_var,
     return best_pipe
 
 
-def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var):
+def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var, return_mask=False):
     """Generate out-of-fold score predictions using expanding year windows.
 
     For each year Y (starting from the 2nd year in data), trains a LightGBM with
@@ -159,6 +159,10 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var)
 
     This gives the stacker unbiased (out-of-sample) Tier-B inputs, preventing it
     from over-weighting Tier-B due to in-sample overfitting.
+
+    With `return_mask=True`, also returns a boolean array marking rows whose
+    predictions are genuinely out-of-fold (first-year/failed-fold rows are
+    in-sample fallbacks and should be excluded from meta-model training).
     """
     years = sorted(
         pd.to_numeric(data["competition_year"], errors="coerce")
@@ -201,10 +205,13 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var)
 
     # Fill NaN (first year + any failed folds) with in-sample predictions.
     nan_mask = oof_preds.isna()
+    genuine_oof = (~nan_mask).to_numpy()
     if nan_mask.any():
         in_sample = np.maximum(full_pipeline.predict(data[predictors]), 1e-6)
         oof_preds[nan_mask] = in_sample[nan_mask]
 
+    if return_mask:
+        return oof_preds.values, genuine_oof
     return oof_preds.values
 
 
@@ -232,11 +239,12 @@ def train_binary_classifier(data, predictors, outcome_var, best_params, preproce
     return binary_pipeline
 
 
-def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocessor_steps, best_params):
+def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocessor_steps, best_params, return_mask=False):
     """Generate OOF binary win/loss predictions using an expanding year window.
 
     Mirrors generate_oof_score_predictions but trains a binary classifier on
     non-draw games only. Returns an array aligned to data.index with P(home win).
+    With `return_mask=True`, also returns a boolean genuine-OOF row mask.
     """
     years = sorted(
         pd.to_numeric(data["competition_year"], errors="coerce")
@@ -278,6 +286,7 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
 
     # Fallback for first year and any failed folds: train on all non-draw data.
     nan_mask = oof_preds.isna() & nd
+    genuine_oof = (oof_preds.notna() & nd).to_numpy()
     if nan_mask.any():
         try:
             X_all_t = preprocessor_steps.transform(data.loc[nd, predictors])
@@ -290,6 +299,8 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
             oof_preds = oof_preds.fillna(0.5)
 
     oof_preds = oof_preds.fillna(0.5)
+    if return_mask:
+        return oof_preds.values, genuine_oof
     return oof_preds.values
 
 
