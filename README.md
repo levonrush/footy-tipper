@@ -25,6 +25,8 @@ Core commands:
 footy-tipper train
 footy-tipper predict
 footy-tipper send --test --dry-run
+footy-tipper evaluate --skip-prep   # honest held-out metrics
+footy-tipper site                   # static tips site -> docs/site/
 ```
 
 `train` and `predict` are designed as simple defaults:

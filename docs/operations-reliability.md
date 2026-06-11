@@ -63,7 +63,41 @@ Single-use reliability:
 - test sends read this state but do not write it
 - production sends write only after successful production email send
 
-## 6) Recommended Weekly Runbook
+## 6) Scheduling (launchd)
+
+Scheduling runs on the host Mac via launchd (Docker Compose has no scheduler;
+the old compose cron labels did nothing).
+
+```bash
+./ops/install-launchd.sh            # install/refresh both jobs
+./ops/install-launchd.sh uninstall  # remove them
+launchctl list | grep footytipper   # check they're loaded
+launchctl kickstart gui/$UID/com.footytipper.predict  # run one now
+```
+
+- `com.footytipper.train` — Tuesday 06:00 local, runs `footy-tipper train`
+- `com.footytipper.predict` — Thursday 15:00 local, runs `footy-tipper predict`
+- Logs: `logs/train.log`, `logs/predict.log`
+- launchd skips a trigger if the Mac is asleep at that moment; keep it awake
+  around run times (or plug it in with Energy Saver set accordingly).
+
+## 7) Send Idempotency, Backups, and the Site
+
+- Every production send is recorded in the `email_sends` SQLite table keyed by
+  (competition_year, round_id). Re-runs refuse to email the list again without
+  `--force-resend`.
+- After a successful production send: the static site under `docs/site/` is
+  regenerated, and a gzipped consistent DB snapshot is uploaded to a
+  `backups/` folder under the Drive `FOLDER_ID` (newest 8 kept). Disable with
+  `FOOTY_TIPPER_DB_BACKUP=false`.
+- GitHub Pages: enable once in repo Settings -> Pages -> Deploy from branch ->
+  `main` / `/docs`. Then `footy-tipper site --publish` (or a manual push of
+  `docs/site/`) updates the public page, and `FOOTY_TIPPER_SITE_URL` makes the
+  email link to it.
+- Lineup feature merge failures during train/infer print full tracebacks and
+  can be made fatal with `FOOTY_TIPPER_LINEUP_FEATURES_STRICT=true`.
+
+## 8) Recommended Weekly Runbook
 
 1. `footy-tipper predict --test --dry-run`
 2. sanity-check round scope + joker call + value picks
@@ -73,7 +107,7 @@ Bootstrap note:
 - `footy-tipper train` auto-runs one historical lineup backfill when needed
 - weekly `predict` keeps using the faster recent-refresh path unless auto-training is required
 
-## 7) Debugging Checklist
+## 9) Debugging Checklist
 
 When output looks wrong, check:
 - round/year selected by `prediction_table.sql`
@@ -83,7 +117,7 @@ When output looks wrong, check:
 - `joker_usage` row for the active `competition_year`
 - which joker strategy source was used (`explicit_env`, `policy_auto`, fallback)
 
-## 8) Security / Hygiene
+## 10) Security / Hygiene
 
 Never commit:
 - `secrets.env`
