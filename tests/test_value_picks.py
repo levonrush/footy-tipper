@@ -8,27 +8,27 @@ from pipeline.common.use_predictions import sending_functions as sf
 
 
 class ValuePickTests(unittest.TestCase):
-    def test_selects_best_positive_edge_side_per_match(self):
+    def test_selects_tipped_side_with_positive_edge_per_match(self):
         predictions = pd.DataFrame(
             [
                 {
                     "game_id": 1,
                     "team_home": "Home A",
                     "team_away": "Away A",
-                    "home_team_result": "Win",
-                    "home_team_win_prob": 0.55,
-                    "home_team_lose_prob": 0.35,
+                    "home_team_result": "Loss",
+                    "home_team_win_prob": 0.40,
+                    "home_team_lose_prob": 0.55,
                     "team_head_to_head_odds_home": 1.70,
-                    "team_head_to_head_odds_away": 3.20,
+                    "team_head_to_head_odds_away": 2.20,
                 },
                 {
                     "game_id": 2,
                     "team_home": "Home B",
                     "team_away": "Away B",
-                    "home_team_result": "Loss",
+                    "home_team_result": "Win",
                     "home_team_win_prob": 0.50,
                     "home_team_lose_prob": 0.48,
-                    "team_head_to_head_odds_home": 2.00,
+                    "team_head_to_head_odds_home": 1.80,
                     "team_head_to_head_odds_away": 2.00,
                 },
             ]
@@ -36,12 +36,33 @@ class ValuePickTests(unittest.TestCase):
 
         picks = sf.get_tipper_picks(predictions)
 
-        # Game 1 away side has stronger positive EV; game 2 has no qualifying edge.
+        # Game 1's tipped (away) side has positive EV; game 2's tipped side does not.
+        # Only sides the model tips to win are eligible.
         self.assertEqual(len(picks), 1)
         self.assertEqual(picks.iloc[0]["game_id"], 1)
         self.assertEqual(picks.iloc[0]["team"], "Away A")
         self.assertEqual(picks.iloc[0]["side"], "away")
-        self.assertAlmostEqual(float(picks.iloc[0]["price_min"]), 1 / 0.35, places=6)
+        self.assertAlmostEqual(float(picks.iloc[0]["price_min"]), 1 / 0.55, places=6)
+
+    def test_untipped_side_never_picked_even_with_edge(self):
+        predictions = pd.DataFrame(
+            [
+                {
+                    "game_id": 3,
+                    "team_home": "Home X",
+                    "team_away": "Away X",
+                    "home_team_result": "Win",
+                    "home_team_win_prob": 0.55,
+                    "home_team_lose_prob": 0.35,
+                    "team_head_to_head_odds_home": 1.70,
+                    "team_head_to_head_odds_away": 3.20,
+                }
+            ]
+        )
+
+        # Away side has positive EV (0.35 * 3.20 - 1 = 0.12) but the model tips home.
+        picks = sf.get_tipper_picks(predictions)
+        self.assertEqual(len(picks), 0)
 
     def test_kelly_fraction_and_cap_with_bankroll(self):
         predictions = pd.DataFrame(

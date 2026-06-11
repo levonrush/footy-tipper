@@ -20,14 +20,22 @@ def _create_schema(con):
             team_head_to_head_odds_home REAL,
             team_away TEXT,
             position_away_ladder INTEGER,
-            team_head_to_head_odds_away REAL
+            team_head_to_head_odds_away REAL,
+            start_time REAL,
+            game_number INTEGER
         );
 
         CREATE TABLE predictions_table (
             game_id INTEGER PRIMARY KEY,
             home_team_result TEXT,
             home_team_win_prob REAL,
-            home_team_lose_prob REAL
+            home_team_lose_prob REAL,
+            draw_prob REAL,
+            bayes_factor REAL,
+            evidence_strength TEXT,
+            predicted_home_score INTEGER,
+            predicted_away_score INTEGER,
+            predicted_margin INTEGER
         );
         """
     )
