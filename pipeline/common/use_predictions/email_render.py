@@ -249,10 +249,11 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
     lines.extend(["", "Predicted winners:"])
     for _, row in predictions.iterrows():
         winner = _prediction_winner(row)
+        is_home_tip = row.get("home_team_result") == "Win"
+        tip_prob = row["home_team_win_prob"] if is_home_tip else row["home_team_lose_prob"]
         lines.append(
             f"- {row['team_home']} vs {row['team_away']}: {winner} "
-            f"(home {_format_probability(row['home_team_win_prob'])}, "
-            f"away {_format_probability(row['home_team_lose_prob'])}, "
+            f"({_format_probability(tip_prob)}, "
             f"score {_format_predicted_score_numbers(row)}, "
             f"margin {_format_predicted_margin(row)})"
         )
@@ -367,8 +368,6 @@ def _render_html_email(
             f"<span style=\"display:inline-block; padding:3px 7px; border-radius:12px; "
             f"background:{badge_bg}; color:{badge_color}; font-family:Arial, sans-serif; font-size:12px; font-weight:700;\">"
             f"{_format_probability(tip_prob)}</span>"
-            f"<span style=\"display:block; margin-top:3px; color:#6b7280; font-family:Arial, sans-serif; font-size:12px;\">"
-            f"H {_format_probability(row['home_team_win_prob'])} / A {_format_probability(row['home_team_lose_prob'])}</span>"
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#374151; "
             "font-family:Arial, sans-serif; font-size:13px; width:16%;\">"
@@ -574,7 +573,7 @@ def _render_html_email(
         "<thead><tr style=\"background:#f9fafb;\">"
         "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Fixture</th>"
         "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Tip</th>"
-        "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Tip Prob</th>"
+        "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Confidence</th>"
         "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">H2H Odds</th>"
         "</tr></thead>"
         "<tbody>"

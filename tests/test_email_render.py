@@ -85,6 +85,10 @@ class HtmlRenderTests(unittest.TestCase):
         self.assertIn(">78%<", html_out)
         self.assertIn("#dcfce7", html_out)
         self.assertNotIn("#fee2e2", html_out)
+        # Only the tipped team's probability is shown — no H/A split.
+        self.assertNotIn("H 22%", html_out)
+        self.assertNotIn("A 78%", html_out)
+        self.assertIn(">Confidence</th>", html_out)
 
     def test_joker_section_is_reader_friendly(self):
         html_out = _render_html()
