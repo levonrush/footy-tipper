@@ -2,6 +2,8 @@
 
 import urllib.request
 
+from pipeline.common.use_predictions.llm import resolve_claude_model
+
 
 _NRL_NEWS_FEEDS = [
     "https://news.google.com/rss/search?q=NRL+rugby+league&hl=en-AU&gl=AU&ceid=AU:en",
@@ -39,7 +41,7 @@ def _fetch_nrl_news_context(anthropic_client):
             return None
 
         response = anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
+            model=resolve_claude_model(),
             system=(
                 "You are a news editor. Given a list of NRL rugby league headlines, "
                 "pick the single most interesting, scandalous, or dramatic story from the past 7 days and summarise it in 2-3 sentences. "

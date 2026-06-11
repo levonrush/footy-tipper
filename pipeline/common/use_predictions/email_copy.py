@@ -28,6 +28,7 @@ from pipeline.common.use_predictions.email_render import (
     _render_html_email,
     _render_plain_email,
 )
+from pipeline.common.use_predictions.llm import DEFAULT_CLAUDE_MODEL
 from pipeline.common.use_predictions.news import _fetch_nrl_news_context
 from pipeline.common.use_predictions.scoreboard import scoreboard_summary_line
 
@@ -242,7 +243,7 @@ Rules:
     model_candidates = (
         [configured_model]
         if configured_model
-        else ["claude-sonnet-4-6"]
+        else [DEFAULT_CLAUDE_MODEL]
     )
     last_exception = None
 
@@ -254,9 +255,14 @@ Rules:
                 model=model_name,
                 system="You are Reg Reagan — an opinionated Australian NRL tragic who writes weekly tipping emails. You're a one-eyed Newcastle Knights and NSW fan. You hate QLD and Manly with a passion. You back Australia in internationals but have genuine love for minor nations' underdog stories — and you absolutely despise England and Great Britain. You're enthusiastic and direct, use occasional Australian slang, and have genuine strong opinions on footy. You're entertaining but not over the top — think passionate pub regular, not raving lunatic.",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1200,
+                max_tokens=2500,
                 temperature=temperature,
             )
+            if getattr(response, "stop_reason", None) == "max_tokens":
+                print(
+                    f"Claude email generation hit the max_tokens cap for model '{model_name}'; "
+                    "JSON is likely truncated."
+                )
             raw_text = response.content[0].text or ""
             payload = _parse_json_object(raw_text)
             if not payload:
@@ -298,7 +304,12 @@ def generate_reg_regan_email_payload(
     joker_recommendation=None,
     openai_api_key=None,
     scoreboard=None,
+    use_llm=None,
 ):
+    # `use_openai` is a deprecated alias for `use_llm` (the copy actually comes
+    # from Claude; only the banner image uses OpenAI).
+    use_llm = use_openai if use_llm is None else use_llm
+
     predictions = _sort_predictions_for_display(predictions)
     fallback_copy = _build_fallback_copy(
         predictions,
@@ -306,12 +317,12 @@ def generate_reg_regan_email_payload(
         joker_recommendation=joker_recommendation,
     )
     news_context = None
-    if use_openai and api_key and Anthropic is not None:
+    if use_llm and api_key and Anthropic is not None:
         news_context = _fetch_nrl_news_context(Anthropic(api_key=api_key))
 
-    if not use_openai:
+    if not use_llm:
         print("Claude generation disabled. Using fallback email content.")
-    openai_copy = (
+    llm_copy = (
         _generate_claude_copy(
             predictions,
             tipper_picks,
@@ -322,10 +333,10 @@ def generate_reg_regan_email_payload(
             news_context=news_context,
             scoreboard_line=scoreboard_summary_line(scoreboard),
         )
-        if use_openai
+        if use_llm
         else None
     )
-    copy = openai_copy or fallback_copy
+    copy = llm_copy or fallback_copy
 
     if predictions.empty:
         plain = copy["opening"]

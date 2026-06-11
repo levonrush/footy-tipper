@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+from pipeline.common.use_predictions.llm import resolve_claude_model
+
 # For direct Anthropic API calls
 try:
     from anthropic import Anthropic
@@ -46,7 +48,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
     else:
         inspiration = f"Email subject: {subject}\nEmail opening: {opening}"
     response = anthropic_client.messages.create(
-        model="claude-sonnet-4-6",
+        model=resolve_claude_model(),
         system="You write short, vivid image editing instructions for a fun weekly sports email banner.",
         messages=[{"role": "user", "content": (
             f"A weekly NRL tipping email banner features two cartoon characters: Reg Reagan (a bloke in a shirt that says 'Bring Back the Biff' wearing green and gold Australian rugby league footy shorts) and a dingo. "

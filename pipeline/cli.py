@@ -276,7 +276,7 @@ def _ensure_models_for_prediction(env, root, auto_train=True, allow_lineup_boots
     return False
 
 
-def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run, force_resend=False):
+def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force_resend=False):
     try:
         from pipeline.common.use_predictions import sending_functions as sf
     except ModuleNotFoundError as exc:
@@ -347,8 +347,8 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run, fo
     else:
         _log("Drive upload skipped.")
 
-    api_key = os.getenv("ANTHROPIC_API_KEY") if use_openai else None
-    if test_mode and not use_openai:
+    api_key = os.getenv("ANTHROPIC_API_KEY") if use_llm else None
+    if test_mode and not use_llm:
         _log("Test mode active: using fallback email content (Claude disabled).")
 
     email_payload = sf.generate_reg_regan_email_payload(
@@ -357,9 +357,9 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run, fo
         api_key,
         os.getenv("FOLDER_URL"),
         0.9,
-        use_openai=use_openai,
+        use_llm=use_llm,
         joker_recommendation=joker_recommendation,
-        openai_api_key=os.getenv("OPENAI_KEY") if use_openai else None,
+        openai_api_key=os.getenv("OPENAI_KEY") if use_llm else None,
         scoreboard=scoreboard,
     )
 
@@ -535,21 +535,25 @@ def _add_prep_mode_args(
         )
 
 
-def _add_openai_args(parser):
-    openai = parser.add_mutually_exclusive_group()
-    openai.add_argument(
-        "--use-openai",
-        dest="use_openai",
+def _add_llm_args(parser):
+    llm = parser.add_mutually_exclusive_group()
+    llm.add_argument(
+        "--with-llm",
+        dest="use_llm",
         action="store_true",
-        help="Use OpenAI-generated email text (default).",
+        help="Use Claude-generated email copy (default).",
     )
-    openai.add_argument(
-        "--without-openai",
-        dest="use_openai",
+    llm.add_argument(
+        "--no-llm",
+        dest="use_llm",
         action="store_false",
-        help="Use deterministic fallback email text instead of OpenAI.",
+        help="Use deterministic fallback email text instead of Claude.",
     )
-    parser.set_defaults(use_openai=True)
+    # Deprecated aliases kept for muscle memory; the copy comes from Claude,
+    # OpenAI is only used for the banner image.
+    llm.add_argument("--use-openai", dest="use_llm", action="store_true", help=argparse.SUPPRESS)
+    llm.add_argument("--without-openai", dest="use_llm", action="store_false", help=argparse.SUPPRESS)
+    parser.set_defaults(use_llm=True)
 
 
 def _add_lineup_args(parser, default_mode="recent", include_skip=True):
@@ -637,7 +641,7 @@ def build_parser():
         action="store_true",
         help="Skip Google Drive upload.",
     )
-    _add_openai_args(send)
+    _add_llm_args(send)
     send.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
     send.add_argument(
         "--force-resend",
@@ -666,7 +670,7 @@ def build_parser():
         ),
     )
     predict.add_argument("--skip-drive", action="store_true", help="Skip Google Drive upload during send step.")
-    _add_openai_args(predict)
+    _add_llm_args(predict)
     predict.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
     predict.add_argument(
         "--force-resend",
@@ -721,13 +725,12 @@ def main(argv=None):
         return 0
 
     if args.command == "send":
-        use_openai = args.use_openai
         skip_drive = args.skip_drive or args.test
         return _send_predictions(
             test_mode=args.test,
             test_email=resolved_test_email,
             skip_drive=skip_drive,
-            use_openai=use_openai,
+            use_llm=args.use_llm,
             dry_run=args.dry_run,
             force_resend=args.force_resend,
         )
@@ -751,7 +754,7 @@ def main(argv=None):
             test_mode=args.test,
             test_email=resolved_test_email,
             skip_drive=skip_drive,
-            use_openai=args.use_openai,
+            use_llm=args.use_llm,
             dry_run=args.dry_run,
             force_resend=args.force_resend,
         )
