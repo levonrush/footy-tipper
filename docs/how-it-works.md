@@ -81,7 +81,7 @@ Inference:
 7. Simulates outcomes/scorelines with bivariate Poisson.
 8. Upserts into `predictions_table`.
 
-## Send Layer (`pipeline/send.py`)
+## Send Layer (`footy-tipper send`)
 
 Send does three decisions:
 - winner/probability communication

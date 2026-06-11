@@ -438,6 +438,12 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
     except Exception as exc:
         _log(f"Site refresh skipped ({exc}).")
 
+    # Weekly DB backup to Drive (lineup history only lives on this machine).
+    if _to_bool(os.getenv("FOOTY_TIPPER_DB_BACKUP"), True):
+        sf.backup_db_to_drive(db_path, json_path, os.getenv("FOLDER_ID"))
+    else:
+        _log("DB backup disabled via FOOTY_TIPPER_DB_BACKUP.")
+
     usage_outcome = sf.persist_joker_usage_if_applicable(
         db_path,
         joker_recommendation,

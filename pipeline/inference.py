@@ -116,7 +116,17 @@ try:
         lineup_coverage = float((inference_data["lineup_features_missing"] <= 0).mean())
     print(f"Lineup features merged for inference. Coverage={lineup_coverage:.1%}")
 except Exception as exc:
-    print(f"Lineup feature merge skipped ({exc}).")
+    import traceback
+    traceback.print_exc()
+    if os.getenv("FOOTY_TIPPER_LINEUP_FEATURES_STRICT", "").strip().lower() in {"1", "true", "yes", "y"}:
+        raise RuntimeError(
+            "Lineup feature merge failed and FOOTY_TIPPER_LINEUP_FEATURES_STRICT is set."
+        ) from exc
+    print(
+        f"Lineup feature merge skipped ({exc}). "
+        "The model will train/predict WITHOUT lineup features — "
+        "set FOOTY_TIPPER_LINEUP_FEATURES_STRICT=true to make this fatal."
+    )
 
 inference_data = tc.align_predictor_columns(inference_data, predictors)
 

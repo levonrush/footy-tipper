@@ -26,6 +26,7 @@ from pipeline.common.use_predictions.distribution import (  # noqa: F401
     _ensure_email_sends_table,
     _ensure_predictions_table_columns,
     _sort_predictions_for_display,
+    backup_db_to_drive,
     email_send_already_recorded,
     get_predictions,
     record_email_send,

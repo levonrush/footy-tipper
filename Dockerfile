@@ -40,4 +40,4 @@ EXPOSE 80
 ENV DOCKER=true
 
 # Default command for the container
-CMD ["echo", "Specify a script to run: footy-tipper-train.py or footy-tipper-predict.py"]
+CMD ["python", "-m", "pipeline.cli", "--help"]

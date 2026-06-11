@@ -225,6 +225,118 @@ def send_emails(doc_name, subject, message, sender_email, sender_password, json_
     return len(recipient_emails)
 
 
+def backup_db_to_drive(db_path, json_path, parent_folder_id, keep=8):
+    """Snapshot the SQLite DB, gzip it, and upload to a Drive backups folder.
+
+    The DB holds years of scraped lineups that would be painful to re-crawl
+    and it only lives on one machine. Uses the sqlite3 backup API so the
+    snapshot is consistent even mid-write. Keeps the newest `keep` backups.
+    Fail-soft: backup problems must never break a send.
+    """
+    import gzip
+    import tempfile
+    from datetime import datetime, timezone
+
+    if service_account is None or build is None or MediaFileUpload is None:
+        print("DB backup skipped: Google Drive dependencies are not installed.")
+        return False
+    if not parent_folder_id:
+        print("DB backup skipped: FOLDER_ID is not configured.")
+        return False
+    if not os.path.exists(json_path):
+        print(f"DB backup skipped: missing Google service account token at {json_path}.")
+        return False
+    if not os.path.exists(str(db_path)):
+        print(f"DB backup skipped: database not found at {db_path}.")
+        return False
+
+    tmp_dir = tempfile.mkdtemp(prefix="footy-tipper-backup-")
+    snapshot_path = os.path.join(tmp_dir, "snapshot.sqlite")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    archive_name = f"footy-tipper-db-{stamp}.sqlite.gz"
+    archive_path = os.path.join(tmp_dir, archive_name)
+
+    try:
+        source = sqlite3.connect(str(db_path))
+        try:
+            snapshot = sqlite3.connect(snapshot_path)
+            try:
+                source.backup(snapshot)
+            finally:
+                snapshot.close()
+        finally:
+            source.close()
+
+        with open(snapshot_path, "rb") as src, gzip.open(archive_path, "wb") as dst:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+
+        creds = service_account.Credentials.from_service_account_file(json_path)
+        drive_service = build('drive', 'v3', credentials=creds)
+
+        query = (
+            f"'{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' "
+            "and name='backups' and trashed=false"
+        )
+        results = drive_service.files().list(q=query, spaces='drive', fields='files(id)').execute()
+        items = results.get('files', [])
+        if items:
+            backups_folder_id = items[0]['id']
+        else:
+            folder = drive_service.files().create(
+                body={
+                    'name': 'backups',
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [parent_folder_id],
+                },
+                fields='id',
+            ).execute()
+            backups_folder_id = folder.get('id')
+
+        media = MediaFileUpload(archive_path, mimetype='application/gzip')
+        drive_service.files().create(
+            body={'name': archive_name, 'parents': [backups_folder_id]},
+            media_body=media,
+            fields='id',
+        ).execute()
+        print(f"DB backup uploaded: {archive_name}")
+
+        # Prune old backups beyond `keep`.
+        listing = drive_service.files().list(
+            q=f"'{backups_folder_id}' in parents and trashed=false",
+            spaces='drive',
+            fields='files(id, name)',
+            orderBy='name desc',
+        ).execute()
+        old = listing.get('files', [])[int(keep):]
+        for stale in old:
+            try:
+                drive_service.files().delete(fileId=stale['id']).execute()
+                print(f"DB backup pruned: {stale.get('name')}")
+            except Exception as exc:
+                print(f"DB backup prune failed for {stale.get('name')} ({exc}).")
+        return True
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        print(f"DB backup failed ({exc}).")
+        return False
+    finally:
+        for path in (archive_path, snapshot_path):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+        try:
+            os.rmdir(tmp_dir)
+        except Exception:
+            pass
+
+
 def _ensure_email_sends_table(db_path):
     con = sqlite3.connect(str(db_path))
     try:

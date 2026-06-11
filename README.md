@@ -60,7 +60,6 @@ Start at `docs/README.md`.
 ## Legacy / History
 
 - Literature and research notes: `lit-review/`
-- CLI pointer docs: `cli/README.md`, `CLI.md`
 - Medium dev write-up: <https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292>
 
 If these tips nuke your comp, this README has never seen you before in its life.
