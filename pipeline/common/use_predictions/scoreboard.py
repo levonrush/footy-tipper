@@ -103,6 +103,43 @@ def get_season_scoreboard(db_path):
     }
 
 
+def get_season_results(db_path):
+    """Per-game settled results for the season results page.
+
+    Returns a DataFrame (newest round first) with the tip, the actual result,
+    and whether the tip landed — or an empty frame when nothing is settled.
+    """
+    try:
+        con = sqlite3.connect(str(db_path))
+        try:
+            settled = pd.read_sql_query(_SCOREBOARD_QUERY, con)
+        finally:
+            con.close()
+    except Exception as exc:
+        print(f"Season results query failed ({exc}).")
+        return pd.DataFrame()
+
+    if settled.empty:
+        return settled
+
+    settled = settled.dropna(subset=["home_team_win_prob", "team_final_score_home", "team_final_score_away"])
+    if settled.empty:
+        return settled
+
+    home_won = settled["team_final_score_home"] > settled["team_final_score_away"]
+    draw = settled["team_final_score_home"] == settled["team_final_score_away"]
+    tipped_home = settled["home_team_result"].astype(str).str.strip().eq("Win")
+
+    settled = settled.assign(
+        tipped_team=settled["team_home"].where(tipped_home, settled["team_away"]),
+        winner=settled["team_home"].where(home_won, settled["team_away"]).where(~draw, "Draw"),
+        tip_correct=(tipped_home == home_won) & ~draw,
+        is_draw=draw,
+        tip_prob=settled["home_team_win_prob"].where(tipped_home, 1.0 - settled["home_team_win_prob"]),
+    )
+    return settled.sort_values(["round_id", "game_id"], ascending=[False, True]).reset_index(drop=True)
+
+
 def scoreboard_summary_line(scoreboard):
     """One-line summary for logs, prompts, and plain-text email."""
     if not isinstance(scoreboard, dict):

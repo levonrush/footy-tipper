@@ -430,6 +430,14 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
     ):
         _log(f"Send recorded in ledger for {send_year} round {send_round_id}.")
 
+    # Refresh the static site so the public page matches what was just sent.
+    try:
+        from pipeline.common.use_predictions import site as site_mod
+
+        site_mod.generate_site(db_path, root)
+    except Exception as exc:
+        _log(f"Site refresh skipped ({exc}).")
+
     usage_outcome = sf.persist_joker_usage_if_applicable(
         db_path,
         joker_recommendation,
@@ -688,6 +696,13 @@ def build_parser():
     _add_season_args(lineups)
     _add_lineup_args(lineups, default_mode="recent", include_skip=False)
 
+    site = subparsers.add_parser("site", help="Generate the static tips site into docs/site/.")
+    site.add_argument(
+        "--publish",
+        action="store_true",
+        help="Commit and push docs/site after generating (for GitHub Pages).",
+    )
+
     evaluate = subparsers.add_parser(
         "evaluate",
         help="Honest nested season-out evaluation (meta-layer never sees the test season).",
@@ -745,6 +760,19 @@ def main(argv=None):
 
     if args.command == "lineups":
         _run_lineups(env, root)
+        return 0
+
+    if args.command == "site":
+        try:
+            from pipeline.common.use_predictions import site as site_mod
+        except ModuleNotFoundError as exc:
+            missing = getattr(exc, "name", "dependency")
+            _log(f"Site generation requires project dependencies (missing: {missing}).")
+            return 1
+        db_path = root / "data" / "footy-tipper-db.sqlite"
+        site_mod.generate_site(db_path, root)
+        if args.publish:
+            return 0 if site_mod.publish_site(root) else 1
         return 0
 
     if args.command == "evaluate":
