@@ -29,6 +29,7 @@ from pipeline.common.use_predictions.email_render import (
     _render_plain_email,
 )
 from pipeline.common.use_predictions.news import _fetch_nrl_news_context
+from pipeline.common.use_predictions.scoreboard import scoreboard_summary_line
 
 
 def _build_fallback_copy(predictions, folder_url, joker_recommendation=None):
@@ -173,7 +174,7 @@ def _parse_json_object(text):
     return None
 
 
-def _generate_claude_copy(predictions, tipper_picks, api_key, folder_url, temperature, joker_recommendation=None, news_context=None):
+def _generate_claude_copy(predictions, tipper_picks, api_key, folder_url, temperature, joker_recommendation=None, news_context=None, scoreboard_line=None):
     if predictions.empty:
         return None
     if not api_key:
@@ -208,6 +209,9 @@ Value picks:
 
 Joker recommendation:
 {joker_text}
+
+Season scoreboard (the model's real tipping record so far — brag or cop it on the chin as appropriate):
+{scoreboard_line if scoreboard_line else "No completed rounds yet this season."}
 
 Current NRL news this week (use if something is funny or worth a dig — otherwise ignore):
 {news_context if news_context else "Nothing notable found this week."}
@@ -293,6 +297,7 @@ def generate_reg_regan_email_payload(
     use_openai=True,
     joker_recommendation=None,
     openai_api_key=None,
+    scoreboard=None,
 ):
     predictions = _sort_predictions_for_display(predictions)
     fallback_copy = _build_fallback_copy(
@@ -315,6 +320,7 @@ def generate_reg_regan_email_payload(
             temperature,
             joker_recommendation=joker_recommendation,
             news_context=news_context,
+            scoreboard_line=scoreboard_summary_line(scoreboard),
         )
         if use_openai
         else None
@@ -350,6 +356,7 @@ def generate_reg_regan_email_payload(
         copy["closing"],
         joker_recommendation=joker_recommendation,
         news_hit=news_hit,
+        scoreboard=scoreboard,
     )
     html_email = _render_html_email(
         predictions,
@@ -360,6 +367,7 @@ def generate_reg_regan_email_payload(
         banner_available=bool(banner_path),
         joker_recommendation=joker_recommendation,
         news_hit=news_hit,
+        scoreboard=scoreboard,
     )
 
     inline_images = []

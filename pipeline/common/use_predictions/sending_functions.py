@@ -87,4 +87,8 @@ from pipeline.common.use_predictions.news import (  # noqa: F401
     _fetch_nrl_news_context,
     _fetch_rss_headlines,
 )
+from pipeline.common.use_predictions.scoreboard import (  # noqa: F401
+    get_season_scoreboard,
+    scoreboard_summary_line,
+)
 from pipeline.common.use_predictions.staking import get_tipper_picks  # noqa: F401

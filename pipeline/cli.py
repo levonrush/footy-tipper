@@ -328,6 +328,13 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run, fo
     if joker_recommendation.get("detail"):
         _log(joker_recommendation["detail"])
 
+    scoreboard = sf.get_season_scoreboard(db_path)
+    scoreboard_line = sf.scoreboard_summary_line(scoreboard)
+    if scoreboard_line:
+        _log(f"Scoreboard: {scoreboard_line}")
+    else:
+        _log("Scoreboard: no completed predicted games yet this season.")
+
     # In test mode, skip Drive upload by default unless explicitly requested.
     if not skip_drive:
         temp_csv = os.path.join(tempfile.gettempdir(), "predictions.csv")
@@ -353,6 +360,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run, fo
         use_openai=use_openai,
         joker_recommendation=joker_recommendation,
         openai_api_key=os.getenv("OPENAI_KEY") if use_openai else None,
+        scoreboard=scoreboard,
     )
 
     subject = email_payload["subject"]

@@ -167,9 +167,26 @@ def _to_html_paragraphs(text):
     return "".join(blocks)
 
 
-def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None):
+def _scoreboard_text_line(scoreboard):
+    if not isinstance(scoreboard, dict):
+        return None
+    line = (
+        f"The ledger — {scoreboard['last_round_name']}: "
+        f"{scoreboard['last_round_correct']}/{scoreboard['last_round_games']} tips. "
+        f"Season: {scoreboard['season_correct']}/{scoreboard['season_games']} "
+        f"({scoreboard['season_accuracy']:.0%})"
+    )
+    if scoreboard.get("market_accuracy") is not None:
+        line += f" vs market favourite {scoreboard['market_accuracy']:.0%}"
+    return line + "."
+
+
+def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None, scoreboard=None):
     first_game = _first_game_callout(predictions)
     lines = [subject, ""]
+    scoreboard_line = _scoreboard_text_line(scoreboard)
+    if scoreboard_line:
+        lines.extend([scoreboard_line, ""])
     if news_hit:
         lines.extend(["--- THIS WEEK IN LEAGUE ---", news_hit, "---------------------------", ""])
     lines.append(opening)
@@ -223,6 +240,44 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
     return "\n".join(lines)
 
 
+def _scoreboard_section_html(scoreboard):
+    if not isinstance(scoreboard, dict):
+        return ""
+
+    def _stat(label, value):
+        return (
+            "<td align=\"center\" style=\"padding:10px 6px;\">"
+            "<p style=\"margin:0; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; "
+            f"font-size:20px; font-weight:700;\">{html.escape(value)}</p>"
+            "<p style=\"margin:2px 0 0; color:#64748b; font-family:Arial, sans-serif; "
+            f"font-size:11px; text-transform:uppercase; letter-spacing:0.5px;\">{html.escape(label)}</p>"
+            "</td>"
+        )
+
+    cells = [
+        _stat(
+            f"{scoreboard['last_round_name']}",
+            f"{scoreboard['last_round_correct']}/{scoreboard['last_round_games']}",
+        ),
+        _stat(
+            "Season",
+            f"{scoreboard['season_correct']}/{scoreboard['season_games']} ({scoreboard['season_accuracy']:.0%})",
+        ),
+    ]
+    if scoreboard.get("market_accuracy") is not None:
+        cells.append(_stat("Market fav", f"{scoreboard['market_accuracy']:.0%}"))
+
+    return (
+        "<tr><td style=\"padding:6px 24px 4px;\">"
+        "<div style=\"border-radius:10px; background:#f0fdfa; border:1px solid #99f6e4;\">"
+        "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">"
+        f"<tr>{''.join(cells)}</tr>"
+        "</table>"
+        "</div>"
+        "</td></tr>"
+    )
+
+
 def _render_html_email(
     predictions,
     tipper_picks,
@@ -232,6 +287,7 @@ def _render_html_email(
     banner_available,
     joker_recommendation=None,
     news_hit=None,
+    scoreboard=None,
 ):
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
@@ -421,6 +477,7 @@ def _render_html_email(
         f"{html.escape(str(round_name))} {html.escape(str(competition_year))} Tips"
         "</h2>"
         "</td></tr>"
+        f"{_scoreboard_section_html(scoreboard)}"
         + (
             "<tr><td style=\"padding:6px 24px 10px;\">"
             "<div style=\"border-radius:8px; overflow:hidden; border:1px solid #fca5a5;\">"
