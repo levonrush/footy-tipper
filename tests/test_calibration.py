@@ -40,6 +40,23 @@ class CalibrationTests(unittest.TestCase):
         self.assertTrue(np.isfinite(preds).all())
         self.assertTrue(((preds >= 0.0) & (preds <= 1.0)).all())
 
+    def test_logistic_stacker_grouped_cv_fit(self):
+        rng = np.random.default_rng(11)
+        n = 240
+        tier_a = rng.uniform(0.2, 0.8, n)
+        tier_b = np.clip(tier_a + rng.normal(0, 0.05, n), 0.01, 0.99)
+        market = np.clip(tier_a + rng.normal(0, 0.05, n), 0.01, 0.99)
+        odds_missing = np.zeros(n)
+        y = (rng.uniform(0, 1, n) < tier_a).astype(int)
+        groups = np.repeat(np.arange(2018, 2026), n // 8)
+
+        stacker = LogisticStacker()
+        stacker.fit(tier_a, tier_b, market, odds_missing, y, groups=groups)
+        self.assertTrue(stacker._is_fitted)
+        preds = stacker.predict(tier_a, tier_b, market, odds_missing)
+        self.assertTrue(((preds >= 0.0) & (preds <= 1.0)).all())
+
+
 
 if __name__ == "__main__":
     unittest.main()
