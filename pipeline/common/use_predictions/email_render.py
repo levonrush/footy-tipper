@@ -1,6 +1,7 @@
 """Plain-text and HTML rendering of the weekly tipping email."""
 
 import html
+import os
 
 import pandas as pd
 
@@ -154,6 +155,49 @@ def _joker_prompt_block(joker_recommendation):
     return "\n".join(f"- {line}" for line in _joker_summary_lines(joker_recommendation))
 
 
+def _joker_reader_lines(joker_recommendation):
+    """Short, reader-facing joker summary: the call plus one sentence.
+
+    The full diagnostics (_joker_summary_lines) stay in CLI logs and the
+    plain-text email; readers just need PLAY/HOLD and the reason.
+    """
+    if not isinstance(joker_recommendation, dict):
+        return ["No joker call available this round."]
+
+    lines = []
+    detail = str(joker_recommendation.get("detail", "")).strip()
+    if detail:
+        lines.append(detail)
+
+    if joker_recommendation.get("joker_already_used"):
+        used_round_label = _round_label(
+            joker_recommendation.get("joker_used_round_id"),
+            joker_recommendation.get("joker_used_round_name"),
+        )
+        lines.append(f"This season's joker has already been played in {used_round_label}.")
+    elif joker_recommendation.get("available") and not joker_recommendation.get("should_use_this_round", False):
+        target = str(joker_recommendation.get("recommended_round_name", "")).strip()
+        if target:
+            lines.append(f"Best round left for it looks like {target}.")
+
+    return lines or ["No joker call available this round."]
+
+
+def _joker_footnote(joker_recommendation):
+    """One small grey line of diagnostics for the curious."""
+    if not isinstance(joker_recommendation, dict) or not joker_recommendation.get("available"):
+        return None
+    parts = []
+    strategy_label = str(joker_recommendation.get("strategy_label", "")).strip()
+    if strategy_label:
+        parts.append(f"Strategy: {strategy_label}")
+    mu = _format_number(joker_recommendation.get("current_mu"))
+    sigma = _format_number(joker_recommendation.get("current_sigma"))
+    if mu != "n/a":
+        parts.append(f"this round mu {mu}, sigma {sigma}")
+    return " · ".join(parts) if parts else None
+
+
 def _to_html_paragraphs(text):
     blocks = []
     for paragraph in [p.strip() for p in text.split("\n\n") if p.strip()]:
@@ -297,10 +341,15 @@ def _render_html_email(
     for i, (_, row) in enumerate(predictions.iterrows()):
         winner = _prediction_winner(row)
         row_bg = "#f9fafb" if i % 2 == 0 else "#ffffff"
-        home_prob = row['home_team_win_prob']
-        if home_prob >= 0.65:
+        # Colour by confidence in the tipped team, not by home-win probability:
+        # a strong away favourite must read green, not red.
+        is_home_tip = row.get("home_team_result") == "Win"
+        tip_prob = row['home_team_win_prob'] if is_home_tip else row['home_team_lose_prob']
+        if pd.isna(tip_prob):
+            tip_prob = 0.5
+        if tip_prob >= 0.70:
             badge_bg, badge_color = "#dcfce7", "#15803d"
-        elif home_prob >= 0.45:
+        elif tip_prob >= 0.55:
             badge_bg, badge_color = "#fef9c3", "#854d0e"
         else:
             badge_bg, badge_color = "#fee2e2", "#b91c1c"
@@ -317,9 +366,9 @@ def _render_html_email(
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; width:16%;\">"
             f"<span style=\"display:inline-block; padding:3px 7px; border-radius:12px; "
             f"background:{badge_bg}; color:{badge_color}; font-family:Arial, sans-serif; font-size:12px; font-weight:700;\">"
-            f"H {_format_probability(row['home_team_win_prob'])}</span>"
+            f"{_format_probability(tip_prob)}</span>"
             f"<span style=\"display:block; margin-top:3px; color:#6b7280; font-family:Arial, sans-serif; font-size:12px;\">"
-            f"A {_format_probability(row['home_team_lose_prob'])}</span>"
+            f"H {_format_probability(row['home_team_win_prob'])} / A {_format_probability(row['home_team_lose_prob'])}</span>"
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#374151; "
             "font-family:Arial, sans-serif; font-size:13px; width:16%;\">"
@@ -407,15 +456,23 @@ def _render_html_email(
             "</td></tr>"
         )
 
-    joker_lines = _joker_summary_lines(joker_recommendation)
-    joker_list_html = "".join(
+    joker_lines = _joker_reader_lines(joker_recommendation)
+    joker_body_html = "".join(
         [
-            "<li style=\"margin:0 0 6px; color:#1f2937; font-family:Arial, sans-serif; font-size:14px; line-height:1.5;\">"
+            "<p style=\"margin:0 0 6px; color:#1f2937; font-family:Arial, sans-serif; font-size:14px; line-height:1.5;\">"
             f"{html.escape(line)}"
-            "</li>"
+            "</p>"
             for line in joker_lines
         ]
     )
+    joker_footnote = _joker_footnote(joker_recommendation)
+    joker_footnote_html = ""
+    if joker_footnote:
+        joker_footnote_html = (
+            "<p style=\"margin:8px 0 0; color:#9ca3af; font-family:Arial, sans-serif; font-size:11px;\">"
+            f"{html.escape(joker_footnote)}"
+            "</p>"
+        )
     joker_headline = html.escape(str(joker_recommendation.get("headline", "Joker call unavailable"))) if isinstance(joker_recommendation, dict) else "Joker call unavailable"
     joker_bg = "#fff7ed"
     joker_border = "#f59e0b"
@@ -431,9 +488,8 @@ def _render_html_email(
         "<p style=\"margin:0 0 10px; color:#111827; font-family:'Trebuchet MS', Arial, sans-serif; font-size:16px; font-weight:700;\">"
         f"{joker_headline}"
         "</p>"
-        "<ul style=\"margin:0; padding-left:18px;\">"
-        f"{joker_list_html}"
-        "</ul>"
+        f"{joker_body_html}"
+        f"{joker_footnote_html}"
         "</div>"
     )
 
@@ -452,16 +508,32 @@ def _render_html_email(
             "</div>"
         )
 
-    folder_button = ""
+    buttons = []
+    site_url = os.getenv("FOOTY_TIPPER_SITE_URL", "").strip()
+    if site_url:
+        safe_site_url = html.escape(site_url, quote=True)
+        buttons.append(
+            f"<a href=\"{safe_site_url}\" "
+            "style=\"display:inline-block; background:#0369a1; color:#ffffff; text-decoration:none; "
+            "font-family:Arial, sans-serif; font-size:14px; font-weight:700; padding:12px 18px; "
+            "border-radius:8px; margin-right:10px;\">"
+            "View This Round Online"
+            "</a>"
+        )
     if folder_url:
         safe_url = html.escape(folder_url, quote=True)
-        folder_button = (
-            "<tr><td style=\"padding:8px 24px 24px;\">"
+        buttons.append(
             f"<a href=\"{safe_url}\" "
             "style=\"display:inline-block; background:#0f766e; color:#ffffff; text-decoration:none; "
             "font-family:Arial, sans-serif; font-size:14px; font-weight:700; padding:12px 18px; border-radius:8px;\">"
             "Open Tips Folder"
             "</a>"
+        )
+    folder_button = ""
+    if buttons:
+        folder_button = (
+            "<tr><td style=\"padding:8px 24px 24px;\">"
+            f"{''.join(buttons)}"
             "</td></tr>"
         )
 
@@ -502,7 +574,7 @@ def _render_html_email(
         "<thead><tr style=\"background:#f9fafb;\">"
         "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Fixture</th>"
         "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Tip</th>"
-        "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Win Prob</th>"
+        "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">Tip Prob</th>"
         "<th align=\"left\" style=\"padding:10px; color:#374151; font-family:Arial, sans-serif; font-size:12px;\">H2H Odds</th>"
         "</tr></thead>"
         "<tbody>"
