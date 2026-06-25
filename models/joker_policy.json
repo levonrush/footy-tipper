@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "created_at_utc": "2026-05-05T08:54:55.532161+00:00",
+  "created_at_utc": "2026-06-18T00:56:53.149713+00:00",
   "source": "training_backtest_market_odds",
   "status": "ok",
   "default_strategy": "protect",
@@ -30,19 +30,19 @@
     }
   },
   "seasons_evaluated": 11,
-  "rounds_evaluated": 270,
+  "rounds_evaluated": 276,
   "scenario_results": [
     {
       "scenario": "chase",
       "strategy": "points",
-      "mean_win_prob": 0.0014363636363636364,
+      "mean_win_prob": 0.0014727272727272727,
       "median_win_prob": 0.0016,
       "season_count": 11
     },
     {
       "scenario": "chase",
       "strategy": "protect",
-      "mean_win_prob": 0.0014363636363636364,
+      "mean_win_prob": 0.0014727272727272727,
       "median_win_prob": 0.0016,
       "season_count": 11
     },
@@ -56,42 +56,42 @@
     {
       "scenario": "lead",
       "strategy": "points",
-      "mean_win_prob": 0.0950909090909091,
+      "mean_win_prob": 0.0910909090909091,
       "median_win_prob": 0.0842,
       "season_count": 11
     },
     {
       "scenario": "lead",
       "strategy": "protect",
-      "mean_win_prob": 0.09496363636363636,
+      "mean_win_prob": 0.09096363636363636,
       "median_win_prob": 0.0842,
       "season_count": 11
     },
     {
       "scenario": "lead",
       "strategy": "chase",
-      "mean_win_prob": 0.07683636363636363,
+      "mean_win_prob": 0.07305454545454546,
       "median_win_prob": 0.0678,
       "season_count": 11
     },
     {
       "scenario": "neutral",
       "strategy": "protect",
-      "mean_win_prob": 0.013272727272727271,
-      "median_win_prob": 0.013,
+      "mean_win_prob": 0.013018181818181818,
+      "median_win_prob": 0.0126,
       "season_count": 11
     },
     {
       "scenario": "neutral",
       "strategy": "points",
-      "mean_win_prob": 0.013163636363636365,
-      "median_win_prob": 0.0128,
+      "mean_win_prob": 0.01290909090909091,
+      "median_win_prob": 0.0126,
       "season_count": 11
     },
     {
       "scenario": "neutral",
       "strategy": "chase",
-      "mean_win_prob": 0.01029090909090909,
+      "mean_win_prob": 0.010127272727272728,
       "median_win_prob": 0.01,
       "season_count": 11
     }
