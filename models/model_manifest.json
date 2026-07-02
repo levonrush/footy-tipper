@@ -505,19 +505,31 @@
     "baseline_home_win_prob_conditional"
   ],
   "blend_weight_home": 1.0,
-  "blend_weight_away": 1.0,
+  "blend_weight_away": 0.8,
   "lambda3": 0.0,
   "lineup_monte_carlo_samples": 64,
   "lineup_mu_noise_scale": 0.12,
   "tier_a_baseline": {
-    "alpha": 0.2,
-    "carryover": 0.6,
+    "alpha": 0.1,
+    "carryover": 0.3,
     "min_rate": 0.5,
     "max_rate": 80.0,
-    "base_home": 22.703703703703702,
-    "base_away": 19.899425287356323
+    "base_home": 22.704480457578647,
+    "base_away": 19.894184938036226
   },
+  "margin_blend": {
+    "intercept": 0.14647240413119178,
+    "coef_model_margin": 0.3145219446964639,
+    "coef_market_spread": 0.9584044666050258,
+    "coef_tier_a_margin": -0.15007000670860712,
+    "fit_rows": 2135,
+    "fit_mae": 13.182061378492117,
+    "fit_mae_model_only": 13.773010108034,
+    "fit_mae_market_only": 13.18992974238876
+  },
+  "dispersion_home": 4.754527357657191,
+  "dispersion_away": 4.127786126489568,
   "joker_policy_file": "joker_policy.json",
-  "joker_policy_default_strategy": "protect",
+  "joker_policy_default_strategy": "points",
   "joker_policy_seasons_evaluated": 11
 }
