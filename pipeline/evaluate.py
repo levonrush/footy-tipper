@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import Ridge
 from sklearn.metrics import brier_score_loss, log_loss
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -92,6 +93,7 @@ def _evaluate_season(
     away_odds,
     actual_margin,
     market_spread,
+    line_frame,
     edge_threshold=0.05,
 ):
     prior_mask = non_draw & genuine_oof & (year_col < test_year)
@@ -112,6 +114,7 @@ def _evaluate_season(
     blended_h = np.maximum((1.0 - wh) * baseline_mu_home + wh * home_mu_oof, 1e-6)
     blended_a = np.maximum((1.0 - wa) * baseline_mu_away + wa * away_mu_oof, 1e-6)
     tier_b_cond = pf.conditional_home_win_prob_vec(blended_h, blended_a)
+    line_extra = calib.build_line_market_features(line_frame, blended_h - blended_a)
 
     # Stacker + calibrator fitted on prior seasons only.
     stacker = calib.LogisticStacker()
@@ -123,6 +126,7 @@ def _evaluate_season(
         tier_c=tier_c_cond_oof[prior_mask],
         y=y_full[prior_mask],
         groups=year_col[prior_mask],
+        extra=line_extra[prior_mask],
     )
     calibrator = calib.BetaCalibrator()
     # Mirror train.py: fit the calibrator on leave-one-season-out stacker
@@ -135,6 +139,7 @@ def _evaluate_season(
         y=y_full[prior_mask],
         groups=year_col[prior_mask],
         tier_c=tier_c_cond_oof[prior_mask],
+        extra=line_extra[prior_mask],
     )
     if loso_prior is not None:
         loso_rows = np.isfinite(loso_prior)
@@ -146,6 +151,7 @@ def _evaluate_season(
             market_cond[prior_mask],
             odds_missing[prior_mask],
             tier_c=tier_c_cond_oof[prior_mask],
+            extra=line_extra[prior_mask],
         )
         calibrator.fit(stacked_prior, y_full[prior_mask])
 
@@ -155,6 +161,7 @@ def _evaluate_season(
         market_cond[test_mask],
         odds_missing[test_mask],
         tier_c=tier_c_cond_oof[test_mask],
+        extra=line_extra[test_mask],
     )
     model_p = np.clip(calibrator.predict(stacked_test), 1e-6, 1 - 1e-6)
     y_test = y_full[test_mask]
@@ -190,6 +197,24 @@ def _evaluate_season(
     result["market_margin_mae"] = (
         float(np.mean(np.abs(spread[has_line] - margin_actual[has_line]))) if has_line.any() else None
     )
+
+    # Season-out gate for the ridge margin blend (mirrors train.py's fit):
+    # fit on prior seasons with a line, score on the whole test season with
+    # model-margin fallback where the line is missing.
+    result["margin_blend_mae"] = None
+    blend_fit_mask = prior_mask & np.isfinite(market_spread)
+    if blend_fit_mask.sum() >= 100:
+        model_margin_full = blended_h - blended_a
+        tier_a_margin_full = baseline_mu_home - baseline_mu_away
+        X_margin = np.column_stack([model_margin_full, market_spread, tier_a_margin_full])
+        margin_model = Ridge(alpha=1.0)
+        margin_model.fit(X_margin[blend_fit_mask], actual_margin[blend_fit_mask])
+        blend_pred = np.where(
+            np.isfinite(market_spread),
+            margin_model.predict(np.nan_to_num(X_margin, nan=0.0)),
+            model_margin_full,
+        )
+        result["margin_blend_mae"] = float(np.mean(np.abs(blend_pred[test_mask] - margin_actual)))
 
     # Flat-stake ROI at the edge threshold.
     edge = model_p - market_p
@@ -335,6 +360,14 @@ def main():
     market_spread = -pd.to_numeric(
         data.get("implied_spread_home", np.nan), errors="coerce"
     ).to_numpy(dtype=float)
+    line_cols = [
+        "home_line_cover_prob_shin",
+        "home_line_cover_prob_power",
+        "home_line_cover_prob_basic",
+        "line_overround_basic",
+        "implied_spread_home",
+    ]
+    line_frame = data[[c for c in line_cols if c in data.columns]]
 
     eval_years = sorted({int(y) for y in year_col[genuine_oof & ~np.isnan(year_col)]})[-n_seasons:]
     print(f"Evaluating held-out seasons: {eval_years}")
@@ -359,6 +392,7 @@ def main():
             away_odds,
             actual_margin,
             market_spread,
+            line_frame,
         )
         if res is None:
             print(f"  {test_year}: skipped (not enough prior or test rows).")
@@ -421,11 +455,21 @@ def main():
         if market_margin_games
         else None
     )
+    blend_results = [res for res in results if res.get("margin_blend_mae") is not None]
+    pooled_margin_blend_mae = (
+        float(
+            sum(res["margin_blend_mae"] * res["games"] for res in blend_results)
+            / sum(res["games"] for res in blend_results)
+        )
+        if blend_results
+        else None
+    )
     print(f"  Margin MAE (tie-breaker): model {pooled_margin_mae:.2f}", end="")
     if pooled_market_margin_mae is not None:
-        print(f" vs market line {pooled_market_margin_mae:.2f} ({market_margin_games} games)")
-    else:
-        print()
+        print(f" vs market line {pooled_market_margin_mae:.2f} ({market_margin_games} games)", end="")
+    if pooled_margin_blend_mae is not None:
+        print(f" vs ridge blend {pooled_margin_blend_mae:.2f}", end="")
+    print()
 
     comp_results = [res["comp_sim"] for res in results if res.get("comp_sim")]
     pooled_p_first = float(np.mean([c["p_first"] for c in comp_results])) if comp_results else None
@@ -453,6 +497,7 @@ def main():
         "margin_mae": pooled_margin_mae,
         "market_margin_mae": pooled_market_margin_mae,
         "market_margin_games": market_margin_games,
+        "margin_blend_mae": pooled_margin_blend_mae,
         "comp_p_first": pooled_p_first,
         "comp_expected_rank": pooled_expected_rank,
     }

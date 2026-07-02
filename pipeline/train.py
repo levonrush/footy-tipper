@@ -8,6 +8,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import Ridge
 from sklearn.metrics import brier_score_loss, log_loss
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -281,6 +282,13 @@ if stacker_fit_mask.sum() < 50:
 
 comp_years_all = pd.to_numeric(training_data["competition_year"], errors="coerce").to_numpy()
 
+# Line/spread-market meta-features: the handicap market is the bookmaker's
+# own margin model. Disagreement uses OOF margins so the stacker learns from
+# honest inputs; inference feeds the production blended margins instead.
+line_extra = calib.build_line_market_features(
+    training_data, blended_mu_home_oof - blended_mu_away_oof
+)
+
 stacker = calib.LogisticStacker()
 stacker.fit(
     tier_a=tier_a_cond[stacker_fit_mask],
@@ -290,13 +298,17 @@ stacker.fit(
     tier_c=tier_c_cond_oof[stacker_fit_mask],
     y=y_full[stacker_fit_mask],
     groups=comp_years_all[stacker_fit_mask],
+    extra=line_extra[stacker_fit_mask],
 )
 
 # Log selected regularisation strength and coefficients.
 if stacker._is_fitted and hasattr(stacker._model, "coef_"):
     if hasattr(stacker._model, "C_"):
         print(f"Stacker selected C={stacker._model.C_[0]:.4f} (cross-validated from {calib.LogisticStacker._DEFAULT_CS})")
-    coef_names = ["tier_a", "tier_b", "market", "odds_missing", "disagree_tier_a", "disagree_tier_b", "tier_c"]
+    coef_names = (
+        ["tier_a", "tier_b", "market", "odds_missing", "disagree_tier_a", "disagree_tier_b", "tier_c"]
+        + calib.LINE_MARKET_FEATURE_NAMES
+    )
     coef_vals = stacker._model.coef_[0]
     coef_str = ", ".join(f"{n}={v:.3f}" for n, v in zip(coef_names, coef_vals))
     print(f"Stacker coefficients: {coef_str}")
@@ -305,7 +317,9 @@ if stacker._is_fitted and hasattr(stacker._model, "coef_"):
 # Fit on leave-one-season-out stacker predictions so the calibrator never sees
 # rows the deployed stacker was trained on (its Tier inputs are OOF, but the
 # stacker itself is in-sample on stacker_fit_mask rows).
-stacked_cond_oof = stacker.predict(tier_a_cond, tier_b_cond_oof, market_cond, odds_missing, tier_c=tier_c_cond_oof)
+stacked_cond_oof = stacker.predict(
+    tier_a_cond, tier_b_cond_oof, market_cond, odds_missing, tier_c=tier_c_cond_oof, extra=line_extra
+)
 calibrator = calib.BetaCalibrator()
 loso_preds = calib.loso_stacker_predictions(
     tier_a=tier_a_cond[stacker_fit_mask],
@@ -315,6 +329,7 @@ loso_preds = calib.loso_stacker_predictions(
     y=y_full[stacker_fit_mask],
     groups=comp_years_all[stacker_fit_mask],
     tier_c=tier_c_cond_oof[stacker_fit_mask],
+    extra=line_extra[stacker_fit_mask],
 )
 if loso_preds is not None:
     loso_rows = np.isfinite(loso_preds)
@@ -324,6 +339,48 @@ else:
     print("LOSO calibrator fit unavailable (<3 season groups); using in-sample stacker predictions.")
     calibrator.fit(stacked_cond_oof[stacker_fit_mask], y_full[stacker_fit_mask])
 calibrated_oof = calibrator.predict(stacked_cond_oof)
+
+# ── Margin blend for the comp tie-breaker ─────────────────────────────────────
+# Small ridge on honest inputs: OOF model margin, the line market's expected
+# margin, and the Tier-A margin. Three coefficients, so in-sample MAE is a
+# fair guide; the season-out gate lives in evaluate.py.
+margin_blend = None
+try:
+    actual_margin_all = (
+        training_data["team_final_score_home"].to_numpy(dtype=float)
+        - training_data["team_final_score_away"].to_numpy(dtype=float)
+    )
+    model_margin_oof = blended_mu_home_oof - blended_mu_away_oof
+    tier_a_margin = baseline_mu_home - baseline_mu_away
+    market_spread_arr = -pd.to_numeric(
+        training_data.get("implied_spread_home", np.nan), errors="coerce"
+    ).to_numpy(dtype=float)
+    margin_mask = genuine_oof & np.isfinite(market_spread_arr) & np.isfinite(actual_margin_all)
+    if margin_mask.sum() >= 100:
+        X_margin = np.column_stack([model_margin_oof, market_spread_arr, tier_a_margin])[margin_mask]
+        margin_model = Ridge(alpha=1.0)
+        margin_model.fit(X_margin, actual_margin_all[margin_mask])
+        blend_mae = float(np.mean(np.abs(margin_model.predict(X_margin) - actual_margin_all[margin_mask])))
+        model_only_mae = float(np.mean(np.abs(model_margin_oof[margin_mask] - actual_margin_all[margin_mask])))
+        market_only_mae = float(np.mean(np.abs(market_spread_arr[margin_mask] - actual_margin_all[margin_mask])))
+        margin_blend = {
+            "intercept": float(margin_model.intercept_),
+            "coef_model_margin": float(margin_model.coef_[0]),
+            "coef_market_spread": float(margin_model.coef_[1]),
+            "coef_tier_a_margin": float(margin_model.coef_[2]),
+            "fit_rows": int(margin_mask.sum()),
+            "fit_mae": blend_mae,
+            "fit_mae_model_only": model_only_mae,
+            "fit_mae_market_only": market_only_mae,
+        }
+        print(
+            f"Margin blend fitted: MAE {blend_mae:.2f} vs model-only {model_only_mae:.2f} "
+            f"vs market-only {market_only_mae:.2f} ({int(margin_mask.sum())} rows)"
+        )
+    else:
+        print("Margin blend skipped (too few rows with line odds and genuine-OOF margins).")
+except Exception as exc:
+    print(f"Margin blend skipped ({exc}).")
 
 # ── Evaluation metrics ────────────────────────────────────────────────────────
 try:
@@ -465,6 +522,7 @@ manifest = {
     "lineup_monte_carlo_samples": lineup_mc_samples,
     "lineup_mu_noise_scale": lineup_mu_noise_scale,
     "tier_a_baseline": tb.baseline_config_to_dict(baseline_cfg, base_home, base_away),
+    "margin_blend": margin_blend,
 }
 
 print("Running joker strategy backtest")

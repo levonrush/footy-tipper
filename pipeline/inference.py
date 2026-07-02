@@ -178,8 +178,12 @@ if binary_model is not None:
     except Exception as exc:
         print(f"Binary model prediction skipped ({exc}).")
 
+line_extra = calib.build_line_market_features(inference_data, blended_mu_home - blended_mu_away)
+
 if stacker is not None:
-    stacked_cond = stacker.predict(tier_a_cond, tier_b_cond, market_cond, odds_missing, tier_c=tier_c_cond)
+    stacked_cond = stacker.predict(
+        tier_a_cond, tier_b_cond, market_cond, odds_missing, tier_c=tier_c_cond, extra=line_extra
+    )
 else:
     stacked_cond = tier_b_cond
 
@@ -188,12 +192,36 @@ if calibrator is not None:
 else:
     calibrated_cond = stacked_cond
 
+# Margin blend from the manifest (model margin + line market + Tier A);
+# games without a line fall back to the simulated margin via NaN.
+margin_override = None
+margin_blend = manifest.get("margin_blend")
+if isinstance(margin_blend, dict):
+    try:
+        market_spread_arr = -pd.to_numeric(
+            inference_data.get("implied_spread_home", np.nan), errors="coerce"
+        ).to_numpy(dtype=float)
+        tier_a_margin = baseline_mu_home - baseline_mu_away
+        margin_override = (
+            float(margin_blend.get("intercept", 0.0))
+            + float(margin_blend.get("coef_model_margin", 0.0)) * (blended_mu_home - blended_mu_away)
+            + float(margin_blend.get("coef_market_spread", 0.0)) * market_spread_arr
+            + float(margin_blend.get("coef_tier_a_margin", 0.0)) * tier_a_margin
+        )
+        margin_override = np.where(np.isfinite(market_spread_arr), margin_override, np.nan)
+        n_blend = int(np.isfinite(margin_override).sum())
+        print(f"Margin blend applied to {n_blend}/{len(inference_data)} game(s) with line odds.")
+    except Exception as exc:
+        print(f"Margin blend skipped ({exc}).")
+        margin_override = None
+
 outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     inference_data=inference_data,
     mu_home=blended_mu_home,
     mu_away=blended_mu_away,
     lambda3=lambda3,
     calibrated_home_win_conditional=calibrated_cond,
+    margin_override=margin_override,
 )
 outcome_df = pd.merge(outcomes, margins, on="game_id")
 

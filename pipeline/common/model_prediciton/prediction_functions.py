@@ -257,6 +257,7 @@ def predict_match_outcome_and_scoreline_with_bayes(
     mu_away=None,
     lambda3=0.0,
     calibrated_home_win_conditional=None,
+    margin_override=None,
 ):
     """
     Predict match outcomes and scorelines.
@@ -266,7 +267,9 @@ def predict_match_outcome_and_scoreline_with_bayes(
 
     Enhanced mode:
     - pass inference_data with precomputed mu_home/mu_away arrays and optional
-      calibrated_home_win_conditional.
+      calibrated_home_win_conditional. `margin_override` (per-game floats,
+      NaN = no override) replaces the simulated margin — used by the
+      market-line margin blend — and is still sign-clamped to the tip.
     """
     if inference_data is None:
         raise ValueError("inference_data is required.")
@@ -303,6 +306,10 @@ def predict_match_outcome_and_scoreline_with_bayes(
         calibrated_home_win_conditional = np.full(len(working), np.nan)
     calibrated_home_win_conditional = np.asarray(calibrated_home_win_conditional, dtype=float)
 
+    if margin_override is None:
+        margin_override = np.full(len(working), np.nan)
+    margin_override = np.asarray(margin_override, dtype=float)
+
     results = []
     for idx, row in working.iterrows():
         calibrated_cond = calibrated_home_win_conditional[idx]
@@ -332,9 +339,12 @@ def predict_match_outcome_and_scoreline_with_bayes(
 
         # The tipped winner must be in front on margin: a reweighted median can
         # still land on the wrong side of zero for near-coin-flip games.
-        predicted_margin = probabilities.get(
-            "median_margin", predicted_scoreline[0] - predicted_scoreline[1]
-        )
+        if np.isfinite(margin_override[idx]):
+            predicted_margin = int(round(float(margin_override[idx])))
+        else:
+            predicted_margin = probabilities.get(
+                "median_margin", predicted_scoreline[0] - predicted_scoreline[1]
+            )
         if home_team_result == "Win" and predicted_margin <= 0:
             predicted_margin = 1
         elif home_team_result == "Loss" and predicted_margin >= 0:
