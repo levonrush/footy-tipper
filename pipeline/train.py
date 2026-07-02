@@ -54,6 +54,20 @@ def _estimate_lambda3(y_home, y_away, mu_home, mu_away):
     return float(max(0.0, min(lambda3, max(cap, 0.0))))
 
 
+def _estimate_dispersion(y, mu):
+    """Method-of-moments negative-binomial k from OOF residuals.
+
+    var = mu + mu^2/k  =>  k = mean(mu^2) / mean((y-mu)^2 - mu).
+    Returns None when residuals show no over-dispersion (plain Poisson).
+    """
+    y = np.asarray(y, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    excess = float(np.mean((y - mu) ** 2 - mu))
+    if not np.isfinite(excess) or excess <= 0:
+        return None
+    return float(np.mean(mu**2) / excess)
+
+
 def _non_draw_mask(df: pd.DataFrame) -> np.ndarray:
     return (df["team_final_score_home"].to_numpy(dtype=float) != df["team_final_score_away"].to_numpy(dtype=float))
 
@@ -74,6 +88,17 @@ if training_data.empty:
 
 print("Computing Tier-A baseline features")
 baseline_cfg = tb.default_baseline_config_from_env()
+# On by default: the honest eval showed tuned alpha/carryover beat the
+# hard-coded 0.2/0.6 on log-loss and Brier. Disable with =false.
+if os.getenv("FOOTY_TIPPER_TUNE_TIER_A", "true").strip().lower() not in {"0", "false", "no", "n", "off"}:
+    print("Tuning Tier-A alpha/carryover (sequential ratings, first season excluded)...")
+    baseline_cfg, tier_a_grid = tb.tune_baseline_hyperparams(training_data, config_template=baseline_cfg)
+    if not tier_a_grid.empty:
+        best_row = tier_a_grid.sort_values("log_loss").iloc[0]
+        print(
+            f"Tier-A tuned: alpha={baseline_cfg.alpha:.2f}, carryover={baseline_cfg.carryover:.2f} "
+            f"(log-loss {best_row['log_loss']:.4f}, acc {best_row['accuracy']:.1%} on {int(best_row['games'])} games)"
+        )
 baseline_features = tb.compute_tier_a_baseline_features(training_data, baseline_cfg)
 training_data = training_data.merge(baseline_features, on="game_id", how="left")
 
@@ -190,6 +215,23 @@ lambda3 = _estimate_lambda3(
     training_data["team_final_score_away"].to_numpy(dtype=float),
     blended_mu_home,
     blended_mu_away,
+)
+
+# Negative-binomial dispersion from OOF residuals: NRL points are lumpy
+# (2/4/6), so the simulation needs fatter tails than Poisson.
+disp_mask = home_oof_mask & away_oof_mask
+dispersion_home = _estimate_dispersion(
+    training_data["team_final_score_home"].to_numpy(dtype=float)[disp_mask],
+    np.maximum((1.0 - home_weight) * baseline_mu_home + home_weight * home_model_mu_oof, 1e-6)[disp_mask],
+)
+dispersion_away = _estimate_dispersion(
+    training_data["team_final_score_away"].to_numpy(dtype=float)[disp_mask],
+    np.maximum((1.0 - away_weight) * baseline_mu_away + away_weight * away_model_mu_oof, 1e-6)[disp_mask],
+)
+print(
+    f"Estimated NB dispersion: home k={dispersion_home if dispersion_home is None else f'{dispersion_home:.2f}'}, "
+    f"away k={dispersion_away if dispersion_away is None else f'{dispersion_away:.2f}'} "
+    "(None = no over-dispersion, plain Poisson)"
 )
 
 print(
@@ -523,6 +565,8 @@ manifest = {
     "lineup_mu_noise_scale": lineup_mu_noise_scale,
     "tier_a_baseline": tb.baseline_config_to_dict(baseline_cfg, base_home, base_away),
     "margin_blend": margin_blend,
+    "dispersion_home": dispersion_home,
+    "dispersion_away": dispersion_away,
 }
 
 print("Running joker strategy backtest")

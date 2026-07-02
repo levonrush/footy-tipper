@@ -328,6 +328,19 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
                 "resending because --force-resend was given."
             )
 
+    # Competition-aware tip strategy: advisory logs deviations, auto applies
+    # them to the outgoing email (predictions_table itself is never changed).
+    comp_strategy = sf.get_comp_strategy_recommendation(db_path, root, predictions)
+    if comp_strategy.get("status") != "off":
+        _log(comp_strategy.get("headline", "Comp strategy unavailable"))
+        if comp_strategy.get("detail"):
+            _log(comp_strategy["detail"])
+    if comp_strategy.get("mode") == "auto" and comp_strategy.get("tips_changed"):
+        predictions = sf.apply_comp_strategy_to_predictions(predictions, comp_strategy)
+        _log(f"Comp strategy AUTO: {comp_strategy['tips_changed']} tip(s) adjusted in this send.")
+    if not test_mode and not dry_run:
+        sf.persist_comp_strategy_decision(db_path, comp_strategy, predictions)
+
     tipper_picks = sf.get_tipper_picks(predictions)
     joker_recommendation = sf.get_joker_round_recommendation(db_path, root, predictions)
     _log(joker_recommendation.get("headline", "Joker call unavailable"))
@@ -367,6 +380,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
         joker_recommendation=joker_recommendation,
         openai_api_key=os.getenv("OPENAI_KEY") if use_llm else None,
         scoreboard=scoreboard,
+        comp_strategy=comp_strategy,
     )
 
     subject = email_payload["subject"]

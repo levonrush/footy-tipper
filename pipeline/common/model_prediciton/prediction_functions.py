@@ -144,9 +144,21 @@ def derive_market_home_probability(df: pd.DataFrame) -> np.ndarray:
 
 
 def simulate_game(
-    home_score_avg, away_score_avg, n_simulations=100000, lambda3=0.0, rng=None, calibrated_cond=None
+    home_score_avg,
+    away_score_avg,
+    n_simulations=100000,
+    lambda3=0.0,
+    rng=None,
+    calibrated_cond=None,
+    dispersion_home=None,
+    dispersion_away=None,
 ):
-    """Simulate outcomes and scoreline under independent or bivariate Poisson.
+    """Simulate outcomes and scoreline under Poisson-family score models.
+
+    Rugby-league points arrive in 2/4/6 lumps, so raw Poisson understates the
+    margin variance; when a per-side negative-binomial dispersion `k` is given
+    (gamma-mixed Poisson: var = mu + mu^2/k) the simulation uses it instead.
+    The bivariate shared component (`lambda3 > 0`) takes precedence when set.
 
     When `calibrated_cond` (calibrated p(home win | non-draw)) is provided,
     the reported margin and scoreline are importance-reweighted so they agree
@@ -160,6 +172,12 @@ def simulate_game(
     away_score_avg = float(max(away_score_avg, 1e-9))
     lambda3 = float(max(lambda3, 0.0))
 
+    def _draw_scores(mu, dispersion):
+        if dispersion is not None and np.isfinite(dispersion) and dispersion > 0:
+            lam = rng.gamma(shape=float(dispersion), scale=mu / float(dispersion), size=n_simulations)
+            return rng.poisson(np.maximum(lam, 1e-12))
+        return rng.poisson(mu, size=n_simulations)
+
     if lambda3 > 0:
         shared = min(lambda3, 0.95 * min(home_score_avg, away_score_avg))
         lam1 = max(home_score_avg - shared, 1e-9)
@@ -168,8 +186,8 @@ def simulate_game(
         home_goals_sim = rng.poisson(lam1, size=n_simulations) + shared_sim
         away_goals_sim = rng.poisson(lam2, size=n_simulations) + shared_sim
     else:
-        home_goals_sim = rng.poisson(home_score_avg, size=n_simulations)
-        away_goals_sim = rng.poisson(away_score_avg, size=n_simulations)
+        home_goals_sim = _draw_scores(home_score_avg, dispersion_home)
+        away_goals_sim = _draw_scores(away_score_avg, dispersion_away)
 
     margins = home_goals_sim - away_goals_sim
     home_wins = int((margins > 0).sum())
@@ -258,6 +276,8 @@ def predict_match_outcome_and_scoreline_with_bayes(
     lambda3=0.0,
     calibrated_home_win_conditional=None,
     margin_override=None,
+    dispersion_home=None,
+    dispersion_away=None,
 ):
     """
     Predict match outcomes and scorelines.
@@ -326,6 +346,8 @@ def predict_match_outcome_and_scoreline_with_bayes(
             lambda3=lambda3,
             rng=rng,
             calibrated_cond=None if np.isnan(calibrated_cond) else calibrated_cond,
+            dispersion_home=dispersion_home,
+            dispersion_away=dispersion_away,
         )
 
         if not np.isnan(calibrated_cond):

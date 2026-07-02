@@ -306,6 +306,7 @@ def generate_reg_regan_email_payload(
     openai_api_key=None,
     scoreboard=None,
     use_llm=None,
+    comp_strategy=None,
 ):
     # `use_openai` is a deprecated alias for `use_llm` (the copy actually comes
     # from Claude; only the banner image uses OpenAI).
@@ -338,6 +339,12 @@ def generate_reg_regan_email_payload(
         else None
     )
     copy = llm_copy or fallback_copy
+
+    # Strategy corner: surfaced in both plain and HTML closings so every
+    # deviation from pure model tips is visible with its P(win comp) math.
+    if isinstance(comp_strategy, dict) and comp_strategy.get("available"):
+        note = f"{comp_strategy.get('headline', '').strip()}. {comp_strategy.get('detail', '').strip()}"
+        copy["closing"] = f"{copy['closing']}\n\n{note}" if copy.get("closing") else note
 
     if predictions.empty:
         plain = copy["opening"]

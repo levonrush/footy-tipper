@@ -35,6 +35,8 @@ predictors = manifest.get(
 blend_weight_home = float(manifest.get("blend_weight_home", 1.0))
 blend_weight_away = float(manifest.get("blend_weight_away", 1.0))
 lambda3 = float(manifest.get("lambda3", 0.0))
+dispersion_home = manifest.get("dispersion_home")
+dispersion_away = manifest.get("dispersion_away")
 lineup_mc_samples = int(manifest.get("lineup_monte_carlo_samples", os.getenv("FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES", "64")))
 lineup_mu_noise_scale = float(manifest.get("lineup_mu_noise_scale", os.getenv("FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE", "0.12")))
 
@@ -222,6 +224,8 @@ outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     lambda3=lambda3,
     calibrated_home_win_conditional=calibrated_cond,
     margin_override=margin_override,
+    dispersion_home=dispersion_home,
+    dispersion_away=dispersion_away,
 )
 outcome_df = pd.merge(outcomes, margins, on="game_id")
 

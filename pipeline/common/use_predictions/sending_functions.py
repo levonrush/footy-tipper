@@ -84,6 +84,11 @@ from pipeline.common.use_predictions.joker import (  # noqa: F401
     persist_joker_usage_if_applicable,
     recommend_joker_round,
 )
+from pipeline.common.use_predictions.comp_strategy import (  # noqa: F401
+    apply_comp_strategy_to_predictions,
+    get_comp_strategy_recommendation,
+    persist_comp_strategy_decision,
+)
 from pipeline.common.use_predictions.news import (  # noqa: F401
     _fetch_nrl_news_context,
     _fetch_rss_headlines,

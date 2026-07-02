@@ -356,14 +356,35 @@ get_data <- function(year_span, include_performance = TRUE, prep_mode = "full", 
     stop("Get Data: No ladder data available for available fixture years.")
   }
   
-  ladders_df <- ladders_raw %>% 
-    clean_names() %>% 
+  ladders_df <- ladders_raw %>%
+    clean_names() %>%
     type_convert() %>%
     arrange(competition_year, round_id) %>%
     group_by(team, competition_year) %>%
     mutate_at(vars(-team, -round_id, -competition_year), lag) %>%
     ungroup() %>%
-    select(-c(day_record, night_record, current_streak)) %>%
+    # Parse (already-lagged) streak and day/night records instead of dropping
+    # them: "3W"/"2L" -> signed run length, "W-D-L" -> win rate.
+    mutate(
+      current_streak = suppressWarnings(as.numeric(str_extract(current_streak, "^\\d+"))) *
+        case_when(
+          str_detect(coalesce(current_streak, ""), "W$") ~ 1,
+          str_detect(coalesce(current_streak, ""), "L$") ~ -1,
+          TRUE ~ 0
+        ),
+      day_record_wins = suppressWarnings(as.numeric(str_extract(day_record, "^\\d+"))),
+      day_record_games = day_record_wins +
+        suppressWarnings(as.numeric(str_extract(day_record, "(?<=-)\\d+(?=-)"))) +
+        suppressWarnings(as.numeric(str_extract(day_record, "\\d+$"))),
+      day_win_rate = if_else(day_record_games > 0, day_record_wins / day_record_games, NA_real_),
+      night_record_wins = suppressWarnings(as.numeric(str_extract(night_record, "^\\d+"))),
+      night_record_games = night_record_wins +
+        suppressWarnings(as.numeric(str_extract(night_record, "(?<=-)\\d+(?=-)"))) +
+        suppressWarnings(as.numeric(str_extract(night_record, "\\d+$"))),
+      night_win_rate = if_else(night_record_games > 0, night_record_wins / night_record_games, NA_real_)
+    ) %>%
+    select(-c(day_record, night_record, day_record_wins, day_record_games,
+              night_record_wins, night_record_games)) %>%
     mutate(recent_form = str_count(recent_form, "W") - str_count(recent_form, "L"),
            season_form = str_count(season_form, "W") - str_count(season_form, "L")) %>%
     mutate_at(vars(-team, -round_id, -competition_year), list(~ replace_na(., 0))) %>%

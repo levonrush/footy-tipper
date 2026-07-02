@@ -33,7 +33,7 @@ from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
 
 
-def _load_training_frame(project_root, db_path):
+def _load_training_frame(project_root, db_path, baseline_cfg=None):
     """Load and feature-merge the training frame the same way train.py does."""
     predictors = tc.filter_predictors(include_performance=tc.include_performance, predictor_list=tc.predictors)
     data = mf.get_training_data(
@@ -43,7 +43,8 @@ def _load_training_frame(project_root, db_path):
     if data.empty:
         raise RuntimeError("Training data is empty. Run data prep first.")
 
-    baseline_cfg = tb.default_baseline_config_from_env()
+    if baseline_cfg is None:
+        baseline_cfg = tb.default_baseline_config_from_env()
     baseline_features = tb.compute_tier_a_baseline_features(data, baseline_cfg)
     data = data.merge(baseline_features, on="game_id", how="left")
 
@@ -304,7 +305,28 @@ def main():
     home_model = pf.load_models("home_model", project_root)
     away_model = pf.load_models("away_model", project_root)
 
-    data, predictors = _load_training_frame(project_root, db_path)
+    # Optional honest Tier-A tuning: the grid only ever sees seasons strictly
+    # before the earliest held-out season, so no test year informs the choice.
+    baseline_cfg = None
+    if os.getenv("FOOTY_TIPPER_TUNE_TIER_A", "true").strip().lower() not in {"0", "false", "no", "n", "off"}:
+        raw = mf.get_training_data(
+            db_path=db_path,
+            sql_file=project_root / "pipeline/common/sql/training_data.sql",
+        )
+        years_all = sorted(
+            pd.to_numeric(raw["competition_year"], errors="coerce").dropna().astype(int).unique().tolist()
+        )
+        if len(years_all) > n_seasons + 1:
+            cutoff = years_all[-n_seasons]
+            tune_df = raw[pd.to_numeric(raw["competition_year"], errors="coerce") < cutoff]
+            baseline_cfg, tier_a_grid = tb.tune_baseline_hyperparams(tune_df)
+            if not tier_a_grid.empty:
+                print(
+                    f"Tier-A tuned on seasons < {cutoff}: alpha={baseline_cfg.alpha:.2f}, "
+                    f"carryover={baseline_cfg.carryover:.2f}"
+                )
+
+    data, predictors = _load_training_frame(project_root, db_path, baseline_cfg=baseline_cfg)
     data = tc.align_predictor_columns(data, predictors)
     selected = tc.prune_sparse_predictors(data, predictors)
     data = tc.align_predictor_columns(data, selected)

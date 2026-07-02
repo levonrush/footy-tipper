@@ -100,6 +100,29 @@ class CalibratedConsistencyTests(unittest.TestCase):
         self.assertLess(row["predicted_home_score"], row["predicted_away_score"])
 
 
+class DispersionTests(unittest.TestCase):
+    def test_nb_dispersion_widens_margins_and_stays_deterministic(self):
+        def run(disp):
+            probs, scoreline = pf.simulate_game(
+                24, 20, n_simulations=20000, rng=pf.rng_for_game(5),
+                dispersion_home=disp, dispersion_away=disp,
+            )
+            return probs, scoreline
+
+        poisson_a, line_a = run(None)
+        poisson_b, line_b = run(None)
+        self.assertEqual(poisson_a, poisson_b)
+        self.assertEqual(line_a, line_b)
+
+        nb_a, nb_line_a = run(8.0)
+        nb_b, nb_line_b = run(8.0)
+        self.assertEqual(nb_a, nb_b)
+        self.assertEqual(nb_line_a, nb_line_b)
+
+        # Fatter tails: the favourite wins less often under over-dispersion.
+        self.assertLess(nb_a["home_win_prob"], poisson_a["home_win_prob"])
+
+
 class VectorisedWinProbTests(unittest.TestCase):
     def test_matches_scalar_implementation(self):
         mu_home = np.array([22.0, 18.5, 30.0, 5.0])
