@@ -8,9 +8,12 @@
 # predictions for season Y only ever use models trained on seasons < Y.
 print("Running the evaluate.py script...")
 
+import json
 import os
 import pathlib
+import subprocess
 import sys
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -23,6 +26,7 @@ sys.path.insert(0, parent_dir)
 from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.lineups import features as lf
 from pipeline.common.model_training import calibration as calib
+from pipeline.common.model_training import comp_sim
 from pipeline.common.model_training import modelling_functions as mf
 from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
@@ -86,6 +90,8 @@ def _evaluate_season(
     odds_missing,
     home_odds,
     away_odds,
+    actual_margin,
+    market_spread,
     edge_threshold=0.05,
 ):
     prior_mask = non_draw & genuine_oof & (year_col < test_year)
@@ -154,7 +160,21 @@ def _evaluate_season(
         ),
         "model_p": model_p,
         "y_test": y_test,
+        "market_p": market_p,
     }
+
+    # Margin metrics for the comp's tie-breaker: model margin from the
+    # blended mus, market margin from the negated line handicap.
+    model_margin = blended_h[test_mask] - blended_a[test_mask]
+    margin_actual = actual_margin[test_mask]
+    result["margin_mae"] = float(np.mean(np.abs(model_margin - margin_actual)))
+    result["margin_bias"] = float(np.mean(model_margin - margin_actual))
+    spread = market_spread[test_mask]
+    has_line = np.isfinite(spread)
+    result["market_margin_games"] = int(has_line.sum())
+    result["market_margin_mae"] = (
+        float(np.mean(np.abs(spread[has_line] - margin_actual[has_line]))) if has_line.any() else None
+    )
 
     # Flat-stake ROI at the edge threshold.
     edge = model_p - market_p
@@ -172,6 +192,68 @@ def _evaluate_season(
             wins += int(act == 0)
     result.update({"bets": total_bets, "bet_wins": wins, "profit": float(profit)})
     return result
+
+
+def _git_sha(project_root):
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_root, capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0:
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _manifest_fingerprint(project_root):
+    try:
+        with open(project_root / "models" / "model_manifest.json") as fh:
+            manifest = json.load(fh)
+        return {
+            "blend_weight_home": manifest.get("blend_weight_home"),
+            "blend_weight_away": manifest.get("blend_weight_away"),
+            "lambda3": manifest.get("lambda3"),
+            "tier_a_baseline": manifest.get("tier_a_baseline"),
+            "predictor_count": len(manifest.get("predictors") or []),
+        }
+    except Exception:
+        return None
+
+
+def _build_report(results, pooled, config):
+    seasons = [
+        {k: v for k, v in res.items() if not isinstance(v, np.ndarray)}
+        for res in results
+    ]
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "config": config,
+        "seasons": seasons,
+        "pooled": pooled,
+    }
+
+
+def _write_report(report, project_root):
+    """Write the eval report; failure to write must never fail the eval."""
+    try:
+        override = os.getenv("FOOTY_TIPPER_EVAL_REPORT_PATH")
+        if override:
+            paths = [pathlib.Path(override)]
+        else:
+            reports_dir = project_root / "reports"
+            reports_dir.mkdir(exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            paths = [reports_dir / f"eval-{stamp}.json", reports_dir / "eval-latest.json"]
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w") as fh:
+                json.dump(report, fh, indent=2, default=float)
+        return paths[-1]
+    except Exception as exc:
+        print(f"Eval report not written ({exc}).")
+        return None
 
 
 def main():
@@ -229,6 +311,16 @@ def main():
     baseline_mu_home = data["baseline_mu_home"].to_numpy(dtype=float)
     baseline_mu_away = data["baseline_mu_away"].to_numpy(dtype=float)
 
+    actual_margin = (
+        data["team_final_score_home"].to_numpy(dtype=float)
+        - data["team_final_score_away"].to_numpy(dtype=float)
+    )
+    # Market's expected home margin: the line handicap is negative when the
+    # home side is favourite, so the expected margin is its negation.
+    market_spread = -pd.to_numeric(
+        data.get("implied_spread_home", np.nan), errors="coerce"
+    ).to_numpy(dtype=float)
+
     eval_years = sorted({int(y) for y in year_col[genuine_oof & ~np.isnan(year_col)]})[-n_seasons:]
     print(f"Evaluating held-out seasons: {eval_years}")
 
@@ -250,10 +342,15 @@ def main():
             odds_missing,
             home_odds,
             away_odds,
+            actual_margin,
+            market_spread,
         )
         if res is None:
             print(f"  {test_year}: skipped (not enough prior or test rows).")
             continue
+        res["comp_sim"] = comp_sim.simulate_comp_placement(
+            res["model_p"], res["market_p"], res["y_test"]
+        )
         results.append(res)
 
     if not results:
@@ -281,13 +378,86 @@ def main():
     pooled_bets = int(sum(res["bets"] for res in results))
     pooled_profit = float(sum(res["profit"] for res in results))
 
+    pooled_log_loss = float(log_loss(pooled_y, pooled_p))
+    pooled_brier = float(brier_score_loss(pooled_y, pooled_p))
+
     print("\n── Pooled across held-out seasons ──")
     print(f"  Tipping accuracy: {pooled_correct}/{pooled_games} ({pooled_correct / pooled_games:.1%})")
     if pooled_mkt_games:
         print(f"  Market favourite: {pooled_mkt_correct}/{pooled_mkt_games} ({pooled_mkt_correct / pooled_mkt_games:.1%})")
-    print(f"  Log-loss: {log_loss(pooled_y, pooled_p):.4f}   Brier: {brier_score_loss(pooled_y, pooled_p):.4f}")
+    print(f"  Log-loss: {pooled_log_loss:.4f}   Brier: {pooled_brier:.4f}")
     if pooled_bets:
         print(f"  Edge bets: {pooled_bets}, flat-stake ROI: {100.0 * pooled_profit / pooled_bets:+.1f}%")
+
+    # Margin metrics pooled by game count (season MAEs are per-game means).
+    pooled_margin_mae = float(
+        sum(res["margin_mae"] * res["games"] for res in results) / pooled_games
+    )
+    market_margin_games = int(sum(res["market_margin_games"] for res in results))
+    pooled_market_margin_mae = (
+        float(
+            sum(
+                res["market_margin_mae"] * res["market_margin_games"]
+                for res in results
+                if res["market_margin_mae"] is not None
+            )
+            / market_margin_games
+        )
+        if market_margin_games
+        else None
+    )
+    print(f"  Margin MAE (tie-breaker): model {pooled_margin_mae:.2f}", end="")
+    if pooled_market_margin_mae is not None:
+        print(f" vs market line {pooled_market_margin_mae:.2f} ({market_margin_games} games)")
+    else:
+        print()
+
+    comp_results = [res["comp_sim"] for res in results if res.get("comp_sim")]
+    pooled_p_first = float(np.mean([c["p_first"] for c in comp_results])) if comp_results else None
+    pooled_expected_rank = (
+        float(np.mean([c["expected_rank"] for c in comp_results])) if comp_results else None
+    )
+    if comp_results:
+        print(
+            f"  Comp placement (field of {comp_results[0]['field_size']}): "
+            f"P(first) {pooled_p_first:.1%}, expected rank {pooled_expected_rank:.1f}"
+        )
+
+    pooled = {
+        "games": pooled_games,
+        "correct": pooled_correct,
+        "accuracy": pooled_correct / pooled_games,
+        "market_games": pooled_mkt_games,
+        "market_correct": pooled_mkt_correct,
+        "market_accuracy": (pooled_mkt_correct / pooled_mkt_games) if pooled_mkt_games else None,
+        "log_loss": pooled_log_loss,
+        "brier": pooled_brier,
+        "bets": pooled_bets,
+        "profit": pooled_profit,
+        "roi_pct": (100.0 * pooled_profit / pooled_bets) if pooled_bets else None,
+        "margin_mae": pooled_margin_mae,
+        "market_margin_mae": pooled_market_margin_mae,
+        "market_margin_games": market_margin_games,
+        "comp_p_first": pooled_p_first,
+        "comp_expected_rank": pooled_expected_rank,
+    }
+    config = {
+        "eval_seasons": [res["year"] for res in results],
+        "n_seasons_requested": n_seasons,
+        "rows": int(len(data)),
+        "selected_predictor_count": int(len(selected)),
+        "git_sha": _git_sha(project_root),
+        "manifest": _manifest_fingerprint(project_root),
+        "env": {
+            key: os.environ[key]
+            for key in sorted(os.environ)
+            if key.startswith("FOOTY_TIPPER_") and "PASSWORD" not in key and "KEY" not in key
+        },
+    }
+    report_path = _write_report(_build_report(results, pooled, config), project_root)
+    if report_path is not None:
+        print(f"\nReport written to {report_path}")
+
     print("\nEvaluation complete.")
     return 0
 

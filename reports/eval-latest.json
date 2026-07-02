@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-07-02T11:50:25.074744+00:00",
+  "config": {
+    "eval_seasons": [
+      2024,
+      2025,
+      2026
+    ],
+    "n_seasons_requested": 3,
+    "rows": 3147,
+    "selected_predictor_count": 503,
+    "git_sha": "29f577d5af5087c30796b59eb71c6d6c81d4c015",
+    "manifest": {
+      "blend_weight_home": 1.0,
+      "blend_weight_away": 1.0,
+      "lambda3": 0.0,
+      "tier_a_baseline": {
+        "alpha": 0.2,
+        "carryover": 0.6,
+        "min_rate": 0.5,
+        "max_rate": 80.0,
+        "base_home": 22.703703703703702,
+        "base_away": 19.899425287356323
+      },
+      "predictor_count": 503
+    },
+    "env": {
+      "FOOTY_TIPPER_PREP_MODE": "train"
+    }
+  },
+  "seasons": [
+    {
+      "year": 2024,
+      "games": 212,
+      "correct": 133,
+      "log_loss": 0.6313219070869003,
+      "brier": 0.2200213688160068,
+      "blend_wh": 1.0,
+      "blend_wa": 1.0,
+      "market_games": 212,
+      "market_correct": 129,
+      "margin_mae": 13.450482286431443,
+      "margin_bias": -0.6961471313673472,
+      "market_margin_games": 212,
+      "market_margin_mae": 13.783018867924529,
+      "bets": 185,
+      "bet_wins": 115,
+      "profit": 12.55,
+      "comp_sim": {
+        "games": 212,
+        "user_score": 133,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 129,
+        "p_first": 0.2715,
+        "p_top": 0.36725,
+        "expected_rank": 2.3672500000000003,
+        "mean_rival_score": 123.47075,
+        "mean_best_rival_score": 134.3105
+      }
+    },
+    {
+      "year": 2025,
+      "games": 212,
+      "correct": 126,
+      "log_loss": 0.660235763438249,
+      "brier": 0.23387100043348433,
+      "blend_wh": 1.0,
+      "blend_wa": 1.0,
+      "market_games": 209,
+      "market_correct": 129,
+      "margin_mae": 14.089016576131671,
+      "margin_bias": -1.611352006811227,
+      "market_margin_games": 212,
+      "market_margin_mae": 13.747641509433961,
+      "bets": 188,
+      "bet_wins": 104,
+      "profit": 7.629999999999997,
+      "comp_sim": {
+        "games": 212,
+        "user_score": 126,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 129,
+        "p_first": 0.0,
+        "p_top": 0.0,
+        "expected_rank": 33.969125,
+        "mean_rival_score": 124.60889333333333,
+        "mean_best_rival_score": 135.63475
+      }
+    },
+    {
+      "year": 2026,
+      "games": 128,
+      "correct": 83,
+      "log_loss": 0.6426145047536959,
+      "brier": 0.22344086865902058,
+      "blend_wh": 1.0,
+      "blend_wa": 1.0,
+      "market_games": 128,
+      "market_correct": 78,
+      "margin_mae": 15.891929052645215,
+      "margin_bias": 1.4798358947086396,
+      "market_margin_games": 128,
+      "market_margin_mae": 15.7265625,
+      "bets": 121,
+      "bet_wins": 70,
+      "profit": 8.350000000000001,
+      "comp_sim": {
+        "games": 128,
+        "user_score": 83,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 78,
+        "p_first": 0.52325,
+        "p_top": 0.64575,
+        "expected_rank": 1.659375,
+        "mean_rival_score": 74.64170333333334,
+        "mean_best_rival_score": 83.08425
+      }
+    }
+  ],
+  "pooled": {
+    "games": 552,
+    "correct": 342,
+    "accuracy": 0.6195652173913043,
+    "market_games": 549,
+    "market_correct": 336,
+    "market_accuracy": 0.6120218579234973,
+    "log_loss": 0.6450450774634143,
+    "brier": 0.22613335773414267,
+    "bets": 494,
+    "profit": 28.53,
+    "roi_pct": 5.775303643724697,
+    "margin_mae": 14.261849053626754,
+    "market_margin_mae": 14.220108695652174,
+    "market_margin_games": 552,
+    "comp_p_first": 0.2649166666666667,
+    "comp_expected_rank": 12.665249999999999
+  }
+}

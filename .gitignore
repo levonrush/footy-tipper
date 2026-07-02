@@ -99,3 +99,6 @@ images/email-banner-generated.png
 # launchd job logs
 logs/*
 !logs/.gitkeep
+
+# Timestamped eval reports (keep latest + named baselines)
+reports/eval-2*.json

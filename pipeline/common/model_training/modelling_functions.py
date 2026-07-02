@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 import sqlite3
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, FunctionTransformer
@@ -130,7 +132,8 @@ def create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols)
         scoring=opt_metric,
         n_jobs=-1,
         verbose=1,
-        n_iter=100
+        # Env override lets retrain-A/B cycles run fast without changing defaults.
+        n_iter=int(os.getenv("FOOTY_TIPPER_TUNE_ITER", "100"))
     )
     steps.append(('hyperparamtuning', bayes))
 
