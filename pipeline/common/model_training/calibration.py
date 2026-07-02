@@ -171,6 +171,59 @@ class LogisticStacker:
         return self._model.predict_proba(X)[:, 1]
 
 
+def loso_stacker_predictions(tier_a, tier_b, market, odds_missing, y, groups, tier_c=None):
+    """Leave-one-season-out stacker predictions for calibrator training.
+
+    For each season group, fit a fresh LogisticStacker on the other seasons and
+    predict the held-out one, so every returned prediction is out-of-sample for
+    the stacker. A calibrator fit on these is not flattered by stacker overfit.
+    Returns an array with NaN for rows that could not be predicted, or None when
+    fewer than 3 season groups exist (callers fall back to in-sample fitting).
+    """
+    tier_a = np.asarray(tier_a, dtype=float)
+    tier_b = np.asarray(tier_b, dtype=float)
+    market = np.asarray(market, dtype=float)
+    odds_missing = np.asarray(odds_missing, dtype=float)
+    y = np.asarray(y, dtype=int)
+    groups = np.asarray(groups, dtype=float)
+    tier_c = None if tier_c is None else np.asarray(tier_c, dtype=float)
+
+    finite_groups = np.isfinite(groups)
+    unique_groups = np.unique(groups[finite_groups])
+    if len(unique_groups) < 3:
+        return None
+
+    preds = np.full(len(tier_a), np.nan)
+    for group in unique_groups:
+        hold = groups == group
+        train = finite_groups & ~hold
+        if train.sum() < 50 or len(np.unique(y[train])) < 2:
+            continue
+        stacker = LogisticStacker()
+        stacker.fit(
+            tier_a=tier_a[train],
+            tier_b=tier_b[train],
+            market=market[train],
+            odds_missing=odds_missing[train],
+            tier_c=None if tier_c is None else tier_c[train],
+            y=y[train],
+            groups=groups[train],
+        )
+        if not stacker._is_fitted:
+            continue
+        preds[hold] = stacker.predict(
+            tier_a[hold],
+            tier_b[hold],
+            market[hold],
+            odds_missing[hold],
+            tier_c=None if tier_c is None else tier_c[hold],
+        )
+
+    if not np.isfinite(preds).any():
+        return None
+    return preds
+
+
 def save_artifact(model, path):
     with open(path, "wb") as f:
         pickle.dump(model, f)

@@ -23,14 +23,14 @@ from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
 
 
-def _select_blend_weight_by_log_loss(y_binary, non_draw, baseline_mu_home, baseline_mu_away, oof_mu_home, oof_mu_away):
+def _select_blend_weight_by_log_loss(y_selected, selection_mask, baseline_mu_home, baseline_mu_away, oof_mu_home, oof_mu_away):
     """OOF blend weight selection; see mf.select_blend_weights_by_log_loss."""
     return mf.select_blend_weights_by_log_loss(
-        y_binary,
-        np.asarray(baseline_mu_home, dtype=float)[non_draw],
-        np.asarray(baseline_mu_away, dtype=float)[non_draw],
-        np.asarray(oof_mu_home, dtype=float)[non_draw],
-        np.asarray(oof_mu_away, dtype=float)[non_draw],
+        y_selected,
+        np.asarray(baseline_mu_home, dtype=float)[selection_mask],
+        np.asarray(baseline_mu_away, dtype=float)[selection_mask],
+        np.asarray(oof_mu_home, dtype=float)[selection_mask],
+        np.asarray(oof_mu_away, dtype=float)[selection_mask],
     )
 
 
@@ -158,7 +158,6 @@ y_full = (
     training_data["team_final_score_home"].to_numpy(dtype=float)
     > training_data["team_final_score_away"].to_numpy(dtype=float)
 ).astype(int)
-y_binary = y_full[non_draw]
 
 # Generate OOF score predictions BEFORE blend weight selection so weights are
 # chosen on unbiased OOF tipping accuracy rather than in-sample Poisson deviance.
@@ -170,8 +169,15 @@ away_model_mu_oof, away_oof_mask = mf.generate_oof_score_predictions(
     training_data, selected_predictors, away_model, "team_final_score_away", return_mask=True
 )
 
+# Select weights only on rows whose Tier-B predictions are genuinely OOF:
+# first-season rows fall back to in-sample predictions and would bias the
+# grid toward Tier B (evaluate.py already masks this way).
+blend_mask = non_draw & home_oof_mask & away_oof_mask
+if blend_mask.sum() < 50:
+    print("Too few genuine-OOF rows for blend selection; falling back to all non-draw rows.")
+    blend_mask = non_draw
 home_weight, away_weight, blend_ll, blend_acc = _select_blend_weight_by_log_loss(
-    y_binary, non_draw, baseline_mu_home, baseline_mu_away,
+    y_full[blend_mask], blend_mask, baseline_mu_home, baseline_mu_away,
     home_model_mu_oof, away_model_mu_oof,
 )
 
@@ -295,10 +301,28 @@ if stacker._is_fitted and hasattr(stacker._model, "coef_"):
     coef_str = ", ".join(f"{n}={v:.3f}" for n, v in zip(coef_names, coef_vals))
     print(f"Stacker coefficients: {coef_str}")
 
-# ── Calibrator (trained on OOF stacked predictions) ───────────────────────────
+# ── Calibrator ────────────────────────────────────────────────────────────────
+# Fit on leave-one-season-out stacker predictions so the calibrator never sees
+# rows the deployed stacker was trained on (its Tier inputs are OOF, but the
+# stacker itself is in-sample on stacker_fit_mask rows).
 stacked_cond_oof = stacker.predict(tier_a_cond, tier_b_cond_oof, market_cond, odds_missing, tier_c=tier_c_cond_oof)
 calibrator = calib.BetaCalibrator()
-calibrator.fit(stacked_cond_oof[stacker_fit_mask], y_full[stacker_fit_mask])
+loso_preds = calib.loso_stacker_predictions(
+    tier_a=tier_a_cond[stacker_fit_mask],
+    tier_b=tier_b_cond_oof[stacker_fit_mask],
+    market=market_cond[stacker_fit_mask],
+    odds_missing=odds_missing[stacker_fit_mask],
+    y=y_full[stacker_fit_mask],
+    groups=comp_years_all[stacker_fit_mask],
+    tier_c=tier_c_cond_oof[stacker_fit_mask],
+)
+if loso_preds is not None:
+    loso_rows = np.isfinite(loso_preds)
+    calibrator.fit(loso_preds[loso_rows], y_full[stacker_fit_mask][loso_rows])
+    print(f"Calibrator fit on LOSO stacker predictions ({int(loso_rows.sum())} rows).")
+else:
+    print("LOSO calibrator fit unavailable (<3 season groups); using in-sample stacker predictions.")
+    calibrator.fit(stacked_cond_oof[stacker_fit_mask], y_full[stacker_fit_mask])
 calibrated_oof = calibrator.predict(stacked_cond_oof)
 
 # ── Evaluation metrics ────────────────────────────────────────────────────────

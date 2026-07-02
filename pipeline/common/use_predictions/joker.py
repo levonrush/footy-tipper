@@ -208,6 +208,7 @@ def _unavailable_joker_recommendation(reason, strategy_context=None):
         "current_score": None,
         "current_mu": None,
         "current_sigma": None,
+        "used_model_probs": 0,
         "recommended_round_id": None,
         "recommended_round_name": None,
         "recommended_score": None,
@@ -450,7 +451,7 @@ def get_joker_round_candidates(db_path, project_root):
     return candidates
 
 
-def compute_joker_round_metrics(fixtures):
+def compute_joker_round_metrics(fixtures, model_probs=None):
     output_columns = [
         "round_id",
         "competition_year",
@@ -458,6 +459,7 @@ def compute_joker_round_metrics(fixtures):
         "matches_considered",
         "matches_total",
         "odds_coverage",
+        "model_prob_matches",
         "mu",
         "variance",
         "sigma",
@@ -494,26 +496,43 @@ def compute_joker_round_metrics(fixtures):
 
     data["odds_home"] = pd.to_numeric(data["team_head_to_head_odds_home"], errors="coerce")
     data["odds_away"] = pd.to_numeric(data["team_head_to_head_odds_away"], errors="coerce")
-    data = data[(data["odds_home"] > 1.0) & (data["odds_away"] > 1.0)].copy()
+    valid_odds = (data["odds_home"] > 1.0) & (data["odds_away"] > 1.0)
+    q_home = (1.0 / data["odds_home"]).where(valid_odds)
+    q_away = (1.0 / data["odds_away"]).where(valid_odds)
+    overround = q_home + q_away
+    p_home_market = (q_home / overround).where(overround > 0)
+    p_tip_market = pd.concat([p_home_market, 1.0 - p_home_market], axis=1).max(axis=1)
+
+    # Prefer the model's calibrated probability where a prediction exists
+    # (typically the current round); market-implied fills the rest.
+    p_tip_model = pd.Series(float("nan"), index=data.index, dtype="float64")
+    if (
+        model_probs is not None
+        and not model_probs.empty
+        and {"game_id", "p_home"}.issubset(model_probs.columns)
+    ):
+        mp = model_probs.copy()
+        mp["game_id"] = pd.to_numeric(mp["game_id"], errors="coerce")
+        mp["p_home"] = pd.to_numeric(mp["p_home"], errors="coerce").clip(1e-6, 1 - 1e-6)
+        mp = mp.dropna().drop_duplicates(subset=["game_id"])
+        merged = pd.to_numeric(data["game_id"], errors="coerce").map(
+            mp.set_index("game_id")["p_home"]
+        )
+        p_tip_model = pd.concat([merged, 1.0 - merged], axis=1).max(axis=1)
+
+    data["from_model"] = p_tip_model.notna()
+    data["p_tip_correct"] = p_tip_model.fillna(p_tip_market)
+    data = data[data["p_tip_correct"].notna()].copy()
     if data.empty:
         return pd.DataFrame(columns=output_columns)
 
-    data["q_home"] = 1.0 / data["odds_home"]
-    data["q_away"] = 1.0 / data["odds_away"]
-    data["overround"] = data["q_home"] + data["q_away"]
-    data = data[data["overround"] > 0].copy()
-    if data.empty:
-        return pd.DataFrame(columns=output_columns)
-
-    data["p_home"] = data["q_home"] / data["overround"]
-    data["p_away"] = data["q_away"] / data["overround"]
-    data["p_tip_correct"] = data[["p_home", "p_away"]].max(axis=1)
     data["match_variance"] = data["p_tip_correct"] * (1.0 - data["p_tip_correct"])
 
     round_metrics = (
         data.groupby(["round_id", "competition_year", "round_name"], dropna=False, as_index=False)
         .agg(
             matches_considered=("game_id", "count"),
+            model_prob_matches=("from_model", "sum"),
             mu=("p_tip_correct", "sum"),
             variance=("match_variance", "sum"),
             mean_tip_probability=("p_tip_correct", "mean"),
@@ -529,6 +548,7 @@ def compute_joker_round_metrics(fixtures):
         how="left",
     )
     round_metrics["matches_total"] = pd.to_numeric(round_metrics["matches_total"], errors="coerce").fillna(0).astype(int)
+    round_metrics["model_prob_matches"] = pd.to_numeric(round_metrics["model_prob_matches"], errors="coerce").fillna(0).astype(int)
     round_metrics["odds_coverage"] = round_metrics["matches_considered"] / round_metrics["matches_total"].replace(0, pd.NA)
     round_metrics["odds_coverage"] = pd.to_numeric(round_metrics["odds_coverage"], errors="coerce").fillna(0.0)
     round_metrics = round_metrics[round_metrics["odds_coverage"] >= min_round_coverage].copy()
@@ -554,6 +574,7 @@ def recommend_joker_round(
     current_round_name=None,
     strategy=None,
     strategy_context=None,
+    model_probs=None,
 ):
     strategy_context = strategy_context or {}
     strategy = _resolve_joker_strategy_value(strategy or strategy_context.get("strategy") or _resolve_joker_strategy())
@@ -563,7 +584,7 @@ def recommend_joker_round(
     min_round_coverage = _coerce_env_float("FOOTY_TIPPER_JOKER_MIN_ROUND_COVERAGE", 0.95, minimum=0.0)
     meta = _joker_objective_meta(strategy, risk_lambda)
 
-    round_metrics = compute_joker_round_metrics(fixtures)
+    round_metrics = compute_joker_round_metrics(fixtures, model_probs=model_probs)
     if round_metrics.empty:
         return _unavailable_joker_recommendation(
             "No upcoming rounds had valid head-to-head odds, so the joker model could not score rounds.",
@@ -666,6 +687,7 @@ def recommend_joker_round(
         "current_score": float(current[objective_column]),
         "current_mu": float(current["mu"]),
         "current_sigma": float(current["sigma"]),
+        "used_model_probs": int(current.get("model_prob_matches", 0) or 0),
         "recommended_round_id": int(recommended["round_id"]),
         "recommended_round_name": recommended_round_label,
         "recommended_score": float(recommended[objective_column]),
@@ -698,6 +720,25 @@ def get_joker_round_recommendation(db_path, project_root, predictions=None):
         if pd.notna(round_name_val):
             current_round_name = str(round_name_val)
 
+    # Score the current round with the model's own calibrated probabilities
+    # where predictions exist; future rounds remain market-implied.
+    model_probs = None
+    if (
+        predictions is not None
+        and not predictions.empty
+        and {"game_id", "home_team_win_prob", "home_team_lose_prob"}.issubset(predictions.columns)
+    ):
+        win = pd.to_numeric(predictions["home_team_win_prob"], errors="coerce")
+        lose = pd.to_numeric(predictions["home_team_lose_prob"], errors="coerce")
+        denom = win + lose
+        p_home = (win / denom).where(denom > 0)
+        model_probs = pd.DataFrame(
+            {
+                "game_id": pd.to_numeric(predictions["game_id"], errors="coerce"),
+                "p_home": p_home,
+            }
+        ).dropna()
+
     fixtures = get_joker_round_candidates(db_path, project_root)
     recommendation = recommend_joker_round(
         fixtures,
@@ -705,6 +746,7 @@ def get_joker_round_recommendation(db_path, project_root, predictions=None):
         current_round_name=current_round_name,
         strategy=strategy_context.get("strategy"),
         strategy_context=strategy_context,
+        model_probs=model_probs,
     )
     competition_year = _infer_joker_competition_year(
         predictions=predictions,

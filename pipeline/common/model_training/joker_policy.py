@@ -164,9 +164,9 @@ def _simulate_round_win_probabilities(
     crowd_mean_penalty: float,
     crowd_skill_sigma: float,
     rng_seed: int,
-) -> dict[int, float]:
+) -> tuple[dict[int, float], float]:
     if metrics.empty:
-        return {}
+        return {}, float("nan")
 
     m = len(metrics)
     round_ids = metrics["round_id"].astype(int).to_numpy()
@@ -197,13 +197,20 @@ def _simulate_round_win_probabilities(
 
     user_base_totals = user_round_scores.sum(axis=1)
 
+    # Every candidate round is scored against the same simulated draws, so
+    # strategy comparisons are paired: only the chosen round differs.
     results = {}
     for idx, round_id in enumerate(round_ids):
         user_total = user_base_totals + user_round_scores[:, idx] - float(points_gap)
         wins = (user_total > field_best).astype(float)
         ties = (user_total == field_best).astype(float) * 0.5
         results[int(round_id)] = float((wins + ties).mean())
-    return results
+
+    no_joker_total = user_base_totals - float(points_gap)
+    no_joker_wins = (no_joker_total > field_best).astype(float)
+    no_joker_ties = (no_joker_total == field_best).astype(float) * 0.5
+    win_prob_no_joker = float((no_joker_wins + no_joker_ties).mean())
+    return results, win_prob_no_joker
 
 
 def run_joker_policy_backtest(training_data: pd.DataFrame) -> dict:
@@ -212,7 +219,7 @@ def run_joker_policy_backtest(training_data: pd.DataFrame) -> dict:
     min_matches_per_round = _coerce_env_int("FOOTY_TIPPER_JOKER_MIN_MATCHES_PER_ROUND", 4, minimum=2)
     min_rounds_per_season = _coerce_env_int("FOOTY_TIPPER_JOKER_MIN_ROUNDS_PER_SEASON", 6, minimum=2)
 
-    n_simulations = _coerce_env_int("FOOTY_TIPPER_JOKER_BACKTEST_SIMULATIONS", 2500, minimum=500)
+    n_simulations = _coerce_env_int("FOOTY_TIPPER_JOKER_BACKTEST_SIMULATIONS", 20000, minimum=500)
     field_size = _coerce_env_int("FOOTY_TIPPER_JOKER_BACKTEST_FIELD_SIZE", 75, minimum=10)
     crowd_mean_penalty = _coerce_env_float("FOOTY_TIPPER_JOKER_BACKTEST_CROWD_MEAN_PENALTY", 0.05, minimum=0.0)
     crowd_skill_sigma = _coerce_env_float("FOOTY_TIPPER_JOKER_BACKTEST_CROWD_SKILL_SIGMA", 0.12, minimum=0.0)
@@ -240,7 +247,7 @@ def run_joker_policy_backtest(training_data: pd.DataFrame) -> dict:
 
     if rounds.empty:
         return {
-            "version": 1,
+            "version": 2,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "source": "training_backtest_market_odds",
             "status": "insufficient_data",
@@ -277,7 +284,7 @@ def run_joker_policy_backtest(training_data: pd.DataFrame) -> dict:
         season = _safe_int(season_key)
         for scenario_name, points_gap in scenarios.items():
             seed_offset = int(seed + (season * 37) + scenario_seed_offset.get(scenario_name, 0))
-            win_prob_by_round = _simulate_round_win_probabilities(
+            win_prob_by_round, win_prob_no_joker = _simulate_round_win_probabilities(
                 season_metrics,
                 points_gap=points_gap,
                 n_simulations=n_simulations,
@@ -297,13 +304,14 @@ def run_joker_policy_backtest(training_data: pd.DataFrame) -> dict:
                         "strategy": strategy,
                         "chosen_round_id": int(chosen_round),
                         "win_prob": float(win_prob_by_round.get(chosen_round, np.nan)),
+                        "win_prob_no_joker": float(win_prob_no_joker),
                     }
                 )
 
     results_df = pd.DataFrame.from_records(season_records)
     if results_df.empty:
         return {
-            "version": 1,
+            "version": 2,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "source": "training_backtest_market_odds",
             "status": "insufficient_data",
@@ -335,24 +343,40 @@ def run_joker_policy_backtest(training_data: pd.DataFrame) -> dict:
         .agg(
             mean_win_prob=("win_prob", "mean"),
             median_win_prob=("win_prob", "median"),
+            mean_win_prob_no_joker=("win_prob_no_joker", "mean"),
             season_count=("competition_year", "nunique"),
         )
         .sort_values(["scenario", "mean_win_prob"], ascending=[True, False])
         .reset_index(drop=True)
     )
+    scenario_summary["mean_joker_lift"] = (
+        scenario_summary["mean_win_prob"] - scenario_summary["mean_win_prob_no_joker"]
+    )
 
+    # Strategies that differ by less than the tie epsilon are within Monte
+    # Carlo noise; prefer plain expected-points in that case rather than
+    # letting the 4th decimal pick the policy.
+    tie_epsilon = _coerce_env_float("FOOTY_TIPPER_JOKER_TIE_EPSILON", 0.002, minimum=0.0)
     recommended_by_scenario = {}
     for scenario_name in scenarios.keys():
         subset = scenario_summary[scenario_summary["scenario"] == scenario_name]
         if subset.empty:
             recommended_by_scenario[scenario_name] = "points"
             continue
-        recommended_by_scenario[scenario_name] = _strategy_alias(str(subset.iloc[0]["strategy"]))
+        best = subset.iloc[0]
+        points_rows = subset[subset["strategy"] == "points"]
+        if (
+            not points_rows.empty
+            and float(best["mean_win_prob"]) - float(points_rows.iloc[0]["mean_win_prob"]) <= tie_epsilon
+        ):
+            recommended_by_scenario[scenario_name] = "points"
+        else:
+            recommended_by_scenario[scenario_name] = _strategy_alias(str(best["strategy"]))
 
     default_strategy = _strategy_alias(recommended_by_scenario.get("neutral", "points"))
 
     return {
-        "version": 1,
+        "version": 2,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "source": "training_backtest_market_odds",
         "status": "ok",
@@ -372,6 +396,7 @@ def run_joker_policy_backtest(training_data: pd.DataFrame) -> dict:
             "crowd_mean_penalty": float(crowd_mean_penalty),
             "crowd_skill_sigma": float(crowd_skill_sigma),
             "seed": int(seed),
+            "tie_epsilon": float(tie_epsilon),
             "scenario_points_gap": scenarios,
         },
         "seasons_evaluated": int(results_df["competition_year"].nunique()),

@@ -145,6 +145,38 @@ class JokerRoundTests(unittest.TestCase):
         self.assertFalse(recommendation["should_use_this_round"])
         self.assertIn("HOLD", recommendation["headline"])
 
+    def test_model_probs_override_market_and_flip_ranking(self):
+        # Market rates Round 1 higher (short favourites) than Round 2
+        # (coin-flips), but the model is very confident about Round 2.
+        model_probs = pd.DataFrame(
+            [
+                {"game_id": 3, "p_home": 0.90},
+                {"game_id": 4, "p_home": 0.12},
+            ]
+        )
+        with mock.patch.dict(
+            os.environ,
+            {"FOOTY_TIPPER_JOKER_STRATEGY": "points"},
+            clear=False,
+        ):
+            without_model = sf.recommend_joker_round(
+                self.fixtures,
+                current_round_id=2,
+                current_round_name="Round 2",
+            )
+            with_model = sf.recommend_joker_round(
+                self.fixtures,
+                current_round_id=2,
+                current_round_name="Round 2",
+                model_probs=model_probs,
+            )
+
+        self.assertEqual(without_model["recommended_round_id"], 1)
+        self.assertEqual(with_model["recommended_round_id"], 2)
+        self.assertTrue(with_model["should_use_this_round"])
+        self.assertEqual(with_model["used_model_probs"], 2)
+        self.assertEqual(without_model["used_model_probs"], 0)
+
     def test_email_payload_includes_joker_call_section(self):
         predictions = pd.DataFrame(
             [

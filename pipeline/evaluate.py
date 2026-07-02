@@ -124,15 +124,30 @@ def _evaluate_season(
         y=y_full[prior_mask],
         groups=year_col[prior_mask],
     )
-    stacked_prior = stacker.predict(
-        tier_a_cond[prior_mask],
-        tier_b_cond[prior_mask],
-        market_cond[prior_mask],
-        odds_missing[prior_mask],
+    calibrator = calib.BetaCalibrator()
+    # Mirror train.py: fit the calibrator on leave-one-season-out stacker
+    # predictions within the prior seasons, falling back to in-sample.
+    loso_prior = calib.loso_stacker_predictions(
+        tier_a=tier_a_cond[prior_mask],
+        tier_b=tier_b_cond[prior_mask],
+        market=market_cond[prior_mask],
+        odds_missing=odds_missing[prior_mask],
+        y=y_full[prior_mask],
+        groups=year_col[prior_mask],
         tier_c=tier_c_cond_oof[prior_mask],
     )
-    calibrator = calib.BetaCalibrator()
-    calibrator.fit(stacked_prior, y_full[prior_mask])
+    if loso_prior is not None:
+        loso_rows = np.isfinite(loso_prior)
+        calibrator.fit(loso_prior[loso_rows], y_full[prior_mask][loso_rows])
+    else:
+        stacked_prior = stacker.predict(
+            tier_a_cond[prior_mask],
+            tier_b_cond[prior_mask],
+            market_cond[prior_mask],
+            odds_missing[prior_mask],
+            tier_c=tier_c_cond_oof[prior_mask],
+        )
+        calibrator.fit(stacked_prior, y_full[prior_mask])
 
     stacked_test = stacker.predict(
         tier_a_cond[test_mask],
