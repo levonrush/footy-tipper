@@ -14,7 +14,7 @@ except Exception:
         return False
 
 
-DEFAULT_TEST_EMAIL = "levon.rush@gmail.com"
+DEFAULT_TEST_EMAIL = "levon_rush@hotmail.com"
 REQUIRED_MODEL_FILES = ("home_model.pkl", "away_model.pkl", "model_manifest.json")
 CLI_START = time.monotonic()
 DEFAULT_LINEUP_BACKFILL_MAX_ARTICLES = 2000
@@ -63,7 +63,7 @@ def _run_command(cmd, env, cwd=None):
 
 def _build_env(args):
     env = os.environ.copy()
-    env["R_LIBS_USER"] = os.path.expanduser("~/R/library")
+    env.setdefault("R_LIBS_USER", os.path.expanduser("~/R/library"))
     if getattr(args, "start_year", None) is not None:
         env["FOOTY_TIPPER_START_YEAR"] = str(args.start_year)
     if getattr(args, "end_year", None) is not None:
@@ -740,6 +740,19 @@ def build_parser():
         help="Skip R data prep and evaluate from existing SQLite tables.",
     )
 
+    state = subparsers.add_parser(
+        "state",
+        help="Sync DB/model state with Google Drive (used by scheduled GitHub Actions runs).",
+    )
+    state.add_argument(
+        "action",
+        choices=("push", "pull", "gate", "schedule"),
+        help=(
+            "push: upload DB+models+schedule.json; pull: download DB+models; "
+            "gate: decide send/refresh/skip from schedule.json; schedule: print local schedule"
+        ),
+    )
+
     return parser
 
 
@@ -805,6 +818,10 @@ def main(argv=None):
         eval_env.setdefault("FOOTY_TIPPER_PREP_MODE", "train")
         _run_evaluate(eval_env, skip_prep=args.skip_prep, root=root)
         return 0
+
+    if args.command == "state":
+        from pipeline.ops import state_sync
+        return state_sync.main([args.action])
 
     if args.command == "send":
         skip_drive = args.skip_drive or args.test

@@ -1,6 +1,6 @@
 # Docker Compose has no built-in scheduler: these services define how to run
-# the jobs in a container, not when. Scheduling lives in launchd on the host
-# (see ops/install-launchd.sh and docs/operations-reliability.md).
+# the jobs in a container, not when. Scheduling lives in GitHub Actions
+# (see .github/workflows/ and docs/operations-reliability.md section 6).
 services:
   train-job:
     build: .

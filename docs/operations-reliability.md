@@ -63,23 +63,55 @@ Single-use reliability:
 - test sends read this state but do not write it
 - production sends write only after successful production email send
 
-## 6) Scheduling (launchd)
+## 6) Scheduling (GitHub Actions)
 
-Scheduling runs on the host Mac via launchd (Docker Compose has no scheduler;
-the old compose cron labels did nothing).
+Scheduling runs in GitHub Actions on the public repo (free minutes, no Mac
+involved). Three workflows in `.github/workflows/`:
+
+- `build-image.yml`: rebuilds `ghcr.io/levonrush/footy-tipper:latest` when
+  Dockerfile / requirements.txt / install.R change on main.
+- `predict.yml`: hourly gate. A tiny job downloads `state/schedule.json`
+  from Drive and decides: `send` when now is inside the window from 6h before
+  the first kickoff of the next unsent round until 12h after kickoff (the
+  grace gives an hourly retry loop; the `email_sends` ledger stops double
+  emails), `refresh` (predict `--skip-send`) when schedule.json is over 8
+  days old, otherwise `skip`. Non-skip decisions run the full predict job in
+  the pipeline container: pull state from Drive, predict, push state,
+  publish site.
+- `train.yml`: Monday 19:00 UTC (Tuesday 5am AEST / 6am AEDT): pull state,
+  train, push state. Tuning is bounded by the repo variable
+  `FOOTY_TIPPER_TUNE_ITER`; a timeout leaves the previous models in Drive
+  untouched.
+
+State (the SQLite DB, models/, and schedule.json) lives in a `state/` folder
+under the Drive `FOLDER_ID`, synced by `footy-tipper state pull|push`
+(`pipeline/ops/state_sync.py`). Seed it once from a machine that has the DB
+and models: `footy-tipper state push`.
+
+Manual triggers (predict defaults to `mode=test`, which emails only
+`FOOTY_TIPPER_TEST_EMAIL` and never writes the send ledger):
 
 ```bash
-./ops/install-launchd.sh            # install/refresh both jobs
-./ops/install-launchd.sh uninstall  # remove them
-launchctl list | grep footytipper   # check they're loaded
-launchctl kickstart gui/$UID/com.footytipper.predict  # run one now
+gh workflow run predict.yml -f mode=test     # safe test email to yourself
+gh workflow run predict.yml -f mode=live     # real production send
+gh workflow run predict.yml -f mode=refresh  # no email, refresh data/state
+gh workflow run train.yml                    # retrain now
+gh run watch                                 # follow the latest run
 ```
 
-- `com.footytipper.train` — Tuesday 06:00 local, runs `footy-tipper train`
-- `com.footytipper.predict` — Thursday 15:00 local, runs `footy-tipper predict`
-- Logs: `logs/train.log`, `logs/predict.log`
-- launchd skips a trigger if the Mac is asleep at that moment; keep it awake
-  around run times (or plug it in with Energy Saver set accordingly).
+Or on the website (works from a phone): repo, Actions tab, pick the
+workflow, "Run workflow" button.
+
+Secrets are repo Actions secrets: `SECRETS_ENV` (entire secrets.env file) and
+`SERVICE_ACCOUNT_JSON` (service-account-token.json). Rotate with
+`gh secret set SECRETS_ENV < secrets.env`. The repo is public, so never run
+`--dry-run` in Actions (it prints the full email body into public logs); the
+workflows mask every secrets.env value with `::add-mask::`.
+
+Watch runs in the Actions tab, not `logs/*.log` (those were launchd-era).
+The hourly gate re-enables both scheduled workflows via `gh workflow enable`,
+so GitHub's 60-day inactivity auto-disable cannot silently stop them over the
+offseason.
 
 ## 7) Send Idempotency, Backups, and the Site
 

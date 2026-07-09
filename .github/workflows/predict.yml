@@ -1,0 +1,130 @@
+name: Predict
+
+# Hourly gate: reads schedule.json from Drive and runs the full predict job
+# once we are inside the 6-hour window before the first kickoff of the next
+# unsent round. Manual dispatch bypasses the gate (mode=test emails only
+# FOOTY_TIPPER_TEST_EMAIL and never touches the production send ledger).
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "test = one email to the test address; live = real production send; refresh = no email, just refresh data/state"
+        type: choice
+        default: test
+        options: [test, live, refresh]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      mode: ${{ steps.decide.outputs.mode }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install gate dependencies
+        run: pip install --quiet google-api-python-client google-auth
+
+      - name: Materialise secrets
+        env:
+          SECRETS_ENV: ${{ secrets.SECRETS_ENV }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        run: |
+          printf '%s\n' "$SECRETS_ENV" > secrets.env
+          printf '%s\n' "$SERVICE_ACCOUNT_JSON" > service-account-token.json
+          while IFS= read -r line; do
+            case "$line" in ''|\#*) continue ;; esac
+            case "$line" in *=*) ;; *) continue ;; esac
+            value="${line#*=}"
+            value="${value%\"}"; value="${value#\"}"
+            [ -n "$value" ] && echo "::add-mask::$value"
+          done < secrets.env
+
+      - name: Gate decision
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+            echo "reason=manual dispatch" >> "$GITHUB_OUTPUT"
+          else
+            python -m pipeline.ops.state_sync gate
+          fi
+
+      - name: Keep scheduled workflows enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow enable predict.yml --repo "$GITHUB_REPOSITORY" || true
+          gh workflow enable train.yml --repo "$GITHUB_REPOSITORY" || true
+
+  predict:
+    needs: gate
+    if: needs.gate.outputs.mode != 'skip'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      packages: read
+    concurrency:
+      group: footy-tipper-state
+      cancel-in-progress: false
+    container:
+      image: ghcr.io/${{ github.repository }}:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Materialise secrets
+        env:
+          SECRETS_ENV: ${{ secrets.SECRETS_ENV }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        run: |
+          printf '%s\n' "$SECRETS_ENV" > secrets.env
+          printf '%s\n' "$SERVICE_ACCOUNT_JSON" > service-account-token.json
+          while IFS= read -r line; do
+            case "$line" in ''|\#*) continue ;; esac
+            case "$line" in *=*) ;; *) continue ;; esac
+            value="${line#*=}"
+            value="${value%\"}"; value="${value#\"}"
+            [ -n "$value" ] && echo "::add-mask::$value"
+          done < secrets.env
+
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global user.name "footy-tipper-bot"
+          git config --global user.email "actions@users.noreply.github.com"
+
+      - name: Pull state from Drive
+        run: python -m pipeline.ops.state_sync pull
+
+      - name: Run predict (${{ needs.gate.outputs.mode }})
+        env:
+          RUN_MODE: ${{ needs.gate.outputs.mode }}
+        run: |
+          echo "Gate reason: ${{ needs.gate.outputs.reason }}"
+          case "$RUN_MODE" in
+            test)    python -m pipeline.cli predict --test ;;
+            refresh) python -m pipeline.cli predict --skip-send ;;
+            *)       python -m pipeline.cli predict ;;
+          esac
+
+      - name: Push state to Drive
+        run: python -m pipeline.ops.state_sync push
+
+      - name: Publish site
+        continue-on-error: true
+        run: python -m pipeline.cli site --publish
