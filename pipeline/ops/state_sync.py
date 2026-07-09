@@ -319,10 +319,12 @@ def pull_state(root) -> int:
 
         db_gz = tmp / DB_ARCHIVE
         download_to(service, db_id, db_gz)
-        db_tmp = tmp / "db.sqlite"
+        # Decompress beside the destination: os.replace must not cross
+        # filesystems (container /tmp vs mounted workspace).
+        db_path = data_dir / "footy-tipper-db.sqlite"
+        db_tmp = data_dir / "footy-tipper-db.sqlite.partial"
         with gzip.open(db_gz, "rb") as src, open(db_tmp, "wb") as dst:
             shutil.copyfileobj(src, dst)
-        db_path = data_dir / "footy-tipper-db.sqlite"
         os.replace(db_tmp, db_path)
         _log(f"Restored DB to {db_path} ({db_path.stat().st_size / 1e6:.1f} MB).")
 
