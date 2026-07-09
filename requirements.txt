@@ -85,6 +85,7 @@ langchain==0.0.228
 langchainplus-sdk==0.0.20
 lightgbm==4.0.0
 llvmlite==0.40.1
+lxml==6.0.2
 MarkupSafe==2.1.5
 marshmallow==3.19.0
 marshmallow-enum==1.5.1
