@@ -16,6 +16,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Compile Python sources
         run: python -m compileall -q pipeline
@@ -24,6 +25,9 @@ jobs:
         run: |
           pip install --quiet ruff
           ruff check --select E9,F63,F7,F82 pipeline tests
+
+      - name: Install dependencies
+        run: pip install --quiet -r requirements.txt
 
       - name: Run smoke tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
