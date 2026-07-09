@@ -64,6 +64,11 @@ def _run_command(cmd, env, cwd=None):
 def _build_env(args):
     env = os.environ.copy()
     env.setdefault("R_LIBS_USER", os.path.expanduser("~/R/library"))
+    # Child scripts (lineups.py, inference.py, train.py) import the `pipeline`
+    # package; make that work from a bare checkout with no editable install.
+    root = str(_project_root())
+    existing_path = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = root if not existing_path else root + os.pathsep + existing_path
     if getattr(args, "start_year", None) is not None:
         env["FOOTY_TIPPER_START_YEAR"] = str(args.start_year)
     if getattr(args, "end_year", None) is not None:
