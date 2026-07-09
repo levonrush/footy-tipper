@@ -68,7 +68,7 @@ Optional:
 ## 6) Smoke Checks
 
 ```bash
-python -m compileall -q pipeline footy-tipper-train.py footy-tipper-predict.py
+python -m compileall -q pipeline
 Rscript -e "parse(file='pipeline/data-prep.R')"
 python -m unittest discover -s tests -p 'test_*.py' -v
 ```

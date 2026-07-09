@@ -157,6 +157,70 @@ def compute_tier_a_baseline_features(df: pd.DataFrame, config: TierABaselineConf
     return pd.DataFrame(rows)
 
 
+DEFAULT_TUNE_ALPHAS = (0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40)
+DEFAULT_TUNE_CARRYOVERS = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+
+
+def tune_baseline_hyperparams(
+    df: pd.DataFrame,
+    alphas=DEFAULT_TUNE_ALPHAS,
+    carryovers=DEFAULT_TUNE_CARRYOVERS,
+    config_template: TierABaselineConfig | None = None,
+) -> tuple[TierABaselineConfig, pd.DataFrame]:
+    """Grid-search alpha/carryover on sequential conditional-win-prob log-loss.
+
+    The ratings are updated strictly after each Final, so every prediction is
+    out-of-sample by construction; the first observed season is excluded from
+    scoring as ratings warm-up. Returns (best_config, results_frame).
+    """
+    template = config_template or default_baseline_config_from_env()
+    base_cols = df[
+        ["game_id", "competition_year", "game_state_name", "team_final_score_home", "team_final_score_away"]
+    ].copy()
+
+    results = []
+    best_cfg, best_ll = None, np.inf
+    for alpha in alphas:
+        for carryover in carryovers:
+            cfg = TierABaselineConfig(
+                alpha=float(alpha),
+                carryover=float(carryover),
+                min_rate=template.min_rate,
+                max_rate=template.max_rate,
+                base_home=template.base_home,
+                base_away=template.base_away,
+            )
+            feats = compute_tier_a_baseline_features(df, cfg)
+            merged = base_cols.merge(feats, on="game_id", how="inner")
+            finals = merged[merged["game_state_name"] == "Final"]
+            years = pd.to_numeric(finals["competition_year"], errors="coerce")
+            score_home = pd.to_numeric(finals["team_final_score_home"], errors="coerce")
+            score_away = pd.to_numeric(finals["team_final_score_away"], errors="coerce")
+            scored = (
+                (years > years.min())
+                & score_home.notna()
+                & score_away.notna()
+                & (score_home != score_away)
+            )
+            if scored.sum() < 100:
+                continue
+            y = (score_home[scored] > score_away[scored]).to_numpy(dtype=float)
+            p = np.clip(
+                pd.to_numeric(
+                    finals.loc[scored, "baseline_home_win_prob_conditional"], errors="coerce"
+                ).fillna(0.5).to_numpy(dtype=float),
+                1e-6,
+                1 - 1e-6,
+            )
+            ll = float(-np.mean(y * np.log(p) + (1.0 - y) * np.log(1.0 - p)))
+            acc = float(np.mean((p > 0.5) == (y > 0.5)))
+            results.append({"alpha": float(alpha), "carryover": float(carryover), "log_loss": ll, "accuracy": acc, "games": int(scored.sum())})
+            if ll < best_ll:
+                best_cfg, best_ll = cfg, ll
+
+    return best_cfg or template, pd.DataFrame(results)
+
+
 def baseline_config_to_dict(config: TierABaselineConfig, base_home: float, base_away: float) -> dict:
     return {
         "alpha": float(config.alpha),

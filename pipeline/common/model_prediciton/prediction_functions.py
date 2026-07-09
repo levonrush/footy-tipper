@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter
 
 import dill as pickle
 import numpy as np
 import pandas as pd
 from scipy.stats import poisson, skellam
+
+# Fixed base so every run over the same fixtures produces the same tips.
+GAME_SEED_BASE = 20100308
+
+
+def rng_for_game(game_id, salt=0):
+    """Deterministic per-game RNG so re-runs never flip a tip."""
+    try:
+        seed = GAME_SEED_BASE + int(game_id) * 1009 + int(salt)
+    except Exception:
+        seed = GAME_SEED_BASE + int(salt)
+    return np.random.default_rng(seed)
 
 
 def get_inference_data(db_path, sql_file):
@@ -42,6 +55,17 @@ def compute_outcome_probs_independent(mu_home, mu_away):
 def conditional_home_win_prob(mu_home, mu_away):
     home_win, away_win, _ = compute_outcome_probs_independent(mu_home, mu_away)
     non_draw = max(1e-9, home_win + away_win)
+    return home_win / non_draw
+
+
+def conditional_home_win_prob_vec(mu_home, mu_away):
+    """Vectorised p(home win | non-draw) under independent Poisson scores."""
+    mu_home = np.maximum(np.asarray(mu_home, dtype=float), 1e-9)
+    mu_away = np.maximum(np.asarray(mu_away, dtype=float), 1e-9)
+    draw_prob = skellam.pmf(0, mu_home, mu_away)
+    home_win = 1.0 - skellam.cdf(0, mu_home, mu_away)
+    away_win = np.maximum(0.0, 1.0 - home_win - draw_prob)
+    non_draw = np.maximum(1e-9, home_win + away_win)
     return home_win / non_draw
 
 
@@ -119,14 +143,40 @@ def derive_market_home_probability(df: pd.DataFrame) -> np.ndarray:
     return np.clip(pd.to_numeric(p, errors="coerce").fillna(0.5).to_numpy(dtype=float), 1e-6, 1 - 1e-6)
 
 
-def simulate_game(home_score_avg, away_score_avg, n_simulations=100000, lambda3=0.0, rng=None):
-    """Simulate outcomes and scoreline under independent or bivariate Poisson."""
+def simulate_game(
+    home_score_avg,
+    away_score_avg,
+    n_simulations=100000,
+    lambda3=0.0,
+    rng=None,
+    calibrated_cond=None,
+    dispersion_home=None,
+    dispersion_away=None,
+):
+    """Simulate outcomes and scoreline under Poisson-family score models.
+
+    Rugby-league points arrive in 2/4/6 lumps, so raw Poisson understates the
+    margin variance; when a per-side negative-binomial dispersion `k` is given
+    (gamma-mixed Poisson: var = mu + mu^2/k) the simulation uses it instead.
+    The bivariate shared component (`lambda3 > 0`) takes precedence when set.
+
+    When `calibrated_cond` (calibrated p(home win | non-draw)) is provided,
+    the reported margin and scoreline are importance-reweighted so they agree
+    with the calibrated probability instead of the raw simulation, and the
+    scoreline is constrained to the side the calibrated probability tips.
+    """
     if rng is None:
         rng = np.random.default_rng()
 
     home_score_avg = float(max(home_score_avg, 1e-9))
     away_score_avg = float(max(away_score_avg, 1e-9))
     lambda3 = float(max(lambda3, 0.0))
+
+    def _draw_scores(mu, dispersion):
+        if dispersion is not None and np.isfinite(dispersion) and dispersion > 0:
+            lam = rng.gamma(shape=float(dispersion), scale=mu / float(dispersion), size=n_simulations)
+            return rng.poisson(np.maximum(lam, 1e-12))
+        return rng.poisson(mu, size=n_simulations)
 
     if lambda3 > 0:
         shared = min(lambda3, 0.95 * min(home_score_avg, away_score_avg))
@@ -136,12 +186,13 @@ def simulate_game(home_score_avg, away_score_avg, n_simulations=100000, lambda3=
         home_goals_sim = rng.poisson(lam1, size=n_simulations) + shared_sim
         away_goals_sim = rng.poisson(lam2, size=n_simulations) + shared_sim
     else:
-        home_goals_sim = rng.poisson(home_score_avg, size=n_simulations)
-        away_goals_sim = rng.poisson(away_score_avg, size=n_simulations)
+        home_goals_sim = _draw_scores(home_score_avg, dispersion_home)
+        away_goals_sim = _draw_scores(away_score_avg, dispersion_away)
 
-    home_wins = (home_goals_sim > away_goals_sim).sum()
-    away_wins = (home_goals_sim < away_goals_sim).sum()
-    draws = (home_goals_sim == away_goals_sim).sum()
+    margins = home_goals_sim - away_goals_sim
+    home_wins = int((margins > 0).sum())
+    away_wins = int((margins < 0).sum())
+    draws = int((margins == 0).sum())
 
     total_games = float(n_simulations)
     probabilities = {
@@ -150,30 +201,68 @@ def simulate_game(home_score_avg, away_score_avg, n_simulations=100000, lambda3=
         "draw_prob": draws / total_games,
     }
 
-    scorelines = list(zip(home_goals_sim, away_goals_sim))
-    predicted_scoreline = max(set(scorelines), key=scorelines.count)
+    if calibrated_cond is None or not np.isfinite(calibrated_cond):
+        # Median margin is a far more stable point estimate than the margin of
+        # the modal exact scoreline.
+        probabilities["median_margin"] = int(round(float(np.median(margins))))
+        predicted_scoreline = Counter(zip(home_goals_sim, away_goals_sim)).most_common(1)[0][0]
+        return probabilities, predicted_scoreline
+
+    # Reweight each simulated game so home wins carry calibrated/raw mass and
+    # away wins the complement; the margin is then the weighted median.
+    cal = float(np.clip(calibrated_cond, 1e-6, 1 - 1e-6))
+    raw_cond = np.clip(home_wins / max(1, home_wins + away_wins), 1e-6, 1 - 1e-6)
+    weights = np.ones(n_simulations)
+    weights[margins > 0] = cal / raw_cond
+    weights[margins < 0] = (1.0 - cal) / (1.0 - raw_cond)
+
+    order = np.argsort(margins, kind="stable")
+    cum_weight = np.cumsum(weights[order])
+    median_idx = int(np.searchsorted(cum_weight, 0.5 * cum_weight[-1]))
+    probabilities["median_margin"] = int(margins[order][median_idx])
+
+    # Modal scoreline among simulations consistent with the tipped side
+    # (weights are uniform within a side, so the plain mode works there).
+    # Strict > matches the caller's tie-break: cal == 0.5 tips the away side.
+    tip_mask = margins > 0 if cal > 0.5 else margins < 0
+    if tip_mask.any():
+        predicted_scoreline = Counter(
+            zip(home_goals_sim[tip_mask], away_goals_sim[tip_mask])
+        ).most_common(1)[0][0]
+    else:
+        # Calibration flipped a side the simulation never produced: mirror the
+        # modal scoreline so the tipped team is in front.
+        modal = Counter(zip(home_goals_sim, away_goals_sim)).most_common(1)[0][0]
+        ordered = (max(modal), min(modal)) if cal > 0.5 else (min(modal), max(modal))
+        predicted_scoreline = ordered if ordered[0] != ordered[1] else (
+            (ordered[0] + 1, ordered[1]) if cal > 0.5 else (ordered[0], ordered[1] + 1)
+        )
 
     return probabilities, predicted_scoreline
 
 
 def calculate_bayes_factor(probabilities):
-    home_win_prob = probabilities["home_win_prob"]
-    away_win_prob = probabilities["away_win_prob"]
-    return home_win_prob / away_win_prob if away_win_prob != 0 else np.inf
+    """Posterior odds in favour of the tipped side, clipped to stay finite.
+
+    Historically this was home/away (so away tips read as "negative evidence"
+    and a zero away prob produced inf); it is now symmetric in the tip.
+    """
+    home = max(float(probabilities["home_win_prob"]), 1e-9)
+    away = max(float(probabilities["away_win_prob"]), 1e-9)
+    return float(min(max(home, away) / min(home, away), 999.0))
 
 
 def map_bayes_factor_to_evidence(bayes_factor):
-    if bayes_factor < 1:
-        return "Negative evidence"
-    if 1 <= bayes_factor < 3:
-        return "Anecdotal evidence"
-    if 3 <= bayes_factor < 10:
-        return "Moderate evidence"
-    if 10 <= bayes_factor < 30:
-        return "Strong evidence"
-    if 30 <= bayes_factor < 100:
-        return "Very strong evidence"
-    return "Decisive evidence"
+    """Plain confidence wording for the tipped side's posterior odds."""
+    if bayes_factor < 1.5:
+        return "Coin flip"
+    if bayes_factor < 2.5:
+        return "Slight lean"
+    if bayes_factor < 4.0:
+        return "Confident"
+    if bayes_factor < 9.0:
+        return "Strong"
+    return "Near lock"
 
 
 def predict_match_outcome_and_scoreline_with_bayes(
@@ -186,6 +275,9 @@ def predict_match_outcome_and_scoreline_with_bayes(
     mu_away=None,
     lambda3=0.0,
     calibrated_home_win_conditional=None,
+    margin_override=None,
+    dispersion_home=None,
+    dispersion_away=None,
 ):
     """
     Predict match outcomes and scorelines.
@@ -195,7 +287,9 @@ def predict_match_outcome_and_scoreline_with_bayes(
 
     Enhanced mode:
     - pass inference_data with precomputed mu_home/mu_away arrays and optional
-      calibrated_home_win_conditional.
+      calibrated_home_win_conditional. `margin_override` (per-game floats,
+      NaN = no override) replaces the simulated margin — used by the
+      market-line margin blend — and is still sign-clamped to the tip.
     """
     if inference_data is None:
         raise ValueError("inference_data is required.")
@@ -232,20 +326,31 @@ def predict_match_outcome_and_scoreline_with_bayes(
         calibrated_home_win_conditional = np.full(len(working), np.nan)
     calibrated_home_win_conditional = np.asarray(calibrated_home_win_conditional, dtype=float)
 
-    rng = np.random.default_rng()
+    if margin_override is None:
+        margin_override = np.full(len(working), np.nan)
+    margin_override = np.asarray(margin_override, dtype=float)
+
     results = []
     for idx, row in working.iterrows():
+        calibrated_cond = calibrated_home_win_conditional[idx]
+        if not np.isnan(calibrated_cond):
+            calibrated_cond = float(np.clip(calibrated_cond, 1e-6, 1 - 1e-6))
+
+        # Per-game deterministic RNG: identical inputs always yield the same
+        # tip, scoreline, and margin across re-runs.
+        rng = rng_for_game(row.get("game_id"), salt=1)
         probabilities, predicted_scoreline = simulate_game(
             row["home_goals_avg"],
             row["away_goals_avg"],
             n_simulations=n_simulations,
             lambda3=lambda3,
             rng=rng,
+            calibrated_cond=None if np.isnan(calibrated_cond) else calibrated_cond,
+            dispersion_home=dispersion_home,
+            dispersion_away=dispersion_away,
         )
 
-        calibrated_cond = calibrated_home_win_conditional[idx]
         if not np.isnan(calibrated_cond):
-            calibrated_cond = float(np.clip(calibrated_cond, 1e-6, 1 - 1e-6))
             non_draw = max(0.0, 1.0 - probabilities["draw_prob"])
             probabilities["home_win_prob"] = calibrated_cond * non_draw
             probabilities["away_win_prob"] = (1.0 - calibrated_cond) * non_draw
@@ -253,6 +358,19 @@ def predict_match_outcome_and_scoreline_with_bayes(
         home_team_result = "Win" if probabilities["home_win_prob"] > probabilities["away_win_prob"] else "Loss"
         bayes_factor = calculate_bayes_factor(probabilities)
         evidence_strength = map_bayes_factor_to_evidence(bayes_factor)
+
+        # The tipped winner must be in front on margin: a reweighted median can
+        # still land on the wrong side of zero for near-coin-flip games.
+        if np.isfinite(margin_override[idx]):
+            predicted_margin = int(round(float(margin_override[idx])))
+        else:
+            predicted_margin = probabilities.get(
+                "median_margin", predicted_scoreline[0] - predicted_scoreline[1]
+            )
+        if home_team_result == "Win" and predicted_margin <= 0:
+            predicted_margin = 1
+        elif home_team_result == "Loss" and predicted_margin >= 0:
+            predicted_margin = -1
 
         results.append(
             {
@@ -262,7 +380,7 @@ def predict_match_outcome_and_scoreline_with_bayes(
                 "draw_prob": probabilities["draw_prob"],
                 "predicted_home_score": predicted_scoreline[0],
                 "predicted_away_score": predicted_scoreline[1],
-                "predicted_margin": predicted_scoreline[0] - predicted_scoreline[1],
+                "predicted_margin": predicted_margin,
                 "home_team_result": home_team_result,
                 "bayes_factor": bayes_factor,
                 "evidence_strength": evidence_strength,

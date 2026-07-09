@@ -11,8 +11,7 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `footy-tipper` (root executable) -> `pipeline/cli.py`
   - Preferred operator interface for day-to-day runs.
 - Entrypoints:
-  - `footy-tipper-train.py`: runs R data prep, then Python training.
-  - `footy-tipper-predict.py`: runs R data prep, inference, then send.
+  - `footy-tipper train` / `footy-tipper predict` (or `python -m pipeline.cli ...`); legacy wrapper scripts were removed.
 - Lineup ingestion:
   - `pipeline/lineups.py` fetches Team Lists/Late Mail articles, parses structured lineups, and writes:
     - `lineup_article_snapshots`
@@ -34,7 +33,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Inference:
   - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, simulates outcomes with bivariate Poisson (`lambda3`), and upserts into `predictions_table`.
 - Distribution:
-  - `pipeline/send.py` reads prediction view via SQL, computes EV-based value picks with Kelly-derived staking, and handles upload/email.
+  - `footy-tipper send` (pipeline/cli.py) reads the prediction view, computes EV-based value picks with Kelly-derived staking, and handles upload/email via `pipeline/common/use_predictions/` modules (joker, staking, scoreboard, email_copy, email_render, distribution, site).
 
 ## Critical Runtime Config
 - Season controls:
@@ -109,14 +108,14 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `footy-tipper train` should bootstrap historical lineups when needed, then run lineup refresh + prep + training without extra flags.
   - `footy-tipper predict` should run lineup refresh + inference + send workflow without extra flags.
   - `infer`/`predict` should auto-train if required model artifacts are missing (unless explicitly disabled via `--skip-auto-train`), and that auto-train path should inherit lineup bootstrap behavior unless `--skip-lineups` is set.
-- Train:
-  - `python footy-tipper-train.py`
-- Predict + send:
-  - `python footy-tipper-predict.py`
+- Honest evaluation:
+  - `footy-tipper evaluate --skip-prep` (nested season-out metrics)
+- Static site:
+  - `footy-tipper site` (writes docs/site/), `footy-tipper site --publish`
 - Data prep only:
   - `Rscript pipeline/data-prep.R`
 - Quick syntax checks:
-  - `python -m compileall -q pipeline footy-tipper-train.py footy-tipper-predict.py`
+  - `python -m compileall -q pipeline`
   - `Rscript -e "parse(file='pipeline/data-prep.R')"`
 - Lineup backfill:
   - `footy-tipper lineups --lineups-mode backfill --start-year 2010 --end-year 2026 --lineups-max-articles 2000`

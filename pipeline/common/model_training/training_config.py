@@ -55,6 +55,11 @@ predictors = [
     "avg_tries_for_away_ladder", "avg_tries_conceded_away_ladder", "avg_goals_for_away_ladder",
     "avg_goals_conceded_away_ladder", "close_game_rate_away_ladder",
 
+    # NOTE: streak/day-night ladder splits (current_streak_*, day_win_rate_*,
+    # night_win_rate_*) are parsed in R and available in the DB, but the
+    # honest eval showed no gain from adding them here (2026-07); re-test
+    # after the next full hyperparameter retune before enabling.
+
     # Engineered rolling/state features built from prior observed (Final) games.
     "position_diff", "corona_season", "start_hour", "game_day",
     "turn_around_home", "turn_around_away", "turn_around_diff",

@@ -39,10 +39,12 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-# Documentation output (allow tracked Markdown docs/)
+# Documentation output (allow tracked Markdown docs/ and the static site)
 docs/*
 !docs/
 !docs/*.md
+!docs/site/
+!docs/site/**
 
 # translation temp files
 po/*~
@@ -93,3 +95,10 @@ models/*.joblib
 
 # Generated email banner
 images/email-banner-generated.png
+
+# launchd job logs
+logs/*
+!logs/.gitkeep
+
+# Timestamped eval reports (keep latest + named baselines)
+reports/eval-2*.json

@@ -8,6 +8,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import Ridge
 from sklearn.metrics import brier_score_loss, log_loss
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,34 +24,15 @@ from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
 
 
-def _select_blend_weight_by_accuracy(y_binary, non_draw, baseline_mu_home, baseline_mu_away, oof_mu_home, oof_mu_away):
-    """Joint grid search over (w_home, w_away) selecting weights that maximise OOF tipping accuracy.
-
-    Uses OOF score predictions so the criterion is unbiased — in-sample would almost
-    always select w=1.0 because the fitted LightGBM memorises training scores.
-    An 11-point grid (step 0.1) reduces overfitting risk vs a finer grid.
-    """
-    candidates = np.linspace(0.0, 1.0, 11)
-    best_wh, best_wa, best_acc = 1.0, 1.0, -1.0
-
-    bh = np.asarray(baseline_mu_home, dtype=float)[non_draw]
-    ba = np.asarray(baseline_mu_away, dtype=float)[non_draw]
-    oh = np.asarray(oof_mu_home, dtype=float)[non_draw]
-    oa = np.asarray(oof_mu_away, dtype=float)[non_draw]
-    y = np.asarray(y_binary, dtype=int)
-
-    for wh in candidates:
-        blended_h = np.maximum((1.0 - wh) * bh + wh * oh, 1e-6)
-        for wa in candidates:
-            blended_a = np.maximum((1.0 - wa) * ba + wa * oa, 1e-6)
-            win_probs = np.array(
-                [pf.conditional_home_win_prob(float(h), float(a)) for h, a in zip(blended_h, blended_a)]
-            )
-            acc = float(((win_probs > 0.5) == y.astype(bool)).mean())
-            if acc > best_acc:
-                best_acc, best_wh, best_wa = acc, float(wh), float(wa)
-
-    return best_wh, best_wa, best_acc
+def _select_blend_weight_by_log_loss(y_selected, selection_mask, baseline_mu_home, baseline_mu_away, oof_mu_home, oof_mu_away):
+    """OOF blend weight selection; see mf.select_blend_weights_by_log_loss."""
+    return mf.select_blend_weights_by_log_loss(
+        y_selected,
+        np.asarray(baseline_mu_home, dtype=float)[selection_mask],
+        np.asarray(baseline_mu_away, dtype=float)[selection_mask],
+        np.asarray(oof_mu_home, dtype=float)[selection_mask],
+        np.asarray(oof_mu_away, dtype=float)[selection_mask],
+    )
 
 
 def _estimate_lambda3(y_home, y_away, mu_home, mu_away):
@@ -70,6 +52,20 @@ def _estimate_lambda3(y_home, y_away, mu_home, mu_away):
     # Cap to keep most matches in a feasible shared-component range.
     cap = float(np.quantile(np.minimum(mu_home, mu_away), 0.25) * 0.8)
     return float(max(0.0, min(lambda3, max(cap, 0.0))))
+
+
+def _estimate_dispersion(y, mu):
+    """Method-of-moments negative-binomial k from OOF residuals.
+
+    var = mu + mu^2/k  =>  k = mean(mu^2) / mean((y-mu)^2 - mu).
+    Returns None when residuals show no over-dispersion (plain Poisson).
+    """
+    y = np.asarray(y, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    excess = float(np.mean((y - mu) ** 2 - mu))
+    if not np.isfinite(excess) or excess <= 0:
+        return None
+    return float(np.mean(mu**2) / excess)
 
 
 def _non_draw_mask(df: pd.DataFrame) -> np.ndarray:
@@ -92,6 +88,17 @@ if training_data.empty:
 
 print("Computing Tier-A baseline features")
 baseline_cfg = tb.default_baseline_config_from_env()
+# On by default: the honest eval showed tuned alpha/carryover beat the
+# hard-coded 0.2/0.6 on log-loss and Brier. Disable with =false.
+if os.getenv("FOOTY_TIPPER_TUNE_TIER_A", "true").strip().lower() not in {"0", "false", "no", "n", "off"}:
+    print("Tuning Tier-A alpha/carryover (sequential ratings, first season excluded)...")
+    baseline_cfg, tier_a_grid = tb.tune_baseline_hyperparams(training_data, config_template=baseline_cfg)
+    if not tier_a_grid.empty:
+        best_row = tier_a_grid.sort_values("log_loss").iloc[0]
+        print(
+            f"Tier-A tuned: alpha={baseline_cfg.alpha:.2f}, carryover={baseline_cfg.carryover:.2f} "
+            f"(log-loss {best_row['log_loss']:.4f}, acc {best_row['accuracy']:.1%} on {int(best_row['games'])} games)"
+        )
 baseline_features = tb.compute_tier_a_baseline_features(training_data, baseline_cfg)
 training_data = training_data.merge(baseline_features, on="game_id", how="left")
 
@@ -127,7 +134,17 @@ try:
         lineup_coverage = float((training_data["lineup_features_missing"] <= 0).mean())
     print(f"Lineup features merged. Coverage={lineup_coverage:.1%}")
 except Exception as exc:
-    print(f"Lineup feature merge skipped ({exc}).")
+    import traceback
+    traceback.print_exc()
+    if os.getenv("FOOTY_TIPPER_LINEUP_FEATURES_STRICT", "").strip().lower() in {"1", "true", "yes", "y"}:
+        raise RuntimeError(
+            "Lineup feature merge failed and FOOTY_TIPPER_LINEUP_FEATURES_STRICT is set."
+        ) from exc
+    print(
+        f"Lineup feature merge skipped ({exc}). "
+        "The model will train/predict WITHOUT lineup features — "
+        "set FOOTY_TIPPER_LINEUP_FEATURES_STRICT=true to make this fatal."
+    )
 
 training_data = tc.align_predictor_columns(training_data, predictors)
 selected_predictors = tc.prune_sparse_predictors(training_data, predictors)
@@ -163,23 +180,30 @@ baseline_mu_home = training_data["baseline_mu_home"].to_numpy(dtype=float)
 baseline_mu_away = training_data["baseline_mu_away"].to_numpy(dtype=float)
 
 non_draw = _non_draw_mask(training_data)
-y_binary = (
-    training_data.loc[non_draw, "team_final_score_home"].to_numpy(dtype=float)
-    > training_data.loc[non_draw, "team_final_score_away"].to_numpy(dtype=float)
+y_full = (
+    training_data["team_final_score_home"].to_numpy(dtype=float)
+    > training_data["team_final_score_away"].to_numpy(dtype=float)
 ).astype(int)
 
 # Generate OOF score predictions BEFORE blend weight selection so weights are
 # chosen on unbiased OOF tipping accuracy rather than in-sample Poisson deviance.
 print("Generating OOF score predictions for blend weight selection and stacker training...")
-home_model_mu_oof = mf.generate_oof_score_predictions(
-    training_data, selected_predictors, home_model, "team_final_score_home"
+home_model_mu_oof, home_oof_mask = mf.generate_oof_score_predictions(
+    training_data, selected_predictors, home_model, "team_final_score_home", return_mask=True
 )
-away_model_mu_oof = mf.generate_oof_score_predictions(
-    training_data, selected_predictors, away_model, "team_final_score_away"
+away_model_mu_oof, away_oof_mask = mf.generate_oof_score_predictions(
+    training_data, selected_predictors, away_model, "team_final_score_away", return_mask=True
 )
 
-home_weight, away_weight, blend_acc = _select_blend_weight_by_accuracy(
-    y_binary, non_draw, baseline_mu_home, baseline_mu_away,
+# Select weights only on rows whose Tier-B predictions are genuinely OOF:
+# first-season rows fall back to in-sample predictions and would bias the
+# grid toward Tier B (evaluate.py already masks this way).
+blend_mask = non_draw & home_oof_mask & away_oof_mask
+if blend_mask.sum() < 50:
+    print("Too few genuine-OOF rows for blend selection; falling back to all non-draw rows.")
+    blend_mask = non_draw
+home_weight, away_weight, blend_ll, blend_acc = _select_blend_weight_by_log_loss(
+    y_full[blend_mask], blend_mask, baseline_mu_home, baseline_mu_away,
     home_model_mu_oof, away_model_mu_oof,
 )
 
@@ -193,7 +217,27 @@ lambda3 = _estimate_lambda3(
     blended_mu_away,
 )
 
-print(f"Selected blend weights: home={home_weight:.2f}, away={away_weight:.2f} (OOF tipping accuracy={blend_acc:.1%})")
+# Negative-binomial dispersion from OOF residuals: NRL points are lumpy
+# (2/4/6), so the simulation needs fatter tails than Poisson.
+disp_mask = home_oof_mask & away_oof_mask
+dispersion_home = _estimate_dispersion(
+    training_data["team_final_score_home"].to_numpy(dtype=float)[disp_mask],
+    np.maximum((1.0 - home_weight) * baseline_mu_home + home_weight * home_model_mu_oof, 1e-6)[disp_mask],
+)
+dispersion_away = _estimate_dispersion(
+    training_data["team_final_score_away"].to_numpy(dtype=float)[disp_mask],
+    np.maximum((1.0 - away_weight) * baseline_mu_away + away_weight * away_model_mu_oof, 1e-6)[disp_mask],
+)
+print(
+    f"Estimated NB dispersion: home k={dispersion_home if dispersion_home is None else f'{dispersion_home:.2f}'}, "
+    f"away k={dispersion_away if dispersion_away is None else f'{dispersion_away:.2f}'} "
+    "(None = no over-dispersion, plain Poisson)"
+)
+
+print(
+    f"Selected blend weights: home={home_weight:.2f}, away={away_weight:.2f} "
+    f"(OOF log-loss={blend_ll:.4f}, tipping accuracy at chosen weights={blend_acc:.1%})"
+)
 print(f"Estimated bivariate shared component lambda3={lambda3:.4f}")
 
 print("Fitting stacking model and beta calibrator")
@@ -206,6 +250,7 @@ lineup_unc_away = pd.to_numeric(training_data.get("lineup_selection_uncertainty_
 tier_a_cond = np.clip(training_data["baseline_home_win_prob_conditional"].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
 
 # In-sample Tier B predictions (used for inference at prediction time).
+train_game_ids = training_data["game_id"].to_numpy()
 tier_b_cond = np.array(
     [
         pf.marginalized_conditional_home_win_prob(
@@ -215,8 +260,11 @@ tier_b_cond = np.array(
             lineup_uncertainty_away=ua,
             n_samples=lineup_mc_samples,
             mu_noise_scale=lineup_mu_noise_scale,
+            rng=pf.rng_for_game(gid, salt=2),
         )
-        for mh, ma, uh, ua in zip(blended_mu_home, blended_mu_away, lineup_unc_home, lineup_unc_away)
+        for mh, ma, uh, ua, gid in zip(
+            blended_mu_home, blended_mu_away, lineup_unc_home, lineup_unc_away, train_game_ids
+        )
     ],
     dtype=float,
 )
@@ -245,8 +293,8 @@ print("Generating OOF binary predictions for stacker training...")
 best_params = dict(home_model.named_steps["hyperparamtuning"].best_params_)
 preprocessor_steps = home_model[:-1]
 
-binary_model_oof = mf.generate_oof_binary_predictions(
-    training_data, non_draw, selected_predictors, preprocessor_steps, best_params
+binary_model_oof, binary_oof_mask = mf.generate_oof_binary_predictions(
+    training_data, non_draw, selected_predictors, preprocessor_steps, best_params, return_mask=True
 )
 tier_c_cond_oof = np.clip(binary_model_oof, 1e-6, 1 - 1e-6)
 
@@ -262,68 +310,161 @@ binary_model = mf.train_binary_classifier(
 training_data.drop(columns=["_y_binary_col"], inplace=True)
 
 # ── Stacker (trained on OOF Tier-B + OOF Tier-C) ─────────────────────────────
+# Restrict meta-model training to rows whose tier inputs are genuinely
+# out-of-fold; first-season rows carry in-sample fallbacks that would bias
+# the stacker towards the overfit tiers.
+genuine_oof = home_oof_mask & away_oof_mask & binary_oof_mask
+stacker_fit_mask = non_draw & genuine_oof
+if stacker_fit_mask.sum() < 50:
+    print(
+        f"Only {int(stacker_fit_mask.sum())} genuine-OOF rows available; "
+        "falling back to all non-draw rows for meta-model training."
+    )
+    stacker_fit_mask = non_draw
+
+comp_years_all = pd.to_numeric(training_data["competition_year"], errors="coerce").to_numpy()
+
+# Line/spread-market meta-features: the handicap market is the bookmaker's
+# own margin model. Disagreement uses OOF margins so the stacker learns from
+# honest inputs; inference feeds the production blended margins instead.
+line_extra = calib.build_line_market_features(
+    training_data, blended_mu_home_oof - blended_mu_away_oof
+)
+
 stacker = calib.LogisticStacker()
 stacker.fit(
-    tier_a=tier_a_cond[non_draw],
-    tier_b=tier_b_cond_oof[non_draw],
-    market=market_cond[non_draw],
-    odds_missing=odds_missing[non_draw],
-    tier_c=tier_c_cond_oof[non_draw],
-    y=y_binary,
+    tier_a=tier_a_cond[stacker_fit_mask],
+    tier_b=tier_b_cond_oof[stacker_fit_mask],
+    market=market_cond[stacker_fit_mask],
+    odds_missing=odds_missing[stacker_fit_mask],
+    tier_c=tier_c_cond_oof[stacker_fit_mask],
+    y=y_full[stacker_fit_mask],
+    groups=comp_years_all[stacker_fit_mask],
+    extra=line_extra[stacker_fit_mask],
 )
 
 # Log selected regularisation strength and coefficients.
 if stacker._is_fitted and hasattr(stacker._model, "coef_"):
     if hasattr(stacker._model, "C_"):
         print(f"Stacker selected C={stacker._model.C_[0]:.4f} (cross-validated from {calib.LogisticStacker._DEFAULT_CS})")
-    coef_names = ["tier_a", "tier_b", "market", "odds_missing", "disagree_tier_a", "disagree_tier_b", "tier_c"]
+    coef_names = (
+        ["tier_a", "tier_b", "market", "odds_missing", "disagree_tier_a", "disagree_tier_b", "tier_c"]
+        + calib.LINE_MARKET_FEATURE_NAMES
+    )
     coef_vals = stacker._model.coef_[0]
     coef_str = ", ".join(f"{n}={v:.3f}" for n, v in zip(coef_names, coef_vals))
     print(f"Stacker coefficients: {coef_str}")
 
-# ── Calibrator (trained on OOF stacked predictions) ───────────────────────────
-stacked_cond_oof = stacker.predict(tier_a_cond, tier_b_cond_oof, market_cond, odds_missing, tier_c=tier_c_cond_oof)
+# ── Calibrator ────────────────────────────────────────────────────────────────
+# Fit on leave-one-season-out stacker predictions so the calibrator never sees
+# rows the deployed stacker was trained on (its Tier inputs are OOF, but the
+# stacker itself is in-sample on stacker_fit_mask rows).
+stacked_cond_oof = stacker.predict(
+    tier_a_cond, tier_b_cond_oof, market_cond, odds_missing, tier_c=tier_c_cond_oof, extra=line_extra
+)
 calibrator = calib.BetaCalibrator()
-calibrator.fit(stacked_cond_oof[non_draw], y_binary)
+loso_preds = calib.loso_stacker_predictions(
+    tier_a=tier_a_cond[stacker_fit_mask],
+    tier_b=tier_b_cond_oof[stacker_fit_mask],
+    market=market_cond[stacker_fit_mask],
+    odds_missing=odds_missing[stacker_fit_mask],
+    y=y_full[stacker_fit_mask],
+    groups=comp_years_all[stacker_fit_mask],
+    tier_c=tier_c_cond_oof[stacker_fit_mask],
+    extra=line_extra[stacker_fit_mask],
+)
+if loso_preds is not None:
+    loso_rows = np.isfinite(loso_preds)
+    calibrator.fit(loso_preds[loso_rows], y_full[stacker_fit_mask][loso_rows])
+    print(f"Calibrator fit on LOSO stacker predictions ({int(loso_rows.sum())} rows).")
+else:
+    print("LOSO calibrator fit unavailable (<3 season groups); using in-sample stacker predictions.")
+    calibrator.fit(stacked_cond_oof[stacker_fit_mask], y_full[stacker_fit_mask])
 calibrated_oof = calibrator.predict(stacked_cond_oof)
+
+# ── Margin blend for the comp tie-breaker ─────────────────────────────────────
+# Small ridge on honest inputs: OOF model margin, the line market's expected
+# margin, and the Tier-A margin. Three coefficients, so in-sample MAE is a
+# fair guide; the season-out gate lives in evaluate.py.
+margin_blend = None
+try:
+    actual_margin_all = (
+        training_data["team_final_score_home"].to_numpy(dtype=float)
+        - training_data["team_final_score_away"].to_numpy(dtype=float)
+    )
+    model_margin_oof = blended_mu_home_oof - blended_mu_away_oof
+    tier_a_margin = baseline_mu_home - baseline_mu_away
+    market_spread_arr = -pd.to_numeric(
+        training_data.get("implied_spread_home", np.nan), errors="coerce"
+    ).to_numpy(dtype=float)
+    margin_mask = genuine_oof & np.isfinite(market_spread_arr) & np.isfinite(actual_margin_all)
+    if margin_mask.sum() >= 100:
+        X_margin = np.column_stack([model_margin_oof, market_spread_arr, tier_a_margin])[margin_mask]
+        margin_model = Ridge(alpha=1.0)
+        margin_model.fit(X_margin, actual_margin_all[margin_mask])
+        blend_mae = float(np.mean(np.abs(margin_model.predict(X_margin) - actual_margin_all[margin_mask])))
+        model_only_mae = float(np.mean(np.abs(model_margin_oof[margin_mask] - actual_margin_all[margin_mask])))
+        market_only_mae = float(np.mean(np.abs(market_spread_arr[margin_mask] - actual_margin_all[margin_mask])))
+        margin_blend = {
+            "intercept": float(margin_model.intercept_),
+            "coef_model_margin": float(margin_model.coef_[0]),
+            "coef_market_spread": float(margin_model.coef_[1]),
+            "coef_tier_a_margin": float(margin_model.coef_[2]),
+            "fit_rows": int(margin_mask.sum()),
+            "fit_mae": blend_mae,
+            "fit_mae_model_only": model_only_mae,
+            "fit_mae_market_only": market_only_mae,
+        }
+        print(
+            f"Margin blend fitted: MAE {blend_mae:.2f} vs model-only {model_only_mae:.2f} "
+            f"vs market-only {market_only_mae:.2f} ({int(margin_mask.sum())} rows)"
+        )
+    else:
+        print("Margin blend skipped (too few rows with line odds and genuine-OOF margins).")
+except Exception as exc:
+    print(f"Margin blend skipped ({exc}).")
 
 # ── Evaluation metrics ────────────────────────────────────────────────────────
 try:
-    nd_preds = np.clip(calibrated_oof[non_draw], 1e-6, 1 - 1e-6)
-    market_nd = market_cond[non_draw]
+    # Evaluate only on genuine-OOF rows; first-season fallback rows are
+    # in-sample and would flatter every number below.
+    eval_mask = stacker_fit_mask
+    y_eval = y_full[eval_mask]
+    nd_preds = np.clip(calibrated_oof[eval_mask], 1e-6, 1 - 1e-6)
+    market_nd = market_cond[eval_mask]
     # Use odds_missing flag to identify games with real odds (not 0.5 fallback).
     # market_cond clips everything to (0,1) so range checks can't detect missing odds.
-    odds_missing_nd = odds_missing[non_draw].astype(bool)
+    odds_missing_nd = odds_missing[eval_mask].astype(bool)
     valid_market = ~odds_missing_nd
 
     # ── PRIMARY: Tipping accuracy ─────────────────────────────────────────────
-    tip_correct = (nd_preds > 0.5) == y_binary.astype(bool)
+    tip_correct = (nd_preds > 0.5) == y_eval.astype(bool)
     tip_acc = tip_correct.mean()
-    naive_home_acc = float(y_binary.mean())  # always-pick-home baseline
+    naive_home_acc = float(y_eval.mean())  # always-pick-home baseline
 
-    print(f"\n── Tipping accuracy (OOF, non-draw) ────────────────────────────")
+    print(f"\n── Tipping accuracy (genuine OOF, non-draw) ────────────────────────────")
     print(f"  Model:       {tip_acc:.1%}  ({tip_correct.sum()}/{len(tip_correct)} correct)")
     print(f"  Always home: {naive_home_acc:.1%}")
 
     if valid_market.sum() >= 10:
-        market_tip = (market_nd[valid_market] > 0.5) == y_binary[valid_market].astype(bool)
-        model_tip_on_mkt = (nd_preds[valid_market] > 0.5) == y_binary[valid_market].astype(bool)
+        market_tip = (market_nd[valid_market] > 0.5) == y_eval[valid_market].astype(bool)
+        model_tip_on_mkt = (nd_preds[valid_market] > 0.5) == y_eval[valid_market].astype(bool)
         diff = model_tip_on_mkt.mean() - market_tip.mean()
         print(f"  Market fav:  {market_tip.mean():.1%}  (on {valid_market.sum()} games with odds)")
         print(f"  Model (same games): {model_tip_on_mkt.mean():.1%}  ({'▲' if diff > 0 else '▼'} {abs(diff):.1%} vs market)")
 
     # ── SECONDARY: Probabilistic calibration ──────────────────────────────────
-    nd_log_loss = log_loss(y_binary, nd_preds)
-    nd_brier = brier_score_loss(y_binary, nd_preds)
-    print(f"\n── Calibration (OOF, non-draw) ─────────────────────────────────")
+    nd_log_loss = log_loss(y_eval, nd_preds)
+    nd_brier = brier_score_loss(y_eval, nd_preds)
+    print(f"\n── Calibration (genuine OOF, non-draw) ─────────────────────────────────")
     print(f"  Log-loss  (model):   {nd_log_loss:.4f}")
     print(f"  Brier     (model):   {nd_brier:.4f}")
 
     if valid_market.sum() >= 10:
-        market_ll = log_loss(y_binary[valid_market], np.clip(market_nd[valid_market], 1e-6, 1 - 1e-6))
-        market_br = brier_score_loss(y_binary[valid_market], np.clip(market_nd[valid_market], 1e-6, 1 - 1e-6))
-        model_ll  = log_loss(y_binary[valid_market], np.clip(nd_preds[valid_market], 1e-6, 1 - 1e-6))
-        model_br  = brier_score_loss(y_binary[valid_market], np.clip(nd_preds[valid_market], 1e-6, 1 - 1e-6))
+        market_ll = log_loss(y_eval[valid_market], np.clip(market_nd[valid_market], 1e-6, 1 - 1e-6))
+        market_br = brier_score_loss(y_eval[valid_market], np.clip(market_nd[valid_market], 1e-6, 1 - 1e-6))
+        model_ll  = log_loss(y_eval[valid_market], np.clip(nd_preds[valid_market], 1e-6, 1 - 1e-6))
+        model_br  = brier_score_loss(y_eval[valid_market], np.clip(nd_preds[valid_market], 1e-6, 1 - 1e-6))
         print(f"  Log-loss  (market benchmark): {market_ll:.4f}  |  model: {model_ll:.4f}  ({'▲ better' if model_ll < market_ll else '▼ worse'})")
         print(f"  Brier     (market benchmark): {market_br:.4f}  |  model: {model_br:.4f}  ({'▲ better' if model_br < market_br else '▼ worse'})")
 
@@ -337,12 +478,14 @@ try:
         if mask.sum() < 3:
             continue
         pred_mean = nd_preds[mask].mean()
-        actual_mean = y_binary[mask].mean()
+        actual_mean = y_eval[mask].mean()
         gap = actual_mean - pred_mean
         flag = "  ◄ over" if gap < -0.05 else ("  ► under" if gap > 0.05 else "")
         print(f"  {bins[i]:.1f}–{bins[i+1]:.1f}         {pred_mean:>10.3f} {actual_mean:>8.3f} {mask.sum():>7}{flag}")
 
 except Exception as exc:
+    import traceback
+    traceback.print_exc()
     print(f"Skipped evaluation metrics ({exc}).")
 
 # ── Holdout year evaluation (last year) ───────────────────────────────────────
@@ -355,8 +498,7 @@ try:
     if nd_holdout.sum() >= 5:
         model_p = calibrated_oof[nd_holdout]
         market_p = market_cond[nd_holdout]
-        # y_binary is indexed over non_draw games only.
-        actuals = y_binary[holdout_mask[non_draw]]
+        actuals = y_full[nd_holdout]
 
         # ── PRIMARY: Tipping accuracy on holdout ──────────────────────────────
         tip_correct_holdout = (model_p > 0.5) == actuals.astype(bool)
@@ -398,7 +540,13 @@ try:
             print(f"  Wins: {wins}/{total_bets} ({win_rate:.1f}%),  flat-stake ROI: {roi_pct:+.1f}%")
         else:
             print("  No games exceeded the edge threshold.")
+        print(
+            "  NOTE: blend weights, stacker, and calibrator were fitted using OOF rows "
+            "from this season too — run `footy-tipper evaluate` for fully held-out numbers."
+        )
 except Exception as exc:
+    import traceback
+    traceback.print_exc()
     print(f"Holdout evaluation skipped ({exc}).")
 
 print("Save model artefacts")
@@ -416,6 +564,9 @@ manifest = {
     "lineup_monte_carlo_samples": lineup_mc_samples,
     "lineup_mu_noise_scale": lineup_mu_noise_scale,
     "tier_a_baseline": tb.baseline_config_to_dict(baseline_cfg, base_home, base_away),
+    "margin_blend": margin_blend,
+    "dispersion_home": dispersion_home,
+    "dispersion_away": dispersion_away,
 }
 
 print("Running joker strategy backtest")

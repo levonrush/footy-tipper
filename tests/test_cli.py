@@ -308,7 +308,7 @@ class CLISmokeTests(unittest.TestCase):
                 test_mode=True,
                 test_email="test@example.com",
                 skip_drive=True,
-                use_openai=False,
+                use_llm=False,
                 dry_run=False,
             )
 
@@ -369,7 +369,7 @@ class CLISmokeTests(unittest.TestCase):
                 test_mode=False,
                 test_email=None,
                 skip_drive=True,
-                use_openai=False,
+                use_llm=False,
                 dry_run=False,
             )
 

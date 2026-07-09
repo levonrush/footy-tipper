@@ -58,6 +58,47 @@ class JokerPolicyTrainingTests(unittest.TestCase):
         self.assertIn(recommended["neutral"], jp.VALID_STRATEGIES)
         self.assertIn(recommended["chase"], jp.VALID_STRATEGIES)
 
+    def test_backtest_reports_no_joker_baseline_and_lift(self):
+        training_data = _build_training_rows()
+        env = {
+            "FOOTY_TIPPER_JOKER_MIN_ROUND_COVERAGE": "1.0",
+            "FOOTY_TIPPER_JOKER_MIN_MATCHES_PER_ROUND": "2",
+            "FOOTY_TIPPER_JOKER_MIN_ROUNDS_PER_SEASON": "3",
+            "FOOTY_TIPPER_JOKER_BACKTEST_SIMULATIONS": "600",
+            "FOOTY_TIPPER_JOKER_BACKTEST_FIELD_SIZE": "30",
+            "FOOTY_TIPPER_JOKER_BACKTEST_SEED": "123",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            policy = jp.run_joker_policy_backtest(training_data)
+
+        self.assertEqual(policy.get("status"), "ok")
+        self.assertEqual(policy.get("version"), 2)
+        for record in policy.get("scenario_results", []):
+            self.assertIn("mean_win_prob_no_joker", record)
+            self.assertIn("mean_joker_lift", record)
+            # Doubling a round can only help against the same draws.
+            self.assertGreaterEqual(
+                record["mean_win_prob"] + 1e-9, record["mean_win_prob_no_joker"]
+            )
+
+    def test_strategy_ties_within_epsilon_prefer_points(self):
+        training_data = _build_training_rows()
+        env = {
+            "FOOTY_TIPPER_JOKER_MIN_ROUND_COVERAGE": "1.0",
+            "FOOTY_TIPPER_JOKER_MIN_MATCHES_PER_ROUND": "2",
+            "FOOTY_TIPPER_JOKER_MIN_ROUNDS_PER_SEASON": "3",
+            "FOOTY_TIPPER_JOKER_BACKTEST_SIMULATIONS": "600",
+            "FOOTY_TIPPER_JOKER_BACKTEST_FIELD_SIZE": "30",
+            "FOOTY_TIPPER_JOKER_BACKTEST_SEED": "123",
+            # Huge epsilon: every strategy ties, so points must win everywhere.
+            "FOOTY_TIPPER_JOKER_TIE_EPSILON": "1.0",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            policy = jp.run_joker_policy_backtest(training_data)
+
+        recommended = policy.get("recommended_strategy_by_scenario", {})
+        self.assertEqual(set(recommended.values()), {"points"})
+
     def test_save_policy_writes_json_file(self):
         training_data = _build_training_rows()
         env = {

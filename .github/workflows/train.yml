@@ -1,0 +1,54 @@
+name: Train
+
+# Weekly retrain: Monday 19:00 UTC = Tuesday 5am AEST / 6am AEDT.
+# Pulls DB/models from Drive, retrains, pushes them back. If the job times
+# out, the push never happens and Drive keeps the previous good models.
+
+on:
+  schedule:
+    - cron: "0 19 * * 1"
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: footy-tipper-state
+      cancel-in-progress: false
+    container:
+      image: ghcr.io/${{ github.repository }}:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      FOOTY_TIPPER_TUNE_ITER: ${{ vars.FOOTY_TIPPER_TUNE_ITER || '100' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Materialise secrets
+        env:
+          SECRETS_ENV: ${{ secrets.SECRETS_ENV }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        run: |
+          printf '%s\n' "$SECRETS_ENV" > secrets.env
+          printf '%s\n' "$SERVICE_ACCOUNT_JSON" > service-account-token.json
+          while IFS= read -r line; do
+            case "$line" in ''|\#*) continue ;; esac
+            case "$line" in *=*) ;; *) continue ;; esac
+            value="${line#*=}"
+            value="${value%\"}"; value="${value#\"}"
+            [ -n "$value" ] && echo "::add-mask::$value"
+          done < secrets.env
+
+      - name: Pull state from Drive
+        run: python -m pipeline.ops.state_sync pull
+
+      - name: Train
+        run: python -m pipeline.cli train
+
+      - name: Push state to Drive
+        run: python -m pipeline.ops.state_sync push

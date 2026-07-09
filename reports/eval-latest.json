@@ -1,0 +1,146 @@
+{
+  "generated_at": "2026-07-02T19:53:06.788728+00:00",
+  "config": {
+    "eval_seasons": [
+      2024,
+      2025,
+      2026
+    ],
+    "n_seasons_requested": 3,
+    "rows": 3147,
+    "selected_predictor_count": 503,
+    "git_sha": "866f922b24171f0052289eae1747e3ccaafe1ad8",
+    "manifest": {
+      "blend_weight_home": 1.0,
+      "blend_weight_away": 1.0,
+      "lambda3": 0.0,
+      "tier_a_baseline": {
+        "alpha": 0.2,
+        "carryover": 0.6,
+        "min_rate": 0.5,
+        "max_rate": 80.0,
+        "base_home": 22.703703703703702,
+        "base_away": 19.899425287356323
+      },
+      "predictor_count": 503
+    },
+    "env": {
+      "FOOTY_TIPPER_PREP_MODE": "train",
+      "FOOTY_TIPPER_TUNE_TIER_A": "true"
+    }
+  },
+  "seasons": [
+    {
+      "year": 2024,
+      "games": 212,
+      "correct": 132,
+      "log_loss": 0.6301957530877453,
+      "brier": 0.2193309647111309,
+      "blend_wh": 1.0,
+      "blend_wa": 0.8,
+      "market_games": 212,
+      "market_correct": 129,
+      "margin_mae": 13.572738052038417,
+      "margin_bias": -0.8336481619312422,
+      "market_margin_games": 212,
+      "market_margin_mae": 13.783018867924529,
+      "margin_blend_mae": 13.847592483328672,
+      "bets": 197,
+      "bet_wins": 119,
+      "profit": 5.610000000000002,
+      "comp_sim": {
+        "games": 212,
+        "user_score": 132,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 129,
+        "p_first": 0.112875,
+        "p_top": 0.17575,
+        "expected_rank": 3.369625,
+        "mean_rival_score": 123.47075,
+        "mean_best_rival_score": 134.3105
+      }
+    },
+    {
+      "year": 2025,
+      "games": 212,
+      "correct": 135,
+      "log_loss": 0.6531473441013045,
+      "brier": 0.23081846662549022,
+      "blend_wh": 1.0,
+      "blend_wa": 0.8,
+      "market_games": 209,
+      "market_correct": 129,
+      "margin_mae": 14.073810760916382,
+      "margin_bias": -1.7194001119282811,
+      "market_margin_games": 212,
+      "market_margin_mae": 13.747641509433961,
+      "margin_blend_mae": 13.778076932590805,
+      "bets": 197,
+      "bet_wins": 109,
+      "profit": 9.720000000000002,
+      "comp_sim": {
+        "games": 212,
+        "user_score": 135,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 129,
+        "p_first": 0.414125,
+        "p_top": 0.519,
+        "expected_rank": 1.9261249999999999,
+        "mean_rival_score": 124.60889333333333,
+        "mean_best_rival_score": 135.63475
+      }
+    },
+    {
+      "year": 2026,
+      "games": 128,
+      "correct": 83,
+      "log_loss": 0.6401752866326446,
+      "brier": 0.22238974064322142,
+      "blend_wh": 1.0,
+      "blend_wa": 0.9,
+      "market_games": 128,
+      "market_correct": 78,
+      "margin_mae": 15.886073875358905,
+      "margin_bias": 1.2891354902070384,
+      "market_margin_games": 128,
+      "market_margin_mae": 15.7265625,
+      "margin_blend_mae": 15.704830087811985,
+      "bets": 121,
+      "bet_wins": 70,
+      "profit": 8.350000000000003,
+      "comp_sim": {
+        "games": 128,
+        "user_score": 83,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 78,
+        "p_first": 0.52325,
+        "p_top": 0.64575,
+        "expected_rank": 1.659375,
+        "mean_rival_score": 74.64170333333334,
+        "mean_best_rival_score": 83.08425
+      }
+    }
+  ],
+  "pooled": {
+    "games": 552,
+    "correct": 350,
+    "accuracy": 0.6340579710144928,
+    "market_games": 549,
+    "market_correct": 336,
+    "market_accuracy": 0.6120218579234973,
+    "log_loss": 0.6413245892990164,
+    "brier": 0.22445211276394206,
+    "bets": 515,
+    "profit": 23.680000000000007,
+    "roi_pct": 4.598058252427186,
+    "margin_mae": 14.301604718102098,
+    "market_margin_mae": 14.220108695652174,
+    "market_margin_games": 552,
+    "margin_blend_mae": 14.251558274302289,
+    "comp_p_first": 0.35008333333333336,
+    "comp_expected_rank": 2.318375
+  }
+}

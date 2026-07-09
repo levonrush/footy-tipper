@@ -35,6 +35,8 @@ predictors = manifest.get(
 blend_weight_home = float(manifest.get("blend_weight_home", 1.0))
 blend_weight_away = float(manifest.get("blend_weight_away", 1.0))
 lambda3 = float(manifest.get("lambda3", 0.0))
+dispersion_home = manifest.get("dispersion_home")
+dispersion_away = manifest.get("dispersion_away")
 lineup_mc_samples = int(manifest.get("lineup_monte_carlo_samples", os.getenv("FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES", "64")))
 lineup_mu_noise_scale = float(manifest.get("lineup_mu_noise_scale", os.getenv("FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE", "0.12")))
 
@@ -116,7 +118,17 @@ try:
         lineup_coverage = float((inference_data["lineup_features_missing"] <= 0).mean())
     print(f"Lineup features merged for inference. Coverage={lineup_coverage:.1%}")
 except Exception as exc:
-    print(f"Lineup feature merge skipped ({exc}).")
+    import traceback
+    traceback.print_exc()
+    if os.getenv("FOOTY_TIPPER_LINEUP_FEATURES_STRICT", "").strip().lower() in {"1", "true", "yes", "y"}:
+        raise RuntimeError(
+            "Lineup feature merge failed and FOOTY_TIPPER_LINEUP_FEATURES_STRICT is set."
+        ) from exc
+    print(
+        f"Lineup feature merge skipped ({exc}). "
+        "The model will train/predict WITHOUT lineup features — "
+        "set FOOTY_TIPPER_LINEUP_FEATURES_STRICT=true to make this fatal."
+    )
 
 inference_data = tc.align_predictor_columns(inference_data, predictors)
 
@@ -133,6 +145,7 @@ blended_mu_away = np.maximum((1.0 - blend_weight_away) * baseline_mu_away + blen
 tier_a_cond = np.clip(inference_data["baseline_home_win_prob_conditional"].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
 lineup_unc_home = pd.to_numeric(inference_data.get("lineup_selection_uncertainty_home", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
 lineup_unc_away = pd.to_numeric(inference_data.get("lineup_selection_uncertainty_away", 0.0), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+infer_game_ids = inference_data["game_id"].to_numpy()
 tier_b_cond = np.array(
     [
         pf.marginalized_conditional_home_win_prob(
@@ -142,8 +155,13 @@ tier_b_cond = np.array(
             lineup_uncertainty_away=ua,
             n_samples=lineup_mc_samples,
             mu_noise_scale=lineup_mu_noise_scale,
+            # Deterministic per-game RNG: re-running inference on the same
+            # data must never flip a tip.
+            rng=pf.rng_for_game(gid, salt=2),
         )
-        for mh, ma, uh, ua in zip(blended_mu_home, blended_mu_away, lineup_unc_home, lineup_unc_away)
+        for mh, ma, uh, ua, gid in zip(
+            blended_mu_home, blended_mu_away, lineup_unc_home, lineup_unc_away, infer_game_ids
+        )
     ],
     dtype=float,
 )
@@ -162,8 +180,12 @@ if binary_model is not None:
     except Exception as exc:
         print(f"Binary model prediction skipped ({exc}).")
 
+line_extra = calib.build_line_market_features(inference_data, blended_mu_home - blended_mu_away)
+
 if stacker is not None:
-    stacked_cond = stacker.predict(tier_a_cond, tier_b_cond, market_cond, odds_missing, tier_c=tier_c_cond)
+    stacked_cond = stacker.predict(
+        tier_a_cond, tier_b_cond, market_cond, odds_missing, tier_c=tier_c_cond, extra=line_extra
+    )
 else:
     stacked_cond = tier_b_cond
 
@@ -172,12 +194,38 @@ if calibrator is not None:
 else:
     calibrated_cond = stacked_cond
 
+# Margin blend from the manifest (model margin + line market + Tier A);
+# games without a line fall back to the simulated margin via NaN.
+margin_override = None
+margin_blend = manifest.get("margin_blend")
+if isinstance(margin_blend, dict):
+    try:
+        market_spread_arr = -pd.to_numeric(
+            inference_data.get("implied_spread_home", np.nan), errors="coerce"
+        ).to_numpy(dtype=float)
+        tier_a_margin = baseline_mu_home - baseline_mu_away
+        margin_override = (
+            float(margin_blend.get("intercept", 0.0))
+            + float(margin_blend.get("coef_model_margin", 0.0)) * (blended_mu_home - blended_mu_away)
+            + float(margin_blend.get("coef_market_spread", 0.0)) * market_spread_arr
+            + float(margin_blend.get("coef_tier_a_margin", 0.0)) * tier_a_margin
+        )
+        margin_override = np.where(np.isfinite(market_spread_arr), margin_override, np.nan)
+        n_blend = int(np.isfinite(margin_override).sum())
+        print(f"Margin blend applied to {n_blend}/{len(inference_data)} game(s) with line odds.")
+    except Exception as exc:
+        print(f"Margin blend skipped ({exc}).")
+        margin_override = None
+
 outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     inference_data=inference_data,
     mu_home=blended_mu_home,
     mu_away=blended_mu_away,
     lambda3=lambda3,
     calibrated_home_win_conditional=calibrated_cond,
+    margin_override=margin_override,
+    dispersion_home=dispersion_home,
+    dispersion_away=dispersion_away,
 )
 outcome_df = pd.merge(outcomes, margins, on="game_id")
 

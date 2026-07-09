@@ -14,7 +14,7 @@ except Exception:
         return False
 
 
-DEFAULT_TEST_EMAIL = "levon.rush@gmail.com"
+DEFAULT_TEST_EMAIL = "levon_rush@hotmail.com"
 REQUIRED_MODEL_FILES = ("home_model.pkl", "away_model.pkl", "model_manifest.json")
 CLI_START = time.monotonic()
 DEFAULT_LINEUP_BACKFILL_MAX_ARTICLES = 2000
@@ -63,7 +63,7 @@ def _run_command(cmd, env, cwd=None):
 
 def _build_env(args):
     env = os.environ.copy()
-    env["R_LIBS_USER"] = os.path.expanduser("~/R/library")
+    env.setdefault("R_LIBS_USER", os.path.expanduser("~/R/library"))
     if getattr(args, "start_year", None) is not None:
         env["FOOTY_TIPPER_START_YEAR"] = str(args.start_year)
     if getattr(args, "end_year", None) is not None:
@@ -246,6 +246,12 @@ def _run_inference(env, skip_prep, root):
     _run_command([sys.executable, str(root / "pipeline" / "inference.py")], env, cwd=root)
 
 
+def _run_evaluate(env, skip_prep, root):
+    if not skip_prep:
+        _run_data_prep(env, root)
+    _run_command([sys.executable, str(root / "pipeline" / "evaluate.py")], env, cwd=root)
+
+
 def _model_artifacts_exist(root: pathlib.Path) -> bool:
     models_dir = root / "models"
     return all((models_dir / filename).exists() for filename in REQUIRED_MODEL_FILES)
@@ -276,7 +282,7 @@ def _ensure_models_for_prediction(env, root, auto_train=True, allow_lineup_boots
     return False
 
 
-def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
+def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force_resend=False):
     try:
         from pipeline.common.use_predictions import sending_functions as sf
     except ModuleNotFoundError as exc:
@@ -298,11 +304,55 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         _log("No pre-game predictions available. Nothing to send.")
         return 0
 
+    send_year = None
+    send_round_id = None
+    try:
+        send_year = int(predictions.iloc[0]["competition_year"])
+        send_round_id = int(predictions.iloc[0]["round_id"])
+    except Exception:
+        pass
+
+    # Idempotency gate: never email the production list twice for one round.
+    if not test_mode and not dry_run:
+        prior_send = sf.email_send_already_recorded(db_path, send_year, send_round_id)
+        if prior_send and not force_resend:
+            _log(
+                f"Production email already sent for {send_year} round {send_round_id} "
+                f"(recorded {prior_send.get('sent_at_utc')} UTC). "
+                "Use --force-resend to send again."
+            )
+            return 0
+        if prior_send and force_resend:
+            _log(
+                f"Production email already sent for {send_year} round {send_round_id}; "
+                "resending because --force-resend was given."
+            )
+
+    # Competition-aware tip strategy: advisory logs deviations, auto applies
+    # them to the outgoing email (predictions_table itself is never changed).
+    comp_strategy = sf.get_comp_strategy_recommendation(db_path, root, predictions)
+    if comp_strategy.get("status") != "off":
+        _log(comp_strategy.get("headline", "Comp strategy unavailable"))
+        if comp_strategy.get("detail"):
+            _log(comp_strategy["detail"])
+    if comp_strategy.get("mode") == "auto" and comp_strategy.get("tips_changed"):
+        predictions = sf.apply_comp_strategy_to_predictions(predictions, comp_strategy)
+        _log(f"Comp strategy AUTO: {comp_strategy['tips_changed']} tip(s) adjusted in this send.")
+    if not test_mode and not dry_run:
+        sf.persist_comp_strategy_decision(db_path, comp_strategy, predictions)
+
     tipper_picks = sf.get_tipper_picks(predictions)
     joker_recommendation = sf.get_joker_round_recommendation(db_path, root, predictions)
     _log(joker_recommendation.get("headline", "Joker call unavailable"))
     if joker_recommendation.get("detail"):
         _log(joker_recommendation["detail"])
+
+    scoreboard = sf.get_season_scoreboard(db_path)
+    scoreboard_line = sf.scoreboard_summary_line(scoreboard)
+    if scoreboard_line:
+        _log(f"Scoreboard: {scoreboard_line}")
+    else:
+        _log("Scoreboard: no completed predicted games yet this season.")
 
     # In test mode, skip Drive upload by default unless explicitly requested.
     if not skip_drive:
@@ -316,8 +366,8 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
     else:
         _log("Drive upload skipped.")
 
-    api_key = os.getenv("ANTHROPIC_API_KEY") if use_openai else None
-    if test_mode and not use_openai:
+    api_key = os.getenv("ANTHROPIC_API_KEY") if use_llm else None
+    if test_mode and not use_llm:
         _log("Test mode active: using fallback email content (Claude disabled).")
 
     email_payload = sf.generate_reg_regan_email_payload(
@@ -326,9 +376,11 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
         api_key,
         os.getenv("FOLDER_URL"),
         0.9,
-        use_openai=use_openai,
+        use_llm=use_llm,
         joker_recommendation=joker_recommendation,
-        openai_api_key=os.getenv("OPENAI_KEY") if use_openai else None,
+        openai_api_key=os.getenv("OPENAI_KEY") if use_llm else None,
+        scoreboard=scoreboard,
+        comp_strategy=comp_strategy,
     )
 
     subject = email_payload["subject"]
@@ -381,6 +433,30 @@ def _send_predictions(test_mode, test_email, skip_drive, use_openai, dry_run):
     if not sent:
         _log("Production email flow skipped or failed. Joker usage state unchanged.")
         return 0
+
+    recipients_count = sent if isinstance(sent, int) and not isinstance(sent, bool) else None
+    if sf.record_email_send(
+        db_path,
+        send_year,
+        send_round_id,
+        recipients_count=recipients_count,
+        source="cli_send_production",
+    ):
+        _log(f"Send recorded in ledger for {send_year} round {send_round_id}.")
+
+    # Refresh the static site so the public page matches what was just sent.
+    try:
+        from pipeline.common.use_predictions import site as site_mod
+
+        site_mod.generate_site(db_path, root)
+    except Exception as exc:
+        _log(f"Site refresh skipped ({exc}).")
+
+    # Weekly DB backup to Drive (lineup history only lives on this machine).
+    if _to_bool(os.getenv("FOOTY_TIPPER_DB_BACKUP"), True):
+        sf.backup_db_to_drive(db_path, json_path, os.getenv("FOLDER_ID"))
+    else:
+        _log("DB backup disabled via FOOTY_TIPPER_DB_BACKUP.")
 
     usage_outcome = sf.persist_joker_usage_if_applicable(
         db_path,
@@ -493,21 +569,25 @@ def _add_prep_mode_args(
         )
 
 
-def _add_openai_args(parser):
-    openai = parser.add_mutually_exclusive_group()
-    openai.add_argument(
-        "--use-openai",
-        dest="use_openai",
+def _add_llm_args(parser):
+    llm = parser.add_mutually_exclusive_group()
+    llm.add_argument(
+        "--with-llm",
+        dest="use_llm",
         action="store_true",
-        help="Use OpenAI-generated email text (default).",
+        help="Use Claude-generated email copy (default).",
     )
-    openai.add_argument(
-        "--without-openai",
-        dest="use_openai",
+    llm.add_argument(
+        "--no-llm",
+        dest="use_llm",
         action="store_false",
-        help="Use deterministic fallback email text instead of OpenAI.",
+        help="Use deterministic fallback email text instead of Claude.",
     )
-    parser.set_defaults(use_openai=True)
+    # Deprecated aliases kept for muscle memory; the copy comes from Claude,
+    # OpenAI is only used for the banner image.
+    llm.add_argument("--use-openai", dest="use_llm", action="store_true", help=argparse.SUPPRESS)
+    llm.add_argument("--without-openai", dest="use_llm", action="store_false", help=argparse.SUPPRESS)
+    parser.set_defaults(use_llm=True)
 
 
 def _add_lineup_args(parser, default_mode="recent", include_skip=True):
@@ -595,8 +675,13 @@ def build_parser():
         action="store_true",
         help="Skip Google Drive upload.",
     )
-    _add_openai_args(send)
+    _add_llm_args(send)
     send.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
+    send.add_argument(
+        "--force-resend",
+        action="store_true",
+        help="Send to the production list even if this round was already emailed.",
+    )
 
     predict = subparsers.add_parser("predict", help="Run full prediction workflow (prep -> infer -> send).")
     _add_season_args(predict)
@@ -619,12 +704,54 @@ def build_parser():
         ),
     )
     predict.add_argument("--skip-drive", action="store_true", help="Skip Google Drive upload during send step.")
-    _add_openai_args(predict)
+    _add_llm_args(predict)
     predict.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
+    predict.add_argument(
+        "--force-resend",
+        action="store_true",
+        help="Send to the production list even if this round was already emailed.",
+    )
 
     lineups = subparsers.add_parser("lineups", help="Run lineup ingestion only.")
     _add_season_args(lineups)
     _add_lineup_args(lineups, default_mode="recent", include_skip=False)
+
+    site = subparsers.add_parser("site", help="Generate the static tips site into docs/site/.")
+    site.add_argument(
+        "--publish",
+        action="store_true",
+        help="Commit and push docs/site after generating (for GitHub Pages).",
+    )
+
+    evaluate = subparsers.add_parser(
+        "evaluate",
+        help="Honest nested season-out evaluation (meta-layer never sees the test season).",
+    )
+    _add_season_args(evaluate)
+    evaluate.add_argument(
+        "--seasons",
+        type=int,
+        default=None,
+        help="Number of recent seasons to hold out (default: FOOTY_TIPPER_EVAL_SEASONS or 3).",
+    )
+    evaluate.add_argument(
+        "--skip-prep",
+        action="store_true",
+        help="Skip R data prep and evaluate from existing SQLite tables.",
+    )
+
+    state = subparsers.add_parser(
+        "state",
+        help="Sync DB/model state with Google Drive (used by scheduled GitHub Actions runs).",
+    )
+    state.add_argument(
+        "action",
+        choices=("push", "pull", "gate", "schedule"),
+        help=(
+            "push: upload DB+models+schedule.json; pull: download DB+models; "
+            "gate: decide send/refresh/skip from schedule.json; schedule: print local schedule"
+        ),
+    )
 
     return parser
 
@@ -668,15 +795,43 @@ def main(argv=None):
         _run_lineups(env, root)
         return 0
 
+    if args.command == "site":
+        try:
+            from pipeline.common.use_predictions import site as site_mod
+        except ModuleNotFoundError as exc:
+            missing = getattr(exc, "name", "dependency")
+            _log(f"Site generation requires project dependencies (missing: {missing}).")
+            return 1
+        db_path = root / "data" / "footy-tipper-db.sqlite"
+        site_mod.generate_site(db_path, root)
+        if args.publish:
+            return 0 if site_mod.publish_site(root) else 1
+        return 0
+
+    if args.command == "evaluate":
+        if not _model_artifacts_exist(root):
+            _log("Model artifacts are missing. Run `footy-tipper train` first; evaluate reuses their tuned hyperparameters.")
+            return 1
+        if args.seasons is not None:
+            env["FOOTY_TIPPER_EVAL_SEASONS"] = str(args.seasons)
+        eval_env = env.copy()
+        eval_env.setdefault("FOOTY_TIPPER_PREP_MODE", "train")
+        _run_evaluate(eval_env, skip_prep=args.skip_prep, root=root)
+        return 0
+
+    if args.command == "state":
+        from pipeline.ops import state_sync
+        return state_sync.main([args.action])
+
     if args.command == "send":
-        use_openai = args.use_openai
         skip_drive = args.skip_drive or args.test
         return _send_predictions(
             test_mode=args.test,
             test_email=resolved_test_email,
             skip_drive=skip_drive,
-            use_openai=use_openai,
+            use_llm=args.use_llm,
             dry_run=args.dry_run,
+            force_resend=args.force_resend,
         )
 
     if args.command == "predict":
@@ -698,8 +853,9 @@ def main(argv=None):
             test_mode=args.test,
             test_email=resolved_test_email,
             skip_drive=skip_drive,
-            use_openai=args.use_openai,
+            use_llm=args.use_llm,
             dry_run=args.dry_run,
+            force_resend=args.force_resend,
         )
 
     parser.error(f"Unknown command: {args.command}")

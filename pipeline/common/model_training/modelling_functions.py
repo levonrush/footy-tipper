@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 import sqlite3
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, FunctionTransformer
@@ -18,10 +20,45 @@ from sklearn.exceptions import ConvergenceWarning
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
 
+from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.model_training.cv import InSeasonSplit
 
 # Suppress convergence warnings
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
+
+
+def select_blend_weights_by_log_loss(y, baseline_mu_home, baseline_mu_away, model_mu_home, model_mu_away):
+    """Grid-search (w_home, w_away) minimising log-loss of the conditional win prob.
+
+    All inputs must already be filtered to the rows used for selection
+    (typically non-draw, genuinely out-of-fold rows). Log-loss is a smooth
+    proper scoring rule, so the argmin is far more stable than maximising
+    0/1 tipping accuracy. Returns (w_home, w_away, log_loss, accuracy).
+    """
+    from sklearn.metrics import log_loss as _log_loss
+
+    y = np.asarray(y, dtype=int)
+    bh = np.asarray(baseline_mu_home, dtype=float)
+    ba = np.asarray(baseline_mu_away, dtype=float)
+    mh = np.asarray(model_mu_home, dtype=float)
+    ma = np.asarray(model_mu_away, dtype=float)
+
+    candidates = np.linspace(0.0, 1.0, 11)
+    best_wh, best_wa, best_ll = 1.0, 1.0, np.inf
+    for wh in candidates:
+        blended_h = np.maximum((1.0 - wh) * bh + wh * mh, 1e-6)
+        for wa in candidates:
+            blended_a = np.maximum((1.0 - wa) * ba + wa * ma, 1e-6)
+            win_probs = np.clip(pf.conditional_home_win_prob_vec(blended_h, blended_a), 1e-6, 1 - 1e-6)
+            ll = _log_loss(y, win_probs)
+            if ll < best_ll:
+                best_ll, best_wh, best_wa = float(ll), float(wh), float(wa)
+
+    best_h = np.maximum((1.0 - best_wh) * bh + best_wh * mh, 1e-6)
+    best_a = np.maximum((1.0 - best_wa) * ba + best_wa * ma, 1e-6)
+    best_probs = pf.conditional_home_win_prob_vec(best_h, best_a)
+    best_acc = float(((best_probs > 0.5) == y.astype(bool)).mean())
+    return best_wh, best_wa, best_ll, best_acc
 
 
 def sanitize_feature_names(names):
@@ -95,7 +132,8 @@ def create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols)
         scoring=opt_metric,
         n_jobs=-1,
         verbose=1,
-        n_iter=100
+        # Env override lets retrain-A/B cycles run fast without changing defaults.
+        n_iter=int(os.getenv("FOOTY_TIPPER_TUNE_ITER", "100"))
     )
     steps.append(('hyperparamtuning', bayes))
 
@@ -149,7 +187,7 @@ def train_and_select_best_model(data, predictors, outcome_var,
     return best_pipe
 
 
-def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var):
+def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var, return_mask=False):
     """Generate out-of-fold score predictions using expanding year windows.
 
     For each year Y (starting from the 2nd year in data), trains a LightGBM with
@@ -159,6 +197,10 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var)
 
     This gives the stacker unbiased (out-of-sample) Tier-B inputs, preventing it
     from over-weighting Tier-B due to in-sample overfitting.
+
+    With `return_mask=True`, also returns a boolean array marking rows whose
+    predictions are genuinely out-of-fold (first-year/failed-fold rows are
+    in-sample fallbacks and should be excluded from meta-model training).
     """
     years = sorted(
         pd.to_numeric(data["competition_year"], errors="coerce")
@@ -201,10 +243,13 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var)
 
     # Fill NaN (first year + any failed folds) with in-sample predictions.
     nan_mask = oof_preds.isna()
+    genuine_oof = (~nan_mask).to_numpy()
     if nan_mask.any():
         in_sample = np.maximum(full_pipeline.predict(data[predictors]), 1e-6)
         oof_preds[nan_mask] = in_sample[nan_mask]
 
+    if return_mask:
+        return oof_preds.values, genuine_oof
     return oof_preds.values
 
 
@@ -232,11 +277,12 @@ def train_binary_classifier(data, predictors, outcome_var, best_params, preproce
     return binary_pipeline
 
 
-def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocessor_steps, best_params):
+def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocessor_steps, best_params, return_mask=False):
     """Generate OOF binary win/loss predictions using an expanding year window.
 
     Mirrors generate_oof_score_predictions but trains a binary classifier on
     non-draw games only. Returns an array aligned to data.index with P(home win).
+    With `return_mask=True`, also returns a boolean genuine-OOF row mask.
     """
     years = sorted(
         pd.to_numeric(data["competition_year"], errors="coerce")
@@ -278,6 +324,7 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
 
     # Fallback for first year and any failed folds: train on all non-draw data.
     nan_mask = oof_preds.isna() & nd
+    genuine_oof = (oof_preds.notna() & nd).to_numpy()
     if nan_mask.any():
         try:
             X_all_t = preprocessor_steps.transform(data.loc[nd, predictors])
@@ -290,6 +337,8 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
             oof_preds = oof_preds.fillna(0.5)
 
     oof_preds = oof_preds.fillna(0.5)
+    if return_mask:
+        return oof_preds.values, genuine_oof
     return oof_preds.values
 
 

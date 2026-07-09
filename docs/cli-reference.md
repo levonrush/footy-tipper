@@ -20,6 +20,8 @@ footy-tipper predict
 footy-tipper send
 footy-tipper send --test --test-email you@example.com
 footy-tipper send --test --dry-run
+footy-tipper evaluate --skip-prep
+footy-tipper site
 ```
 
 ## Command Details
@@ -86,8 +88,40 @@ footy-tipper send
 footy-tipper send --test --test-email levon.rush@gmail.com
 footy-tipper send --dry-run
 footy-tipper send --skip-drive
-footy-tipper send --without-openai
+footy-tipper send --no-llm
+footy-tipper send --force-resend
 ```
+
+Production sends are idempotent: each (season, round) is recorded in the
+`email_sends` table and a re-run refuses to email the list again unless
+`--force-resend` is given. After a successful production send the CLI also
+refreshes the static site (`docs/site/`) and uploads a gzipped DB backup to a
+`backups/` folder in Drive (disable with `FOOTY_TIPPER_DB_BACKUP=false`).
+
+### evaluate
+
+```bash
+footy-tipper evaluate
+footy-tipper evaluate --skip-prep --seasons 3
+```
+
+Honest nested season-out evaluation: for each held-out season the blend
+weights, stacker, and calibrator are fitted only on earlier seasons. This is
+the number to trust; the metrics printed during `train` are slightly
+optimistic because the meta-layer has seen that season's OOF rows. Requires
+existing model artifacts (it reuses their tuned hyperparameters).
+
+### site
+
+```bash
+footy-tipper site
+footy-tipper site --publish
+```
+
+Writes the static tips site (current round, per-round archive, season
+results) to `docs/site/`. `--publish` commits and pushes `docs/site` for
+GitHub Pages. Set `FOOTY_TIPPER_SITE_URL` so the email's "View This Round
+Online" button links to it.
 
 ## Useful Options
 
@@ -96,7 +130,7 @@ footy-tipper send --without-openai
 --end-year 2026
 --without-performance
 --require-odds
---without-openai
+--no-llm (alias: --without-openai)
 --prep-mode full|train|infer
 --infer-context-years 1
 --skip-lineups
@@ -112,7 +146,7 @@ Advanced env-only default:
 
 ## Defaults
 
-- OpenAI email generation is enabled by default.
+- Claude email copy generation is enabled by default (`--no-llm` for the deterministic fallback).
 - Missing odds are allowed by default.
 - Lineup ingestion runs before `prep/train/infer/predict` by default.
 - `train` auto-bootstraps historical lineup backfill once when needed.

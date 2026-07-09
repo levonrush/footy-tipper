@@ -30,6 +30,10 @@ COPY . /footy-tipper
 # Install Python packages
 RUN pip install --no-cache-dir -r requirements.txt
 
+# R packages live at a fixed path so runtime HOME changes (e.g. GitHub Actions
+# containers set HOME=/github/home) cannot hide them from .libPaths().
+ENV R_LIBS_USER=/opt/r-library
+
 # Install any needed packages specified in install.R
 RUN Rscript install.R
 
@@ -40,4 +44,4 @@ EXPOSE 80
 ENV DOCKER=true
 
 # Default command for the container
-CMD ["echo", "Specify a script to run: footy-tipper-train.py or footy-tipper-predict.py"]
+CMD ["python", "-m", "pipeline.cli", "--help"]
