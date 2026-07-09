@@ -162,7 +162,6 @@ requests-oauthlib==1.3.1
 rfc3339-validator==0.1.4
 rfc3986-validator==0.1.1
 rpds-py==0.8.10
-rpy2==3.5.15
 rsa==4.9
 s3transfer==0.6.1
 sagemaker==2.197.0
