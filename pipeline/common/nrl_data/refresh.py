@@ -85,19 +85,20 @@ def _fetch_match_centres(
     only_missing: bool = True,
     include_upcoming: bool = True,
     max_pages: int | None = None,
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[str], dict[str, int]]:
+    """Returns (pages fetched, errors, match_centre_url -> authoritative matchId)."""
     have_stats = store.games_with_team_stats(con) if only_missing else set()
     now_utc = dt.datetime.now(dt.timezone.utc).timestamp()
     upcoming_horizon = now_utc + UPCOMING_FETCH_WINDOW_DAYS * 86400
 
     pages = 0
     errors: list[str] = []
+    url_to_match_id: dict[str, int] = {}
     for fixture in fixture_rows:
-        url = fixture.get("match_centre_url")
-        if not url:
+        raw_url = fixture.get("match_centre_url")
+        if not raw_url:
             continue
-        if url.startswith("/"):
-            url = f"https://www.nrl.com{url}"
+        url = f"https://www.nrl.com{raw_url}" if raw_url.startswith("/") else raw_url
         game_id = int(float(fixture["game_id"]))
         state = fixture.get("game_state_name")
 
@@ -124,10 +125,7 @@ def _fetch_match_centres(
         if bundle is None:
             errors.append(f"{url}: no match centre payload")
             continue
-        if bundle["game_id"] != game_id:
-            errors.append(
-                f"{url}: matchId {bundle['game_id']} != fixture game_id {game_id}"
-            )
+        url_to_match_id[raw_url] = bundle["game_id"]
         store.upsert_match_bundle(
             con,
             bundle,
@@ -136,7 +134,42 @@ def _fetch_match_centres(
             team_home=fixture.get("team_home"),
             team_away=fixture.get("team_away"),
         )
-    return pages, errors
+    return pages, errors, url_to_match_id
+
+
+def _stored_match_ids_by_url(con: sqlite3.Connection) -> dict[str, int]:
+    """match_centre_url (relative) -> matchId from previously stored stats."""
+    mapping: dict[str, int] = {}
+    for source_url, game_id in con.execute(
+        "SELECT DISTINCT source_url, game_id FROM match_team_stats "
+        "WHERE source_url IS NOT NULL AND source_url != ''"
+    ):
+        relative = source_url.replace("https://www.nrl.com", "")
+        mapping[relative] = int(game_id)
+    return mapping
+
+
+def apply_game_id_corrections(
+    fixture_rows: list[dict],
+    url_to_match_id: dict[str, int],
+) -> int:
+    """Replace kickoff-order game_ids with nrl.com's own matchIds.
+
+    Finals fixtures are numbered by bracket position, not kickoff order, so
+    the reconstructed id can differ there; the match centre matchId is
+    authoritative and uses the same year|111|round|game|0 scheme.
+    """
+    corrected = 0
+    for row in fixture_rows:
+        url = row.get("match_centre_url")
+        match_id = url_to_match_id.get(url) if url else None
+        if match_id is None:
+            continue
+        if int(float(row["game_id"])) != int(match_id):
+            row["game_id"] = float(match_id)
+            row["game_number"] = float(str(int(match_id))[-2])
+            corrected += 1
+    return corrected
 
 
 def _crowd_by_game(con: sqlite3.Connection, season: int) -> dict[int, float]:
@@ -205,7 +238,7 @@ def refresh_season(
             _print(f"No fixtures returned for {season}; nothing to refresh.")
             return {"status": "no_fixtures", "season": season}
 
-        pages, errors = _fetch_match_centres(
+        pages, errors, url_to_match_id = _fetch_match_centres(
             con=con,
             session=session,
             config=config,
@@ -213,6 +246,14 @@ def refresh_season(
             season=season,
             max_pages=max_pages,
         )
+
+        # finals fixtures are numbered by bracket, not kickoff order; correct
+        # ids from this run's match centres plus previously stored ones
+        combined_ids = _stored_match_ids_by_url(con)
+        combined_ids.update(url_to_match_id)
+        corrected = apply_game_id_corrections(fixture_rows, combined_ids)
+        if corrected:
+            _print(f"Corrected {corrected} fixture game_id(s) from match centre matchIds.")
 
         # carry over columns owned by other writers (odds, crowd, broadcast)
         extras = _existing_fixture_extras(con, season)
@@ -284,7 +325,7 @@ def backfill_seasons(
             remaining = None if max_pages is None else max_pages - total_pages
             if remaining is not None and remaining <= 0:
                 break
-            pages, errors = _fetch_match_centres(
+            pages, errors, _ = _fetch_match_centres(
                 con=con,
                 session=session,
                 config=config,

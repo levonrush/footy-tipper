@@ -183,6 +183,8 @@ def fetch_weather_for_games(
                 ),
             )
             fetched += 1
+            if fetched % 50 == 0:
+                con.commit()
         con.commit()
         print(f"[nrl-data] weather: {fetched} games updated, {errors} errors.")
         return {"fetched": fetched, "errors": errors, "candidates": len(games)}

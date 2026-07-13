@@ -94,6 +94,26 @@ class DrawParsingTests(unittest.TestCase):
         )
 
 
+class GameIdCorrectionTests(unittest.TestCase):
+    def test_finals_bracket_numbering_corrected(self):
+        from pipeline.common.nrl_data.refresh import apply_game_id_corrections
+
+        rows = [
+            {"game_id": 20121112720.0, "game_number": 2.0,
+             "match_centre_url": "/draw/nrl-premiership/2012/finals-week-1/cowboys-v-broncos/"},
+            {"game_id": 20121112710.0, "game_number": 1.0,
+             "match_centre_url": "/draw/nrl-premiership/2012/finals-week-1/other/"},
+        ]
+        corrected = apply_game_id_corrections(
+            rows,
+            {"/draw/nrl-premiership/2012/finals-week-1/cowboys-v-broncos/": 20121112730},
+        )
+        self.assertEqual(corrected, 1)
+        self.assertEqual(rows[0]["game_id"], 20121112730.0)
+        self.assertEqual(rows[0]["game_number"], 3.0)
+        self.assertEqual(rows[1]["game_id"], 20121112710.0)
+
+
 class KickoffEpochTests(unittest.TestCase):
     def test_utc_epoch(self):
         kickoff = parse_kickoff_utc("2026-07-10T10:00:00Z")

@@ -27,7 +27,11 @@ from .performance import (
     load_player_sums_by_game,
     load_team_stats_by_game,
 )
-from .refresh import DEFAULT_VENUE_CSV
+from .refresh import (
+    DEFAULT_VENUE_CSV,
+    _stored_match_ids_by_url,
+    apply_game_id_corrections,
+)
 from .web import FetchConfig, build_session
 
 NUMERIC_TOLERANCE = 0.051  # one-decimal rounding differences
@@ -168,6 +172,7 @@ def validate_seasons(
     perf_coverage = ColumnTally()
 
     try:
+        stored_match_ids = _stored_match_ids_by_url(con)
         for season in range(int(start_year), int(end_year) + 1):
             fixture_rows, bye_rows = fetch_season_draw(
                 session, config, season, venue_tz
@@ -175,6 +180,7 @@ def validate_seasons(
             if not fixture_rows:
                 print(f"[nrl-data] validate: no draw data for {season}, skipping.")
                 continue
+            apply_game_id_corrections(fixture_rows, stored_match_ids)
 
             cached_fixtures = {
                 int(float(row["game_id"])): row
