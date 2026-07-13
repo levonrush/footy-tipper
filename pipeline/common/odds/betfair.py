@@ -25,7 +25,7 @@ from ..nrl_data.cache_writer import update_fixture_odds
 from . import store
 from .team_names import canonical_team
 
-IDENTITY_URL_DEFAULT = "https://identitysso.betfair.au/api/login"
+IDENTITY_URL_DEFAULT = "https://identitysso.betfair.com.au/api/login"
 BETTING_URL = "https://api.betfair.com/exchange/betting/json-rpc/v1"
 RUGBY_LEAGUE_EVENT_TYPE_ID = "1477"
 
@@ -144,26 +144,57 @@ class BetfairClient:
         return books
 
 
+# A tradeable quote needs both sides of the book and a tight spread;
+# one-sided 1.01/1000 placeholder books are noise, not prices.
+MAX_BACK_LAY_SPREAD_RATIO = 1.35
+H2H_OVERROUND_RANGE = (0.90, 1.18)
+BALANCED_ODDS_RANGE = (1.3, 3.2)
+
+
 def _mid_price(runner_book: dict) -> float | None:
+    """Two-way midpoint only; one-sided or wide books return None."""
     exchange = runner_book.get("ex") or {}
     backs = exchange.get("availableToBack") or []
     lays = exchange.get("availableToLay") or []
-    best_back = backs[0]["price"] if backs else None
-    best_lay = lays[0]["price"] if lays else None
-    if best_back and best_lay:
-        return round((best_back + best_lay) / 2, 3)
-    return best_back or best_lay
+    if not backs or not lays:
+        return None
+    best_back = backs[0].get("price")
+    best_lay = lays[0].get("price")
+    if not best_back or not best_lay or best_back <= 1.0:
+        return None
+    if best_lay / best_back > MAX_BACK_LAY_SPREAD_RATIO:
+        return None
+    return round((best_back + best_lay) / 2, 3)
 
 
 def _classify_market(market_name: str) -> str | None:
     name = market_name.strip().lower()
-    if name == "match odds":
+    if name in {"match odds", "head to head"}:
         return "h2h"
-    if "line" in name or "handicap" in name:
+    if name in {"handicap", "line"} or "handicap" in name:
         return "line"
-    if "total" in name or "over/under" in name:
+    if name in {"total points", "total match points"} or name.startswith("over/under"):
         return "totals"
     return None
+
+
+def _pick_balanced_line(lines: dict[float, tuple[float, float]]) -> float | None:
+    """Choose the active line from an Asian-style multi-line book.
+
+    `lines` maps line -> (mid_a, mid_b). The main line is where both sides
+    are priced near even money; unpriced/one-sided lines never get here.
+    """
+    best_line = None
+    best_gap = None
+    for line, (mid_a, mid_b) in lines.items():
+        low, high = BALANCED_ODDS_RANGE
+        if not (low <= mid_a <= high and low <= mid_b <= high):
+            continue
+        gap = abs(mid_a - mid_b)
+        if best_gap is None or gap < best_gap:
+            best_gap = gap
+            best_line = line
+    return best_line
 
 
 def collect_snapshots(client: BetfairClient) -> dict[tuple, dict]:
@@ -211,46 +242,76 @@ def collect_snapshots(client: BetfairClient) -> dict[tuple, dict]:
         key = (meta["home"], meta["away"], kickoff_date)
         values = snapshots.setdefault(key, {})
 
+        if meta["kind"] == "h2h":
+            mids: dict[str, float] = {}
+            for runner_book in book.get("runners", []):
+                runner_meta = meta["runners"].get(runner_book.get("selectionId"), {})
+                team = canonical_team(runner_meta.get("runnerName", ""))
+                price = _mid_price(runner_book)
+                if team and price:
+                    mids[team] = price
+            home_mid = mids.get(meta["home"])
+            away_mid = mids.get(meta["away"])
+            if home_mid and away_mid:
+                overround = 1.0 / home_mid + 1.0 / away_mid
+                if H2H_OVERROUND_RANGE[0] <= overround <= H2H_OVERROUND_RANGE[1]:
+                    values["h2h_odds_home"] = home_mid
+                    values["h2h_odds_away"] = away_mid
+            continue
+
+        # line/totals are Asian-style multi-line books: pair the two sides
+        # per handicap value, then pick the balanced (active) line
+        per_line: dict[float, dict[str, float]] = {}
         for runner_book in book.get("runners", []):
             runner_meta = meta["runners"].get(runner_book.get("selectionId"), {})
-            runner_name = runner_meta.get("runnerName", "")
+            runner_name = str(runner_meta.get("runnerName", "")).strip()
+            handicap = runner_book.get("handicap")
             price = _mid_price(runner_book)
-            if price is None:
+            if handicap is None or price is None:
                 continue
-
-            if meta["kind"] == "h2h":
-                team = canonical_team(runner_name)
-                if team == meta["home"]:
-                    values["h2h_odds_home"] = price
-                elif team == meta["away"]:
-                    values["h2h_odds_away"] = price
-            elif meta["kind"] == "line":
+            handicap = float(handicap)
+            if meta["kind"] == "line":
                 team = canonical_team(_HANDICAP_RE.sub("", runner_name).strip())
-                handicap = runner_book.get("handicap")
-                if handicap is None:
-                    match = _HANDICAP_RE.search(runner_name)
-                    handicap = float(match.group(1)) if match else None
                 if team == meta["home"]:
-                    values["line_odds_home"] = price
-                    if handicap is not None:
-                        values["line_amount_home"] = float(handicap)
+                    per_line.setdefault(handicap, {})["home"] = price
                 elif team == meta["away"]:
-                    values["line_odds_away"] = price
-            elif meta["kind"] == "totals":
-                match = _OVER_UNDER_RE.match(runner_name.strip())
-                line = None
-                if match:
-                    line = float(match.group(2))
-                elif runner_book.get("handicap"):
-                    line = float(runner_book["handicap"])
-                if line is not None:
-                    values.setdefault("total_line", line)
-                lowered = runner_name.strip().lower()
-                if lowered.startswith("over"):
-                    values["total_over_odds"] = price
-                elif lowered.startswith("under"):
-                    values["total_under_odds"] = price
-    return snapshots
+                    # away runner is listed at the mirrored handicap
+                    per_line.setdefault(-handicap, {})["away"] = price
+            else:
+                lowered = runner_name.lower()
+                side = "over" if lowered.startswith("over") else (
+                    "under" if lowered.startswith("under") else None
+                )
+                if side is None:
+                    match = _OVER_UNDER_RE.match(runner_name)
+                    side = match.group(1).lower() if match else None
+                if side:
+                    per_line.setdefault(handicap, {})[side] = price
+
+        if meta["kind"] == "line":
+            complete = {
+                line: (sides["home"], sides["away"])
+                for line, sides in per_line.items()
+                if "home" in sides and "away" in sides
+            }
+            line = _pick_balanced_line(complete)
+            if line is not None:
+                values["line_amount_home"] = line
+                values["line_odds_home"] = complete[line][0]
+                values["line_odds_away"] = complete[line][1]
+        else:
+            complete = {
+                line: (sides["over"], sides["under"])
+                for line, sides in per_line.items()
+                if "over" in sides and "under" in sides
+            }
+            line = _pick_balanced_line(complete)
+            if line is not None:
+                values["total_line"] = line
+                values["total_over_odds"] = complete[line][0]
+                values["total_under_odds"] = complete[line][1]
+
+    return {key: values for key, values in snapshots.items() if values}
 
 
 def _pre_game_fixtures(con: sqlite3.Connection) -> list[dict]:

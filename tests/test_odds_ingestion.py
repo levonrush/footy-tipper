@@ -117,26 +117,35 @@ class OddsHistoryStoreTests(unittest.TestCase):
         self.assertFalse(second)
 
 
+def _two_way(back, lay):
+    return {"availableToBack": [{"price": back}], "availableToLay": [{"price": lay}]}
+
+
 class BetfairTests(unittest.TestCase):
     def test_classify_market(self):
         self.assertEqual(_classify_market("Match Odds"), "h2h")
-        self.assertEqual(_classify_market("Line"), "line")
+        self.assertEqual(_classify_market("Head To Head"), "h2h")
+        self.assertEqual(_classify_market("Handicap"), "line")
         self.assertEqual(_classify_market("Total Points"), "totals")
         self.assertIsNone(_classify_market("First Try Scorer"))
+        self.assertIsNone(_classify_market("Half Time/Full Time"))
+        self.assertIsNone(_classify_market("Regular Time Match Odds"))
 
-    def test_mid_price(self):
-        book = {"ex": {"availableToBack": [{"price": 1.90}], "availableToLay": [{"price": 1.94}]}}
-        self.assertEqual(_mid_price(book), 1.92)
-        self.assertEqual(_mid_price({"ex": {"availableToBack": [{"price": 2.0}]}}), 2.0)
+    def test_mid_price_requires_two_way_tight_book(self):
+        self.assertEqual(_mid_price({"ex": _two_way(1.90, 1.94)}), 1.92)
+        # one-sided books are placeholder noise, not prices
+        self.assertIsNone(_mid_price({"ex": {"availableToBack": [{"price": 1.01}]}}))
         self.assertIsNone(_mid_price({"ex": {}}))
+        # wide spreads rejected
+        self.assertIsNone(_mid_price({"ex": _two_way(1.5, 2.5)}))
 
-    def test_collect_snapshots_maps_markets(self):
+    def test_collect_snapshots_multi_line_markets(self):
         class FakeClient:
             def list_nrl_markets(self):
                 return [
                     {
                         "marketId": "1.1",
-                        "marketName": "Match Odds",
+                        "marketName": "Head To Head",
                         "event": {"name": "Melbourne Storm v Gold Coast Titans",
                                   "openDate": "2026-07-12T08:15:00.000Z"},
                         "runners": [
@@ -146,12 +155,22 @@ class BetfairTests(unittest.TestCase):
                     },
                     {
                         "marketId": "1.2",
+                        "marketName": "Handicap",
+                        "event": {"name": "Melbourne Storm v Gold Coast Titans",
+                                  "openDate": "2026-07-12T08:15:00.000Z"},
+                        "runners": [
+                            {"selectionId": 3, "runnerName": "Melbourne Storm"},
+                            {"selectionId": 4, "runnerName": "Gold Coast Titans"},
+                        ],
+                    },
+                    {
+                        "marketId": "1.3",
                         "marketName": "Total Points",
                         "event": {"name": "Melbourne Storm v Gold Coast Titans",
                                   "openDate": "2026-07-12T08:15:00.000Z"},
                         "runners": [
-                            {"selectionId": 3, "runnerName": "Over 41.5"},
-                            {"selectionId": 4, "runnerName": "Under 41.5"},
+                            {"selectionId": 5, "runnerName": "Over"},
+                            {"selectionId": 6, "runnerName": "Under"},
                         ],
                     },
                 ]
@@ -161,19 +180,30 @@ class BetfairTests(unittest.TestCase):
                     {
                         "marketId": "1.1",
                         "runners": [
-                            {"selectionId": 1, "ex": {"availableToBack": [{"price": 1.38}],
-                                                       "availableToLay": [{"price": 1.42}]}},
-                            {"selectionId": 2, "ex": {"availableToBack": [{"price": 3.2}],
-                                                       "availableToLay": [{"price": 3.4}]}},
+                            {"selectionId": 1, "handicap": 0.0, "ex": _two_way(1.38, 1.42)},
+                            {"selectionId": 2, "handicap": 0.0, "ex": _two_way(3.2, 3.4)},
                         ],
                     },
                     {
                         "marketId": "1.2",
                         "runners": [
-                            {"selectionId": 3, "ex": {"availableToBack": [{"price": 1.9}],
-                                                       "availableToLay": [{"price": 1.94}]}},
-                            {"selectionId": 4, "ex": {"availableToBack": [{"price": 1.88}],
-                                                       "availableToLay": [{"price": 1.92}]}},
+                            # far line: one-sided placeholder, must be ignored
+                            {"selectionId": 3, "handicap": -20.5,
+                             "ex": {"availableToBack": [{"price": 1.01}]}},
+                            {"selectionId": 4, "handicap": 20.5, "ex": {}},
+                            # active line: balanced two-way prices
+                            {"selectionId": 3, "handicap": -6.5, "ex": _two_way(1.90, 1.94)},
+                            {"selectionId": 4, "handicap": 6.5, "ex": _two_way(1.92, 1.96)},
+                        ],
+                    },
+                    {
+                        "marketId": "1.3",
+                        "runners": [
+                            {"selectionId": 5, "handicap": 30.5,
+                             "ex": {"availableToBack": [{"price": 1.01}]}},
+                            {"selectionId": 6, "handicap": 30.5, "ex": {}},
+                            {"selectionId": 5, "handicap": 41.5, "ex": _two_way(1.9, 1.94)},
+                            {"selectionId": 6, "handicap": 41.5, "ex": _two_way(1.88, 1.92)},
                         ],
                     },
                 ]
@@ -184,9 +214,43 @@ class BetfairTests(unittest.TestCase):
         values = snapshots[key]
         self.assertEqual(values["h2h_odds_home"], 1.4)
         self.assertEqual(values["h2h_odds_away"], 3.3)
+        self.assertEqual(values["line_amount_home"], -6.5)
+        self.assertEqual(values["line_odds_home"], 1.92)
+        self.assertEqual(values["line_odds_away"], 1.94)
         self.assertEqual(values["total_line"], 41.5)
         self.assertEqual(values["total_over_odds"], 1.92)
         self.assertEqual(values["total_under_odds"], 1.9)
+
+    def test_empty_books_yield_no_snapshot(self):
+        class FakeClient:
+            def list_nrl_markets(self):
+                return [
+                    {
+                        "marketId": "1.1",
+                        "marketName": "Head To Head",
+                        "event": {"name": "Melbourne Storm v Gold Coast Titans",
+                                  "openDate": "2026-07-12T08:15:00.000Z"},
+                        "runners": [
+                            {"selectionId": 1, "runnerName": "Melbourne Storm"},
+                            {"selectionId": 2, "runnerName": "Gold Coast Titans"},
+                        ],
+                    },
+                ]
+
+            def market_books(self, market_ids):
+                return [
+                    {
+                        "marketId": "1.1",
+                        "runners": [
+                            {"selectionId": 1, "handicap": 0.0,
+                             "ex": {"availableToBack": [{"price": 1.23}]}},
+                            {"selectionId": 2, "handicap": 0.0,
+                             "ex": {"availableToBack": [{"price": 1.01}]}},
+                        ],
+                    },
+                ]
+
+        self.assertEqual(collect_snapshots(FakeClient()), {})
 
 
 if __name__ == "__main__":
