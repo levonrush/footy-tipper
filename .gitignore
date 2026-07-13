@@ -43,6 +43,9 @@ vignettes/*.pdf
 docs/*
 !docs/
 !docs/*.md
+!docs/diagrams/
+!docs/diagrams/*.mmd
+!docs/diagrams/*.svg
 !docs/site/
 !docs/site/**
 
@@ -90,6 +93,7 @@ env/
 data/*.sqlite
 data/*.sqlite3
 data/*.db
+data/backups/
 models/*.pkl
 models/*.joblib
 

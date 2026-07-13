@@ -17,6 +17,7 @@ dependencies:
   - scipy
   - beautifulsoup4
   - lxml
+  - openpyxl
   - python-dotenv
   - google-api-python-client
   - google-auth
