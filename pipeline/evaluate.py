@@ -73,6 +73,13 @@ def _load_training_frame(project_root, db_path, baseline_cfg=None):
     except Exception as exc:
         print(f"Lineup feature merge skipped ({exc}).")
 
+    try:
+        from pipeline.common.nrl_data import features as ctx
+
+        data = ctx.merge_match_context_features(data, db_path)
+    except Exception as exc:
+        print(f"Match-context feature merge skipped ({exc}).")
+
     return data, predictors
 
 

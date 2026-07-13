@@ -83,7 +83,9 @@ def insert_snapshot(
         round_id,
         source,
         snapshot_kind,
-        snapshot_time_utc,
+        # SQLite UNIQUE treats NULLs as distinct; un-timestamped workbook
+        # facts use '' so open/close rows deduplicate per game+source+kind
+        snapshot_time_utc or "",
     ]
     row.extend(values.get(field) for field in _NUMERIC_FIELDS)
     row.append(json.dumps(raw_meta) if raw_meta else None)

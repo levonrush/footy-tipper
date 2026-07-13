@@ -127,6 +127,18 @@ def main(argv: list[str] | None = None) -> int:
         _log("Fail-soft mode enabled. Continuing on cached data.")
         return 0
 
+    if args.action in {"refresh", "backfill"} and _to_bool(
+        os.getenv("FOOTY_TIPPER_WEATHER_ENABLED"), True
+    ):
+        try:
+            from pipeline.common.nrl_data import weather
+
+            weather.fetch_weather_for_games(
+                db_path, refresh_upcoming=(args.action == "refresh")
+            )
+        except Exception as exc:
+            _log(f"Weather fetch skipped ({exc}).")
+
     errors = result.get("errors") or []
     if errors:
         _log(f"nrl.com ingestion captured {len(errors)} errors (first: {errors[0]}).")

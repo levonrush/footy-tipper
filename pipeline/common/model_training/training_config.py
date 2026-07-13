@@ -245,6 +245,78 @@ predictors += [
     "baseline_home_win_prob_conditional",
 ]
 
+# Match-context families from the nrl.com ingestion (pipeline/common/nrl_data
+# features + lineups player form). Built in Python and merged on game_id;
+# form_ prefix obeys the FOOTY_TIPPER_INCLUDE_MATCH_FORM toggle.
+_form_stats = [
+    "possession_pct",
+    "completion_rate",
+    "all_run_metres",
+    "post_contact_metres",
+    "line_breaks",
+    "tackle_breaks",
+    "offloads",
+    "kicking_metres",
+    "effective_tackle_pct",
+    "missed_tackles",
+    "errors",
+    "penalties_conceded",
+]
+predictors += [
+    f"form_{stat}_{suffix}"
+    for stat in _form_stats
+    for suffix in ("home", "away", "delta")
+]
+predictors += [
+    "form_features_missing_home",
+    "form_features_missing_away",
+]
+
+predictors += [
+    "referee_name",
+    "ref_games_officiated",
+    "ref_penalty_rate_ewma",
+    "ref_sin_bin_rate_ewma",
+    "ref_missing",
+]
+
+predictors += [
+    "wx_temp",
+    "wx_rain_3h",
+    "wx_rain_24h",
+    "wx_wind",
+    "wx_humidity",
+    "wx_wet",
+    "ground_condition",
+    "weather_missing",
+]
+
+predictors += [
+    "travel_km_home",
+    "travel_km_away",
+    "travel_km_delta",
+    "tz_shift_home",
+    "tz_shift_away",
+    "travel_missing",
+]
+
+_player_form_stats = ["fantasy", "run_metres", "tackles", "errors", "involvements"]
+predictors += [
+    f"lineup_form_{stat}_{side}"
+    for stat in _player_form_stats
+    for side in ("home", "away")
+]
+predictors += [
+    "lineup_form_coverage_home",
+    "lineup_form_coverage_away",
+    "lineup_form_missing_home",
+    "lineup_form_missing_away",
+    "lineup_spine_form_fantasy_home",
+    "lineup_spine_form_fantasy_away",
+    "lineup_form_fantasy_delta",
+    "lineup_spine_form_fantasy_delta",
+]
+
 # Predictors that should be treated as categorical if missing from the source
 # data and created as fallback columns.
 categorical_predictors = {
@@ -260,13 +332,28 @@ categorical_predictors = {
     "team_home",
     "team_away",
     "game_day",
+    "referee_name",
+    "ground_condition",
 }
 
-def filter_predictors(include_performance=True, predictor_list=predictors):
-    if include_performance:
-        return predictor_list
-    else:
-        return [p for p in predictor_list if "_performance" not in p]
+include_match_form = os.getenv(
+    "FOOTY_TIPPER_INCLUDE_MATCH_FORM", "true"
+).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def filter_predictors(
+    include_performance=True,
+    predictor_list=predictors,
+    include_form=None,
+):
+    if include_form is None:
+        include_form = include_match_form
+    filtered = list(predictor_list)
+    if not include_performance:
+        filtered = [p for p in filtered if "_performance" not in p]
+    if not include_form:
+        filtered = [p for p in filtered if not p.startswith("form_")]
+    return filtered
 
 
 sparse_feature_whitelist = {
@@ -275,6 +362,18 @@ sparse_feature_whitelist = {
     "performance_home_missing",
     "performance_away_missing",
     "performance_features_missing",
+    "form_features_missing_home",
+    "form_features_missing_away",
+    "ref_missing",
+    "wx_wet",
+    "weather_missing",
+    "tz_shift_home",
+    "tz_shift_away",
+    "travel_missing",
+    "lineup_form_missing_home",
+    "lineup_form_missing_away",
+    "lineup_form_coverage_home",
+    "lineup_form_coverage_away",
     "baseline_mu_home",
     "baseline_mu_away",
     "baseline_draw_prob",
