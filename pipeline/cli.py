@@ -102,6 +102,104 @@ def _run_lineups(env, root):
     _run_command([sys.executable, str(root / "pipeline" / "lineups.py")], env, cwd=root)
 
 
+def _run_nrl_data(env, root, action, extra_args=None):
+    cmd = [sys.executable, str(root / "pipeline" / "nrl_data.py"), action]
+    if extra_args:
+        cmd.extend(extra_args)
+    _run_command(cmd, env, cwd=root)
+
+
+def _run_odds(env, root, action, extra_args=None):
+    cmd = [sys.executable, str(root / "pipeline" / "odds.py"), action]
+    if extra_args:
+        cmd.extend(extra_args)
+    _run_command(cmd, env, cwd=root)
+
+
+def _feed_source(env):
+    return str(env.get("FOOTY_TIPPER_FEED_SOURCE", "python")).strip().lower() or "python"
+
+
+def _nrl_data_enabled(env):
+    return _to_bool(env.get("FOOTY_TIPPER_NRL_DATA_ENABLED"), True)
+
+
+def _nrl_backfill_bootstrapped(root: pathlib.Path) -> bool:
+    db_path = root / "data" / "footy-tipper-db.sqlite"
+    if not db_path.exists():
+        return False
+    try:
+        with sqlite3.connect(str(db_path)) as con:
+            row = con.execute(
+                """
+                SELECT 1 FROM sqlite_master WHERE type = 'table'
+                  AND name = 'nrl_ingest_runs'
+                """
+            ).fetchone()
+            if not row:
+                return False
+            row = con.execute(
+                """
+                SELECT 1 FROM nrl_ingest_runs
+                WHERE mode = 'backfill'
+                  AND status IN ('completed', 'completed_with_errors')
+                LIMIT 1
+                """
+            ).fetchone()
+            return bool(row)
+    except Exception:
+        return False
+
+
+def _odds_backfill_bootstrapped(root: pathlib.Path) -> bool:
+    db_path = root / "data" / "footy-tipper-db.sqlite"
+    if not db_path.exists():
+        return False
+    try:
+        with sqlite3.connect(str(db_path)) as con:
+            row = con.execute(
+                """
+                SELECT 1 FROM sqlite_master WHERE type = 'table'
+                  AND name = 'odds_history'
+                """
+            ).fetchone()
+            if not row:
+                return False
+            row = con.execute(
+                "SELECT 1 FROM odds_history WHERE source = 'aussportsbetting' LIMIT 1"
+            ).fetchone()
+            return bool(row)
+    except Exception:
+        return False
+
+
+def _refresh_nrl_data(env, root, include_bootstrap=False):
+    """Run nrl.com + odds ingestion ahead of R data prep.
+
+    Skipped entirely in legacy feed mode (R fetches the XML feed itself).
+    Individual steps fail soft; prep proceeds on cached data.
+    """
+    if _feed_source(env) == "feed":
+        _log("Feed source is 'feed'; skipping nrl.com ingestion (legacy XML path).")
+        return
+    if not _nrl_data_enabled(env):
+        _log("nrl.com ingestion disabled via FOOTY_TIPPER_NRL_DATA_ENABLED=false.")
+        return
+
+    if include_bootstrap and _to_bool(
+        env.get("FOOTY_TIPPER_NRL_DATA_AUTO_BACKFILL"), True
+    ):
+        if not _nrl_backfill_bootstrapped(root):
+            _log("Historical match-stats backfill not found. Running one-time nrl.com backfill.")
+            _run_nrl_data(env, root, "backfill")
+        if not _odds_backfill_bootstrapped(root):
+            _log("Historical odds backfill not found. Running one-time odds backfill.")
+            _run_odds(env, root, "backfill")
+
+    _run_nrl_data(env, root, "refresh")
+    _run_odds(env, root, "live")
+
+
 def _to_bool(value, default):
     if value is None:
         return default
@@ -595,6 +693,14 @@ def _add_llm_args(parser):
     parser.set_defaults(use_llm=True)
 
 
+def _add_nrl_data_args(parser):
+    parser.add_argument(
+        "--skip-nrl-data",
+        action="store_true",
+        help="Skip nrl.com data + odds refresh before this command.",
+    )
+
+
 def _add_lineup_args(parser, default_mode="recent", include_skip=True):
     if include_skip:
         parser.add_argument(
@@ -642,6 +748,7 @@ def build_parser():
     _add_season_args(prep)
     _add_prep_mode_args(prep, default_mode="full", choices=("full", "train", "infer"))
     _add_lineup_args(prep, default_mode="recent")
+    _add_nrl_data_args(prep)
 
     train = subparsers.add_parser("train", help="Run training workflow.")
     _add_season_args(train)
@@ -652,12 +759,14 @@ def build_parser():
         include_infer_context_arg=False,
     )
     _add_lineup_args(train, default_mode="recent")
+    _add_nrl_data_args(train)
     train.add_argument("--skip-prep", action="store_true", help="Skip R data prep and train from existing SQLite tables.")
 
     infer = subparsers.add_parser("infer", help="Run inference workflow.")
     _add_season_args(infer)
     _add_prep_mode_args(infer, default_mode="infer", choices=("infer", "full"))
     _add_lineup_args(infer, default_mode="recent")
+    _add_nrl_data_args(infer)
     infer.add_argument("--skip-prep", action="store_true", help="Skip R data prep and infer from existing SQLite tables.")
     infer.add_argument(
         "--skip-auto-train",
@@ -692,6 +801,7 @@ def build_parser():
     _add_season_args(predict)
     _add_prep_mode_args(predict, default_mode="infer", choices=("infer", "full"))
     _add_lineup_args(predict, default_mode="recent")
+    _add_nrl_data_args(predict)
     predict.add_argument("--skip-prep", action="store_true", help="Skip R data prep.")
     predict.add_argument("--skip-send", action="store_true", help="Skip send step after inference.")
     predict.add_argument(
@@ -720,6 +830,39 @@ def build_parser():
     lineups = subparsers.add_parser("lineups", help="Run lineup ingestion only.")
     _add_season_args(lineups)
     _add_lineup_args(lineups, default_mode="recent", include_skip=False)
+
+    nrl_data = subparsers.add_parser(
+        "nrl-data",
+        help="nrl.com data ingestion: refresh caches, historical backfill, or parity validation.",
+    )
+    nrl_data.add_argument(
+        "action",
+        choices=("refresh", "backfill", "validate"),
+        help=(
+            "refresh: current season draw + match centres + derived caches; "
+            "backfill: historical match centres (2012+); "
+            "validate: parity report vs cached feed history (no writes)"
+        ),
+    )
+    nrl_data.add_argument("--start-year", type=int, default=None)
+    nrl_data.add_argument("--end-year", type=int, default=None)
+    nrl_data.add_argument("--season", type=int, default=None, help="refresh: season override.")
+    nrl_data.add_argument("--max-pages", type=int, default=None, help="Cap match centre pages this run.")
+    nrl_data.add_argument("--report-path", default=None, help="validate: CSV report destination.")
+    nrl_data.add_argument("--strict", action="store_true", help="Fail non-zero on ingestion errors.")
+
+    odds = subparsers.add_parser(
+        "odds",
+        help="Odds ingestion: Betfair live snapshot or aussportsbetting historical backfill.",
+    )
+    odds.add_argument(
+        "action",
+        choices=("live", "backfill"),
+        help="live: Betfair snapshot for upcoming games; backfill: historical xlsx",
+    )
+    odds.add_argument("--xlsx-path", default=None, help="backfill: local workbook override.")
+    odds.add_argument("--url", default=None, help="backfill: workbook URL override.")
+    odds.add_argument("--strict", action="store_true", help="Fail non-zero on errors.")
 
     site = subparsers.add_parser("site", help="Generate the static tips site into docs/site/.")
     site.add_argument(
@@ -773,6 +916,8 @@ def main(argv=None):
     if args.command == "prep":
         if not args.skip_lineups:
             _run_lineups(env, root)
+        if not args.skip_nrl_data:
+            _refresh_nrl_data(env, root)
         _run_data_prep(env, root)
         return 0
 
@@ -780,12 +925,16 @@ def main(argv=None):
         if not args.skip_lineups:
             _bootstrap_lineups_for_training_if_needed(env, root)
             _run_lineups(env, root)
+        if not args.skip_nrl_data and not args.skip_prep:
+            _refresh_nrl_data(env, root, include_bootstrap=True)
         _run_train(env, skip_prep=args.skip_prep, root=root)
         return 0
 
     if args.command == "infer":
         if not args.skip_lineups:
             _run_lineups(env, root)
+        if not args.skip_nrl_data and not args.skip_prep:
+            _refresh_nrl_data(env, root)
         if not _ensure_models_for_prediction(
             env,
             root,
@@ -798,6 +947,34 @@ def main(argv=None):
 
     if args.command == "lineups":
         _run_lineups(env, root)
+        return 0
+
+    if args.command == "nrl-data":
+        extra = []
+        if args.start_year is not None:
+            extra.extend(["--start-year", str(args.start_year)])
+        if args.end_year is not None:
+            extra.extend(["--end-year", str(args.end_year)])
+        if args.season is not None:
+            extra.extend(["--season", str(args.season)])
+        if args.max_pages is not None:
+            extra.extend(["--max-pages", str(args.max_pages)])
+        if args.report_path:
+            extra.extend(["--report-path", args.report_path])
+        if args.strict:
+            extra.append("--strict")
+        _run_nrl_data(env, root, args.action, extra)
+        return 0
+
+    if args.command == "odds":
+        extra = []
+        if args.xlsx_path:
+            extra.extend(["--xlsx-path", args.xlsx_path])
+        if args.url:
+            extra.extend(["--url", args.url])
+        if args.strict:
+            extra.append("--strict")
+        _run_odds(env, root, args.action, extra)
         return 0
 
     if args.command == "site":
@@ -842,6 +1019,8 @@ def main(argv=None):
     if args.command == "predict":
         if not args.skip_lineups:
             _run_lineups(env, root)
+        if not args.skip_nrl_data and not args.skip_prep:
+            _refresh_nrl_data(env, root)
         if not _ensure_models_for_prediction(
             env,
             root,

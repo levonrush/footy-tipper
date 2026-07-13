@@ -401,7 +401,9 @@ market_features <- function(data) {
       "home_line_cover_prob_power", "away_line_cover_prob_power", "line_overround_power",
       "home_line_cover_prob_shin", "away_line_cover_prob_shin",
       "line_market_logit_home_basic", "line_market_logit_home_power",
-      "implied_spread_home", "implied_spread_away", "implied_spread_diff"
+      "implied_spread_home", "implied_spread_away", "implied_spread_diff",
+      "market_total_line", "total_over_prob_basic", "total_under_prob_basic",
+      "totals_overround", "market_total_logit"
     )))
 
   h2h_basic <- t(mapply(
@@ -434,6 +436,17 @@ market_features <- function(data) {
     compute_fair_probs_shin,
     data$team_line_odds_home,
     data$team_line_odds_away
+  ))
+
+  # Totals (over/under) market: same de-vig math as H2H, over vs under.
+  # Columns arrive via the odds ingestion (aussportsbetting/Betfair) and are
+  # absent under the legacy feed, so read them tolerantly.
+  total_over_raw <- col_or_na(data, "total_over_odds")
+  total_under_raw <- col_or_na(data, "total_under_odds")
+  totals_basic <- t(mapply(
+    compute_fair_probs_basic,
+    total_over_raw,
+    total_under_raw
   ))
 
   data <- data %>%
@@ -475,16 +488,108 @@ market_features <- function(data) {
       line_market_logit_home_power = safe_logit(home_line_cover_prob_power),
       implied_spread_home = suppressWarnings(as.numeric(team_line_amount_home)),
       implied_spread_away = suppressWarnings(as.numeric(team_line_amount_away)),
-      implied_spread_diff = implied_spread_home - implied_spread_away
+      implied_spread_diff = implied_spread_home - implied_spread_away,
+
+      market_total_line = suppressWarnings(as.numeric(col_or_na(data, "total_line"))),
+      total_over_prob_basic = as.numeric(totals_basic[, 1]),
+      total_under_prob_basic = as.numeric(totals_basic[, 2]),
+      totals_overround = as.numeric(totals_basic[, 3]),
+      market_total_logit = safe_logit(total_over_prob_basic)
     )
 
   return(data)
 }
 
+# Odds movement features from the odds_history ledger (earliest vs latest
+# observation per game). Fails soft to NA + flag when the table is absent
+# (legacy feed mode) or a game has fewer than two observations.
+market_movement_features <- function(data, db_path = NULL) {
+  data <- data %>%
+    select(-any_of(c("h2h_move_logit", "line_move_points", "movement_missing")))
+
+  empty <- function(data) {
+    data %>%
+      mutate(
+        h2h_move_logit = NA_real_,
+        line_move_points = NA_real_,
+        movement_missing = 1L
+      )
+  }
+
+  if (is.null(db_path) || !file.exists(db_path)) {
+    return(empty(data))
+  }
+
+  con <- dbConnect(SQLite(), db_path)
+  on.exit(dbDisconnect(con), add = TRUE)
+  if (!dbExistsTable(con, "odds_history")) {
+    return(empty(data))
+  }
+
+  movement <- dbGetQuery(con, "
+    WITH ordered AS (
+      SELECT game_id,
+             h2h_odds_home, h2h_odds_away, line_amount_home,
+             ROW_NUMBER() OVER (
+               PARTITION BY game_id
+               ORDER BY CASE snapshot_kind
+                 WHEN 'open' THEN 0 WHEN 'live' THEN 1 ELSE 2 END ASC, id ASC
+             ) AS rn_first,
+             ROW_NUMBER() OVER (
+               PARTITION BY game_id
+               ORDER BY CASE snapshot_kind
+                 WHEN 'open' THEN 0 WHEN 'live' THEN 1 ELSE 2 END DESC, id DESC
+             ) AS rn_last
+      FROM odds_history
+      WHERE h2h_odds_home IS NOT NULL OR line_amount_home IS NOT NULL
+    )
+    SELECT f.game_id,
+           f.h2h_odds_home AS open_h2h_home, f.h2h_odds_away AS open_h2h_away,
+           f.line_amount_home AS open_line_home,
+           l.h2h_odds_home AS last_h2h_home, l.h2h_odds_away AS last_h2h_away,
+           l.line_amount_home AS last_line_home
+    FROM ordered f
+    JOIN ordered l ON l.game_id = f.game_id AND l.rn_last = 1
+    WHERE f.rn_first = 1
+  ")
+
+  if (nrow(movement) == 0) {
+    return(empty(data))
+  }
+
+  fair_home_prob <- function(home_odds, away_odds) {
+    q_home <- suppressWarnings(1 / as.numeric(home_odds))
+    q_away <- suppressWarnings(1 / as.numeric(away_odds))
+    ifelse(
+      is.na(q_home) | is.na(q_away) | (q_home + q_away) <= 0,
+      NA_real_,
+      q_home / (q_home + q_away)
+    )
+  }
+
+  movement <- movement %>%
+    mutate(
+      game_id = suppressWarnings(as.numeric(game_id)),
+      h2h_move_logit = safe_logit(fair_home_prob(last_h2h_home, last_h2h_away)) -
+        safe_logit(fair_home_prob(open_h2h_home, open_h2h_away)),
+      line_move_points = suppressWarnings(as.numeric(last_line_home)) -
+        suppressWarnings(as.numeric(open_line_home))
+    ) %>%
+    select(game_id, h2h_move_logit, line_move_points)
+
+  data %>%
+    mutate(game_id_join = suppressWarnings(as.numeric(game_id))) %>%
+    left_join(movement, by = c("game_id_join" = "game_id")) %>%
+    select(-game_id_join) %>%
+    mutate(
+      movement_missing = as.integer(is.na(h2h_move_logit) & is.na(line_move_points))
+    )
+}
+
 missingness_flags <- function(data) {
   data <- data %>%
     select(-any_of(c(
-      "odds_missing", "line_odds_missing", "market_features_missing",
+      "odds_missing", "line_odds_missing", "market_features_missing", "totals_missing",
       "performance_home_missing", "performance_away_missing", "performance_features_missing"
     )))
 
@@ -507,6 +612,7 @@ missingness_flags <- function(data) {
     mutate(
       odds_missing = as.integer(is.na(team_head_to_head_odds_home) | is.na(team_head_to_head_odds_away)),
       line_odds_missing = as.integer(is.na(team_line_odds_home) | is.na(team_line_odds_away)),
+      totals_missing = as.integer(is.na(col_or_na(data, "total_over_odds")) | is.na(col_or_na(data, "total_under_odds"))),
       market_features_missing = as.integer(is.na(home_market_prob_basic) | is.na(home_line_cover_prob_basic)),
       performance_home_missing = home_perf_missing,
       performance_away_missing = away_perf_missing,
@@ -692,10 +798,10 @@ matchup_form <- function(data, form_period){
 }
 
 # The 'feature_engineering' function is a wrapper function that applies multiple data transformation and feature engineering functions on the input data
-feature_engineering <- function(data, form_period){
+feature_engineering <- function(data, form_period, db_path = NULL){
 
   print("Feature Engineering: Calculating Season Statistics...")
- 
+
   data <- data %>%
     easy_pickings() %>%
     turn_around() %>%
@@ -705,6 +811,7 @@ feature_engineering <- function(data, form_period){
     state_of_origin() %>%
     get_previous_results() %>%
     market_features() %>%
+    market_movement_features(db_path = db_path) %>%
     missingness_flags() %>%
     delta_features()
 
