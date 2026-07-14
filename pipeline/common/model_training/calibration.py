@@ -14,21 +14,34 @@ MAX_SPREAD_DISAGREEMENT = 30.0
 # the shared L2 penalty treats it comparably to the logit-scale features.
 SPREAD_DISAGREEMENT_SCALE = 10.0
 
+# Typical NRL total for centring the market total line.
+TOTAL_LINE_CENTER = 40.0
+TOTAL_LINE_SCALE = 10.0
+
 LINE_MARKET_FEATURE_NAMES = [
     "line_cover_logit",
     "line_overround_centered",
     "spread_disagreement",
     "line_missing",
+    "h2h_move_logit",
+    "line_move_points",
+    "total_line_centered",
+    "totals_missing",
 ]
+
+# Bumped when the extra-feature layout changes; pinned into the manifest so
+# inference can detect a stacker trained on a different layout.
+MARKET_EXTRA_VERSION = 2
 
 
 def build_line_market_features(df, model_margin):
-    """Line/spread-market meta-features for the stacker.
+    """Market meta-features for the stacker's extra channel.
 
     The handicap market is the bookmaker's own margin model; these features
-    let the stacker weigh it and the model's disagreement with it. All values
-    fail soft to zeros (with the missing flag set) when line columns are
-    absent, so offseason frames and old databases keep working.
+    let the stacker weigh it and the model's disagreement with it, plus odds
+    movement (open vs latest, from odds_history via R) and the totals market
+    line. All values fail soft to zeros (with missing flags set) when columns
+    are absent, so offseason frames and old databases keep working.
     """
     n = len(df)
     model_margin = np.asarray(model_margin, dtype=float)
@@ -57,12 +70,28 @@ def build_line_market_features(df, model_margin):
     )
     disagreement = np.where(missing > 0, 0.0, disagreement)
 
+    h2h_move = _col("h2h_move_logit")
+    line_move = _col("line_move_points")
+
+    total_line = _col("market_total_line")
+    if total_line.isna().all():
+        total_line = _col("total_line")
+    totals_missing = total_line.isna().to_numpy(dtype=float)
+
     X = np.column_stack(
         [
             np.where(cover.isna().to_numpy(), 0.0, _safe_logit(cover.fillna(0.5))),
             np.nan_to_num(overround.to_numpy(dtype=float) - 1.0, nan=0.0) * 10.0,
             disagreement / SPREAD_DISAGREEMENT_SCALE,
             missing,
+            np.clip(np.nan_to_num(h2h_move.to_numpy(dtype=float), nan=0.0), -2.0, 2.0),
+            np.clip(np.nan_to_num(line_move.to_numpy(dtype=float), nan=0.0), -12.0, 12.0)
+            / SPREAD_DISAGREEMENT_SCALE,
+            np.nan_to_num(
+                (total_line.to_numpy(dtype=float) - TOTAL_LINE_CENTER) / TOTAL_LINE_SCALE,
+                nan=0.0,
+            ),
+            totals_missing,
         ]
     )
     assert X.shape == (n, len(LINE_MARKET_FEATURE_NAMES))

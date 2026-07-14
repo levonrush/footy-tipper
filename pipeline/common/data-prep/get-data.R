@@ -298,6 +298,12 @@ get_data <- function(year_span, include_performance = TRUE, prep_mode = "full", 
   current_year <- as.integer(format(Sys.Date(), "%Y"))
   requested_years <- normalize_year_vector(year_span)
 
+  # "python": the nrl.com ingestion (pipeline/common/nrl_data) writes the
+  # feed_cache_* tables before prep runs; R only reads the caches.
+  # "feed": legacy XML feed fetch below (requires PASSWORD/BASE_URL secrets).
+  feed_source <- tolower(Sys.getenv("FOOTY_TIPPER_FEED_SOURCE", unset = "python"))
+  use_legacy_feed <- identical(feed_source, "feed")
+
   con <- dbConnect(SQLite(), db_path)
   on.exit(dbDisconnect(con), add = TRUE)
 
@@ -312,14 +318,18 @@ get_data <- function(year_span, include_performance = TRUE, prep_mode = "full", 
     current_year,
     refresh_mode = refresh_mode
   )
-  print(paste0("Get Data: Fixture refresh years = ", format_year_vector(fixture_refresh_years)))
-  refresh_feed_cache_years(
-    con,
-    fixture_cache_table,
-    fixture_refresh_years,
-    function(year) fetch_fixture_year(password, year),
-    "fixture"
-  )
+  if (use_legacy_feed) {
+    print(paste0("Get Data: Fixture refresh years = ", format_year_vector(fixture_refresh_years)))
+    refresh_feed_cache_years(
+      con,
+      fixture_cache_table,
+      fixture_refresh_years,
+      function(year) fetch_fixture_year(password, year),
+      "fixture"
+    )
+  } else {
+    print("Get Data: Feed source is python; reading fixture cache without fetching.")
+  }
 
   fixtures_df <- load_cached_feed(con, fixture_cache_table, requested_years)
   if (nrow(fixtures_df) == 0){
@@ -342,14 +352,18 @@ get_data <- function(year_span, include_performance = TRUE, prep_mode = "full", 
     current_year,
     refresh_mode = refresh_mode
   )
-  print(paste0("Get Data: Ladder refresh years = ", format_year_vector(ladder_refresh_years)))
-  refresh_feed_cache_years(
-    con,
-    ladder_cache_table,
-    ladder_refresh_years,
-    function(year) fetch_ladder_year(password, year),
-    "ladder"
-  )
+  if (use_legacy_feed) {
+    print(paste0("Get Data: Ladder refresh years = ", format_year_vector(ladder_refresh_years)))
+    refresh_feed_cache_years(
+      con,
+      ladder_cache_table,
+      ladder_refresh_years,
+      function(year) fetch_ladder_year(password, year),
+      "ladder"
+    )
+  } else {
+    print("Get Data: Feed source is python; reading ladder cache without fetching.")
+  }
 
   ladders_raw <- load_cached_feed(con, ladder_cache_table, available_years)
   if (nrow(ladders_raw) == 0){
@@ -427,14 +441,18 @@ get_data <- function(year_span, include_performance = TRUE, prep_mode = "full", 
       current_year,
       refresh_mode = refresh_mode
     )
-    print(paste0("Get Data: Performance refresh years = ", format_year_vector(performance_refresh_years)))
-    refresh_feed_cache_years(
-      con,
-      performance_cache_table,
-      performance_refresh_years,
-      function(year) fetch_performance_year(password, year),
-      "performance"
-    )
+    if (use_legacy_feed) {
+      print(paste0("Get Data: Performance refresh years = ", format_year_vector(performance_refresh_years)))
+      refresh_feed_cache_years(
+        con,
+        performance_cache_table,
+        performance_refresh_years,
+        function(year) fetch_performance_year(password, year),
+        "performance"
+      )
+    } else {
+      print("Get Data: Feed source is python; reading performance cache without fetching.")
+    }
 
     performance_df <- load_cached_feed(con, performance_cache_table, available_years)
     

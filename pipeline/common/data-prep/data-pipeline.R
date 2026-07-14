@@ -23,7 +23,7 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
       fixture_result(pipeline = pipeline)
 
     footy_tipping_data <- footy_tipping_data %>%
-      feature_engineering(form_period = form_period)
+      feature_engineering(form_period = form_period, db_path = db_path)
 
     footy_tipping_data <- footy_tipping_data %>%
       elo_variables(

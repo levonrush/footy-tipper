@@ -44,3 +44,12 @@ carry_over <- 0.5
 include_performance <- TRUE
 include_performance_env <- tolower(Sys.getenv("FOOTY_TIPPER_INCLUDE_PERFORMANCE", unset = "true"))
 include_performance <- include_performance_env %in% c("1", "true", "yes", "y")
+
+# Data source for the feed_cache_* tables:
+# - "python": caches are written upstream by the nrl.com ingestion
+#   (pipeline/common/nrl_data); R reads them without fetching.
+# - "feed": legacy XML feed fetch inside get_data() (requires PASSWORD/BASE_URL).
+feed_source <- tolower(Sys.getenv("FOOTY_TIPPER_FEED_SOURCE", unset = "python"))
+if (!feed_source %in% c("python", "feed")) {
+  stop("Invalid FOOTY_TIPPER_FEED_SOURCE. Use one of: python, feed.")
+}

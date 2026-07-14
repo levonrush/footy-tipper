@@ -130,6 +130,14 @@ except Exception as exc:
         "set FOOTY_TIPPER_LINEUP_FEATURES_STRICT=true to make this fatal."
     )
 
+print("Merging match-context features (form/referee/weather/travel + player form)")
+try:
+    from pipeline.common.nrl_data import features as ctx
+
+    inference_data = ctx.merge_match_context_features(inference_data, db_path)
+except Exception as exc:
+    print(f"Match-context feature merge skipped ({exc}).")
+
 inference_data = tc.align_predictor_columns(inference_data, predictors)
 
 home_model_mu = np.maximum(pf.predict_scores(home_model, inference_data[predictors]), 1e-6)
@@ -182,6 +190,19 @@ if binary_model is not None:
 
 line_extra = calib.build_line_market_features(inference_data, blended_mu_home - blended_mu_away)
 
+manifest_extra_version = manifest.get("market_extra_version")
+if manifest_extra_version is not None and int(manifest_extra_version) != calib.MARKET_EXTRA_VERSION:
+    print(
+        "WARNING: stacker market-extra layout mismatch "
+        f"(manifest v{manifest_extra_version} vs code v{calib.MARKET_EXTRA_VERSION}). "
+        "Retrain before trusting stacked probabilities."
+    )
+if len(line_extra) > 0 and not np.any(line_extra):
+    print(
+        "WARNING: all stacker market extras are zero for this batch "
+        "(no line/totals/movement data reached inference)."
+    )
+
 if stacker is not None:
     stacked_cond = stacker.predict(
         tier_a_cond, tier_b_cond, market_cond, odds_missing, tier_c=tier_c_cond, extra=line_extra
@@ -216,6 +237,35 @@ if isinstance(margin_blend, dict):
     except Exception as exc:
         print(f"Margin blend skipped ({exc}).")
         margin_override = None
+
+# Totals blend from the manifest: shrink the model's expected total toward
+# the totals market line, preserving the margin split, before simulation.
+total_blend = manifest.get("total_blend")
+if isinstance(total_blend, dict):
+    try:
+        market_total_arr = pd.to_numeric(
+            inference_data.get("market_total_line", np.nan), errors="coerce"
+        ).to_numpy(dtype=float)
+        model_total = blended_mu_home + blended_mu_away
+        blended_total = (
+            float(total_blend.get("intercept", 0.0))
+            + float(total_blend.get("coef_model_total", 0.0)) * model_total
+            + float(total_blend.get("coef_market_total", 0.0)) * market_total_arr
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            total_scale = np.where(
+                np.isfinite(blended_total) & (model_total > 1e-6),
+                blended_total / model_total,
+                1.0,
+            )
+        # sanity clamp: the totals market should nudge lambdas, not rewrite them
+        total_scale = np.clip(total_scale, 0.75, 1.35)
+        blended_mu_home = np.maximum(blended_mu_home * total_scale, 1e-6)
+        blended_mu_away = np.maximum(blended_mu_away * total_scale, 1e-6)
+        n_total = int(np.sum(np.abs(total_scale - 1.0) > 1e-9))
+        print(f"Total blend rescaled lambdas for {n_total}/{len(inference_data)} game(s) with totals lines.")
+    except Exception as exc:
+        print(f"Total blend skipped ({exc}).")
 
 outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     inference_data=inference_data,

@@ -121,13 +121,20 @@ append_odds_snapshots <- function(con, footy_tipping_data) {
         "game_id", "competition_year", "round_id", "round_name", "start_time",
         "team_home", "team_away",
         "team_head_to_head_odds_home", "team_line_odds_home", "team_line_amount_home",
-        "team_head_to_head_odds_away", "team_line_odds_away", "team_line_amount_away"
+        "team_head_to_head_odds_away", "team_line_odds_away", "team_line_amount_away",
+        "total_line", "total_over_odds", "total_under_odds"
       ))
     ) %>%
     mutate(snapshot_time_utc = snapshot_ts)
 
   if (nrow(odds_snapshots) == 0) {
     return(invisible(NULL))
+  }
+
+  # Align both ways so new market columns (totals) auto-ALTER onto the
+  # pre-existing snapshot table instead of failing the append.
+  if (dbExistsTable(con, "odds_snapshots")) {
+    odds_snapshots <- align_cache_columns_to_table(con, "odds_snapshots", odds_snapshots)
   }
 
   dbWriteTable(con, "odds_snapshots", odds_snapshots, append = dbExistsTable(con, "odds_snapshots"))

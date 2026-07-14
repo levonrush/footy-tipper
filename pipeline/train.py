@@ -146,6 +146,14 @@ except Exception as exc:
         "set FOOTY_TIPPER_LINEUP_FEATURES_STRICT=true to make this fatal."
     )
 
+print("Merging match-context features (form/referee/weather/travel + player form)")
+try:
+    from pipeline.common.nrl_data import features as ctx
+
+    training_data = ctx.merge_match_context_features(training_data, db_path)
+except Exception as exc:
+    print(f"Match-context feature merge skipped ({exc}).")
+
 training_data = tc.align_predictor_columns(training_data, predictors)
 selected_predictors = tc.prune_sparse_predictors(training_data, predictors)
 training_data = tc.align_predictor_columns(training_data, selected_predictors)
@@ -424,6 +432,47 @@ try:
 except Exception as exc:
     print(f"Margin blend skipped ({exc}).")
 
+# ── Totals blend for the scoreline simulation ─────────────────────────────────
+# The totals market carries information about game pace/conditions the score
+# models may miss. Fit a two-coefficient ridge (OOF model total, market total
+# line) on honest inputs; inference rescales both lambdas toward the blended
+# expected total, preserving the margin split.
+total_blend = None
+try:
+    actual_total_all = (
+        training_data["team_final_score_home"].to_numpy(dtype=float)
+        + training_data["team_final_score_away"].to_numpy(dtype=float)
+    )
+    model_total_oof = blended_mu_home_oof + blended_mu_away_oof
+    market_total_arr = pd.to_numeric(
+        training_data.get("market_total_line", np.nan), errors="coerce"
+    ).to_numpy(dtype=float)
+    total_mask = genuine_oof & np.isfinite(market_total_arr) & np.isfinite(actual_total_all)
+    if total_mask.sum() >= 100:
+        X_total = np.column_stack([model_total_oof, market_total_arr])[total_mask]
+        total_model = Ridge(alpha=1.0)
+        total_model.fit(X_total, actual_total_all[total_mask])
+        total_mae = float(np.mean(np.abs(total_model.predict(X_total) - actual_total_all[total_mask])))
+        model_total_mae = float(np.mean(np.abs(model_total_oof[total_mask] - actual_total_all[total_mask])))
+        market_total_mae = float(np.mean(np.abs(market_total_arr[total_mask] - actual_total_all[total_mask])))
+        total_blend = {
+            "intercept": float(total_model.intercept_),
+            "coef_model_total": float(total_model.coef_[0]),
+            "coef_market_total": float(total_model.coef_[1]),
+            "fit_rows": int(total_mask.sum()),
+            "fit_mae": total_mae,
+            "fit_mae_model_only": model_total_mae,
+            "fit_mae_market_only": market_total_mae,
+        }
+        print(
+            f"Total blend fitted: MAE {total_mae:.2f} vs model-only {model_total_mae:.2f} "
+            f"vs market-only {market_total_mae:.2f} ({int(total_mask.sum())} rows)"
+        )
+    else:
+        print("Total blend skipped (too few rows with totals lines and genuine-OOF totals).")
+except Exception as exc:
+    print(f"Total blend skipped ({exc}).")
+
 # ── Evaluation metrics ────────────────────────────────────────────────────────
 try:
     # Evaluate only on genuine-OOF rows; first-season fallback rows are
@@ -565,6 +614,8 @@ manifest = {
     "lineup_mu_noise_scale": lineup_mu_noise_scale,
     "tier_a_baseline": tb.baseline_config_to_dict(baseline_cfg, base_home, base_away),
     "margin_blend": margin_blend,
+    "total_blend": total_blend,
+    "market_extra_version": calib.MARKET_EXTRA_VERSION,
     "dispersion_home": dispersion_home,
     "dispersion_away": dispersion_away,
 }

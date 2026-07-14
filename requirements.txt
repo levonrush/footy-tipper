@@ -14,10 +14,11 @@ scikit-optimize==0.10.2
 dill==0.4.1
 joblib==1.5.3
 
-# Scraping (nrl.com lineups)
+# Scraping (nrl.com lineups + match data) and odds ingestion
 requests==2.32.5
 beautifulsoup4==4.14.3
 lxml==6.0.2
+openpyxl==3.1.5
 
 # Config
 python-dotenv==1.2.2
