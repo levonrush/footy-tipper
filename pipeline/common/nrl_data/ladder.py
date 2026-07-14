@@ -22,7 +22,8 @@ from __future__ import annotations
 import datetime as dt
 from collections import defaultdict
 
-DAY_NIGHT_SPLIT_HOUR = 18
+# Validated against the feed: games before 17:00 venue-local count as day
+DAY_NIGHT_SPLIT_HOUR = 17
 CLOSE_GAME_MARGIN = 6
 
 LADDER_COLUMNS = [

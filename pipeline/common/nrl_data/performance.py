@@ -35,14 +35,15 @@ PERF_STAT_MAP: dict[str, tuple] = {
     "one_on_one_steal": ("players", "one_on_one_steal"),
     "one_on_one_lost": ("players", "one_on_one_lost"),
     "effective_tackle_percentage": ("team", "effective_tackle_pct"),
-    # attack
-    "all_runs": ("players", "all_runs"),
-    "all_run_metres": ("players", "all_run_metres"),
-    "post_contact_metres": ("players", "post_contact_metres"),
-    "linebreak": ("players", "line_breaks"),
+    # attack (team stats reproduce the feed's decimal values exactly;
+    # player sums are the fallback for eras without the stat group)
+    "all_runs": ("first", ("team", "all_runs"), ("players", "all_runs")),
+    "all_run_metres": ("first", ("team", "all_run_metres"), ("players", "all_run_metres")),
+    "post_contact_metres": ("first", ("team", "post_contact_metres"), ("players", "post_contact_metres")),
+    "linebreak": ("first", ("team", "line_breaks"), ("players", "line_breaks")),
     "lb_assist": ("players", "line_break_assists"),
-    "tackle_break": ("players", "tackle_breaks"),
-    "offloads": ("players", "offloads"),
+    "tackle_break": ("first", ("team", "tackle_breaks"), ("players", "tackle_breaks")),
+    "offloads": ("first", ("team", "offloads"), ("players", "offloads")),
     "dummy_pass": ("players", "dummy_passes"),
     "dh_run": ("players", "dummy_half_run_metres"),
     "dh_run_occur": ("players", "dummy_half_runs"),
@@ -52,7 +53,7 @@ PERF_STAT_MAP: dict[str, tuple] = {
     "supports": ("players", "supports"),
     "half_break": ("players", "half_breaks"),
     # kicking: bare column = metres, _occur = count
-    "kicks": ("players", "kick_metres"),
+    "kicks": ("first", ("team", "kicking_metres"), ("players", "kick_metres")),
     "kicks_occur": ("players", "kicks"),
     "kick_return": ("players", "kick_return_metres"),
     "kick_bomb": ("players", "bomb_kicks"),
@@ -68,7 +69,8 @@ PERF_STAT_MAP: dict[str, tuple] = {
     "try": ("players", "tries"),
     "try_assist": ("players", "try_assists"),
     "points": ("fixture", "points_for"),
-    "all_goals_made": ("players", "goals"),
+    # feed convention: goals = conversions + penalty goals
+    "all_goals_made": ("sum", ("players", "conversions"), ("players", "penalty_goals")),
     "all_goals_attempted": ("players", "goal_attempts"),
     "conversion_made": ("players", "conversions"),
     "conversion_attempted": ("players", "conversion_attempts"),
@@ -134,6 +136,19 @@ def _resolve(
         return player_sums.get(spec[1])
     if kind == "fixture":
         return fixture_values.get(spec[1])
+    if kind == "first":
+        for sub_spec in spec[1:]:
+            value = _resolve(sub_spec, team_stats, player_sums, fixture_values)
+            if value is not None:
+                return value
+        return None
+    if kind == "sum":
+        parts = [
+            _resolve(sub_spec, team_stats, player_sums, fixture_values)
+            for sub_spec in spec[1:]
+        ]
+        known = [part for part in parts if part is not None]
+        return sum(known) if known else None
     if kind == "ratio":
         numerator = _resolve(spec[1], team_stats, player_sums, fixture_values)
         denominator = _resolve(spec[2], team_stats, player_sums, fixture_values)
@@ -251,19 +266,23 @@ def load_player_sums_by_game(
         row[1]
         for row in con.execute("PRAGMA table_info(match_player_stats)")
     }
-    wanted = {
-        spec[1]
-        for spec in PERF_STAT_MAP.values()
-        if spec[0] == "players"
-    } | {
-        spec[1][1]
-        for spec in PERF_STAT_MAP.values()
-        if spec[0] == "ratio" and spec[1][0] == "players"
-    } | {
-        spec[2][1]
-        for spec in PERF_STAT_MAP.values()
-        if spec[0] == "ratio" and spec[2][0] == "players"
-    }
+
+    def _player_columns(spec) -> set[str]:
+        kind = spec[0]
+        if kind == "players":
+            return {spec[1]}
+        if kind in ("first", "sum"):
+            found: set[str] = set()
+            for sub_spec in spec[1:]:
+                found |= _player_columns(sub_spec)
+            return found
+        if kind == "ratio":
+            return _player_columns(spec[1]) | _player_columns(spec[2])
+        return set()
+
+    wanted: set[str] = set()
+    for spec in PERF_STAT_MAP.values():
+        wanted |= _player_columns(spec)
     available = sorted(wanted & columns)
     if not available:
         return {}
@@ -282,7 +301,11 @@ def load_player_sums_by_game(
 
 
 def load_game_scoring(con, season: int) -> dict[int, dict[str, dict]]:
-    """Scoring + squad aggregates for the ladder builder."""
+    """Scoring + squad aggregates for the ladder builder.
+
+    Feed convention (validated): goals = conversions + penalty goals; the
+    match centre 'goals' player column is unpopulated in the modern era.
+    """
     result: dict[int, dict[str, dict]] = defaultdict(dict)
     columns = {
         row[1] for row in con.execute("PRAGMA table_info(match_player_stats)")
@@ -297,7 +320,8 @@ def load_game_scoring(con, season: int) -> dict[int, dict[str, dict]]:
     for game_id, side, tries, goals, field_goals in con.execute(
         f"""
         SELECT game_id, side, COALESCE(SUM(tries), 0),
-               COALESCE(SUM(goals), 0), {fg_expr}
+               COALESCE(SUM(conversions), 0) + COALESCE(SUM(penalty_goals), 0),
+               {fg_expr}
         FROM match_player_stats
         WHERE competition_year = ?
         GROUP BY game_id, side
