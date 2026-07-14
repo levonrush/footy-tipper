@@ -262,15 +262,15 @@ _form_stats = [
     "errors",
     "penalties_conceded",
 ]
-predictors += [
+match_form_predictors = [
     f"form_{stat}_{suffix}"
     for stat in _form_stats
     for suffix in ("home", "away", "delta")
-]
-predictors += [
+] + [
     "form_features_missing_home",
     "form_features_missing_away",
 ]
+predictors += match_form_predictors
 
 predictors += [
     "referee_name",
@@ -352,7 +352,10 @@ def filter_predictors(
     if not include_performance:
         filtered = [p for p in filtered if "_performance" not in p]
     if not include_form:
-        filtered = [p for p in filtered if not p.startswith("form_")]
+        # exact family membership; a bare startswith("form_") would also
+        # drop the legacy R feature form_delta
+        form_family = set(match_form_predictors)
+        filtered = [p for p in filtered if p not in form_family]
     return filtered
 
 
