@@ -1,0 +1,51 @@
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":32,"rankSpacing":42},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"14px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+flowchart TB
+  subgraph NOW[Today — production]
+    direction LR
+    XML[/Credentialled XML<br/>fixtures · ladder · performance/]
+    RPREP([R provider refresh<br/>invoked by CLI])
+    CACHE[(feed_cache_fixtures<br/>ladders · performance)]
+    ODDS[(odds_snapshots)]
+    TABLES[(Prepared SQLite<br/>train · infer · context)]
+    XML --> RPREP
+    RPREP --> CACHE
+    RPREP --> ODDS
+    CACHE --> TABLES
+  end
+
+  subgraph NEXT[Next — prototype / WIP]
+    direction TB
+    DRAW[/nrl.com draw JSON/]
+    MATCH[/nrl.com match centre/]
+    HIST[/Historical odds source<br/>terms and matching review/]
+    LIVE{Live odds<br/>provider decision}
+    PY([Python nrl_data refresh<br/>not called by CLI or R])
+    DERIVE([Derive ladder and<br/>performance aggregates])
+    VALIDATE{Parity and temporal<br/>validation passes?}
+    TARGET[(Same feed_cache schemas<br/>plus odds ledger)]
+
+    DRAW -.->|WIP| PY
+    MATCH -.->|WIP| PY
+    PY -.->|WIP| DERIVE
+    HIST -.->|WIP| TARGET
+    LIVE -.->|not selected| TARGET
+    DERIVE -.->|WIP| VALIDATE
+    VALIDATE -.->|only after shadow cutover| TARGET
+  end
+
+  CACHE -.->|schema contract to preserve| TARGET
+
+  classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
+  classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
+  classDef data fill:#CCFBF1,stroke:#0F766E,color:#0F172A,stroke-width:2px;
+  classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
+  classDef wip fill:#FFF7ED,stroke:#DC2626,color:#0F172A,stroke-width:2px,stroke-dasharray:6 4;
+
+  class XML,DRAW,MATCH,HIST source;
+  class RPREP process;
+  class CACHE,ODDS,TABLES data;
+  class LIVE,VALIDATE decision;
+  class PY,DERIVE,TARGET wip;
+
+  style NOW fill:#F8FAFC,stroke:#0F766E,stroke-width:2px
+  style NEXT fill:#FFF7ED,stroke:#DC2626,stroke-width:2px,stroke-dasharray:6 4

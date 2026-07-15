@@ -1,102 +1,79 @@
-# Joker Strategy
+# Joker strategy
 
-This project assumes a single-use, double-points joker per season.
+The project assumes one double-points joker per season. The trick is not finding a round that looks friendly; it is deciding whether that round is better than the opportunities still alive, under the objective you actually care about.
 
-The joker system has two layers:
-- round scoring (live, current-season)
-- policy learning (historical simulation during training)
+## Two layers
 
-## 1) Round Scoring (Live)
+Training builds a historical policy in `models/joker_policy.json`. It aggregates round-level opportunity, simulates season/field scenarios, and records which strategy performed best for lead, neutral, and chase positions.
 
-At send time, upcoming rounds are scored from market odds:
-- remove overround in head-to-head odds
-- estimate per-match tip correctness probability
-- aggregate per round:
-  - `mu` = expected correct tips
-  - `variance` / `sigma` = swing potential
+Send time scores the currently priced rounds using the model's game probabilities where available, with market-derived fallbacks. For each round it calculates expected correct tips (`mu`), variance, standard deviation, coverage, and separation from the next-best round.
 
-Decision modes:
-- `points`: maximize `mu`
-- `protect`: maximize `mu - lambda*sigma`
-- `chase`: maximize `variance`
+| Strategy | Objective | Typical use |
+| --- | --- | --- |
+| `points` | Maximize expected joker points | Neutral/default state |
+| `protect` | Maximize `mu - lambda * sigma` | Protecting a lead |
+| `chase` | Prefer high-variance opportunity | Needing a catch-up path |
+| `auto` | Read scenario and trained policy | Normal configured operation |
 
-Guardrails prevent premature `PLAY` calls:
-- minimum priced rounds in scope
-- minimum odds coverage per round
-- minimum lead over next-best round
+The recommendation reports both the no-joker baseline and the estimated lift. Near-ties resolve toward expected points rather than pretending Monte Carlo noise is insight.
 
-## 2) Policy Learning (Training-Time)
+## Guardrails
 
-During `footy-tipper train`, the pipeline runs historical Monte Carlo backtests and saves:
-- `models/joker_policy.json`
+A `PLAY` call requires:
 
-Backtest idea:
-- use historical round-level market-derived `mu`/`sigma`
-- simulate many seasons/scenarios (lead/neutral/chase state)
-- compare strategy outcomes against a simulated field
-- choose recommended strategy per scenario
+- enough remaining rounds with odds;
+- sufficient game-level odds coverage in the candidate round;
+- enough separation from the next-best candidate;
+- an unused joker for that competition year.
 
-## 3) Auto Strategy In Current Season
+Thin markets should produce `HOLD`. That is the guardrail working.
 
-Set:
-- `FOOTY_TIPPER_JOKER_STRATEGY=auto`
-- `FOOTY_TIPPER_JOKER_POINTS_GAP=<your gap to leader>`
+## Runtime state transition
 
-Then send-time logic maps your state:
-- ahead by enough -> lead scenario
-- near even -> neutral scenario
-- behind by enough -> chase scenario
+`joker_usage` is keyed by `competition_year` and stores the played round, timestamp, and source.
 
-and applies the strategy recommended by `joker_policy.json`.
+```text
+unplayed -> recommendation HOLD -> unplayed
+unplayed -> test/dry run PLAY -> unplayed
+unplayed -> failed production delivery -> unplayed
+unplayed -> successful production delivery + PLAY -> used(round)
+used(same round) -> sticky already-locked message
+used(other round) -> forced HOLD
+```
 
-## 4) Single-Use State Tracking
+The write happens only after a successful production email. Test sends read state but never mutate it. A repeated production invocation is also constrained by the separate `email_sends` ledger, so joker use and email delivery remain replay-safe.
 
-The pipeline now persists joker usage in SQLite:
-- table: `joker_usage`
-- key: `competition_year` (one joker max per season)
-- payload: played round, timestamp, and write source
+## Configuration
 
-Runtime behavior:
-- every send path reads `joker_usage` and blocks further `PLAY` calls once a season is marked used
-- reruns in the exact same round keep a sticky `PLAY` message ("already locked") for consistency
-- test runs (`footy-tipper send --test ...`) are read-only for joker usage
-- production sends write usage only after a successful production email send
+| Variable | Meaning |
+| --- | --- |
+| `FOOTY_TIPPER_JOKER_STRATEGY` | `auto`, `points`, `protect`, or `chase` |
+| `FOOTY_TIPPER_JOKER_POINTS_GAP` | Points behind the leader; negative means ahead |
+| `FOOTY_TIPPER_JOKER_RISK_LAMBDA` | Variance penalty for protect mode |
+| `FOOTY_TIPPER_JOKER_MIN_ROUNDS_WITH_ODDS` | Minimum priced future-round count |
+| `FOOTY_TIPPER_JOKER_MIN_ROUND_COVERAGE` | Minimum odds coverage per candidate round |
+| `FOOTY_TIPPER_JOKER_MIN_MARGIN_RATIO` | Required separation before `PLAY` |
+| `FOOTY_TIPPER_JOKER_POLICY_PATH` | Optional policy artifact override |
+| `FOOTY_TIPPER_JOKER_BACKTEST_SIMULATIONS` | Training-time simulation count |
+| `FOOTY_TIPPER_JOKER_BACKTEST_FIELD_SIZE` | Simulated field size |
+| `FOOTY_TIPPER_JOKER_BACKTEST_SEED` | Reproducible policy seed |
 
-This means repeated test runs are safe, and repeated production runs do not duplicate joker usage records.
+The points gap is operational state; update it with the real competition table before relying on `auto`.
 
-## 5) Key Env Vars
+## Weekly runbook
 
-Core behavior:
-- `FOOTY_TIPPER_JOKER_STRATEGY` (`auto`, `points`, `protect`, `chase`)
-- `FOOTY_TIPPER_JOKER_POINTS_GAP`
-- `FOOTY_TIPPER_JOKER_RISK_LAMBDA`
+1. Refresh predictions and current-round markets.
+2. Confirm odds coverage and the configured points gap.
+3. Run `footy-tipper send --test --dry-run --skip-drive`.
+4. Read the objective, candidate round, baseline, lift, and guardrail explanation.
+5. Use the production command only when both the email and joker transition are intended.
+6. After delivery, verify `joker_usage` and `email_sends` if the call was `PLAY`.
 
-Guardrails:
-- `FOOTY_TIPPER_JOKER_MIN_ROUNDS_WITH_ODDS`
-- `FOOTY_TIPPER_JOKER_MIN_ROUND_COVERAGE`
-- `FOOTY_TIPPER_JOKER_MIN_MARGIN_RATIO`
+## Limits
 
-Policy artifact control:
-- `FOOTY_TIPPER_JOKER_POLICY_PATH` (override location)
+- Future-round prices are often incomplete and can move materially.
+- The field model is a scenario, not telemetry from the actual competitors.
+- Different competitions implement joker deadlines and scoring differently; the current code assumes one double-points use per season.
+- A mathematically favoured `PLAY` can still lose. Reg regrets to advise that variance has not signed the code of conduct.
 
-Backtest tuning:
-- `FOOTY_TIPPER_JOKER_BACKTEST_SIMULATIONS`
-- `FOOTY_TIPPER_JOKER_BACKTEST_FIELD_SIZE`
-- `FOOTY_TIPPER_JOKER_BACKTEST_SEED`
-- plus scenario thresholds/gaps in `pipeline/common/model_training/joker_policy.py`
-
-## 6) Interpretation Rules
-
-Treat `PLAY` as a strong recommendation only when:
-- enough rounds are priced
-- your selected objective has clear separation
-
-If coverage is thin (common early in market cycle), `HOLD` is expected and correct.
-
-## 7) Literature Link
-
-Source material and notes:
-- `lit-review/Optimal Joker-Round Selection in Footy Tipping Competitions.pdf`
-- `lit-review/deep-research-report.md`
-
-This implementation is the practical version of that work: rigorous enough to be useful, simple enough to run weekly.
+Research lineage: [Research and history](research-and-history.md#joker-and-competition-strategy) and the archival [Optimal Joker report](../lit-review/README.md#optimal-joker-round-selection-in-footy-tipping-competitions).

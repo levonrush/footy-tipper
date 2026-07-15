@@ -28,12 +28,16 @@ This file is for coding/automation agents working on `footy-tipper`.
     - `training_data`
     - `inference_data`
 - Training:
-  - `pipeline/train.py` builds Tier-A baseline features, trains Tier-B home/away Poisson models, blends expected scores, fits stacker + beta calibrator, estimates `lambda3`, and saves artifacts in `models/`.
-  - Key artifacts: `home_model.pkl`, `away_model.pkl`, `stacker.pkl`, `win_prob_calibrator.pkl`, `model_manifest.json`.
+  - `pipeline/train.py` builds Tier-A baseline features, trains Tier-B home/away Poisson models and the Tier-C binary classifier, blends expected scores, fits the regularized stacker + LOSO beta calibrator, estimates `lambda3`/dispersion, and saves artifacts in `models/`.
+  - Key artifacts: `home_model.pkl`, `away_model.pkl`, `binary_model.pkl`, `stacker.pkl`, `win_prob_calibrator.pkl`, `model_manifest.json`, `joker_policy.json`.
 - Inference:
   - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, simulates outcomes with bivariate Poisson (`lambda3`), and upserts into `predictions_table`.
 - Distribution:
   - `footy-tipper send` (pipeline/cli.py) reads the prediction view, computes EV-based value picks with Kelly-derived staking, and handles upload/email via `pipeline/common/use_predictions/` modules (joker, staking, scoreboard, email_copy, email_render, distribution, site).
+- Feed migration:
+  - `pipeline/common/nrl_data/` on `feed-migration` is prototype/WIP only. It is not production until a supported CLI/R path invokes it and parity/cutover gates are complete.
+- Documentation:
+  - Repository Markdown is canonical. The private Notion hub is a curated navigation/story layer and must link back to it.
 
 ## Critical Runtime Config
 - Season controls:
@@ -60,9 +64,10 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `NRL_PERFORMANCE_EXTENTION`
 - Send/integration values:
   - `FOLDER_ID`, `FOLDER_URL`
-  - `OPENAI_KEY`, optional `OPENAI_MODEL`
+  - `ANTHROPIC_API_KEY`, optional `CLAUDE_MODEL` (email copy)
+  - `OPENAI_KEY`, optional `OPENAI_MODEL` (banner generation only)
   - `MY_EMAIL`, `EMAIL_PASSWORD`
-  - `FOOTY_TIPPER_TEST_EMAIL` (optional; default test recipient is `levon.rush@gmail.com`)
+  - `FOOTY_TIPPER_TEST_EMAIL` (optional; default test recipient is `levon_rush@hotmail.com`)
   - Value-pick/staking controls (optional):
     - `FOOTY_TIPPER_MIN_VALUE_EDGE`
     - `FOOTY_TIPPER_KELLY_FRACTION`
@@ -82,7 +87,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Offseason-safe execution:
   - If no pre-game rows exist, send step exits cleanly without failing pipeline.
 - Provider-safe execution:
-  - Missing Google/OpenAI dependencies should degrade gracefully (skip/fallback), not crash.
+  - Missing Google/Claude/OpenAI dependencies should degrade gracefully where documented (skip/deterministic copy/static banner), not crash the core prediction path.
 - Lineup-safe execution:
   - Lineup ingestion should fail soft by default.
   - Train/infer must continue if lineup tables are unavailable or sparse.
@@ -102,8 +107,11 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `footy-tipper train`
   - `footy-tipper infer`
   - `footy-tipper send`
-  - `footy-tipper send --test --test-email levon.rush@gmail.com`
+  - `footy-tipper send --test --test-email levon_rush@hotmail.com`
   - `footy-tipper predict`
+  - `footy-tipper evaluate`
+  - `footy-tipper site`
+  - `footy-tipper state pull|push|gate|schedule`
 - Simplicity defaults:
   - `footy-tipper train` should bootstrap historical lineups when needed, then run lineup refresh + prep + training without extra flags.
   - `footy-tipper predict` should run lineup refresh + inference + send workflow without extra flags.
@@ -130,4 +138,4 @@ This file is for coding/automation agents working on `footy-tipper`.
 
 ## Known Risks
 - Performance feed availability can vary by season; when `FOOTY_TIPPER_INCLUDE_PERFORMANCE=true`, missing performance data should fail fast with a clear error.
-- Google/OpenAI integrations are operationally optional for local runs, but production workflows should monitor skipped-send messages.
+- Google/Claude/OpenAI integrations are operationally optional for local runs, but production workflows should monitor unexpected skipped integration messages.

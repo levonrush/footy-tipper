@@ -1,104 +1,77 @@
-# Lineup Integration Guide
+# Lineup integration
 
-This doc covers the lineup-aware upgrade: ingestion, storage, model features, and operations.
+A team list is not a fact that appears once. It is a sequence: Tuesday squad, reshuffle, late mail, final 17. Footy Tipper stores that sequence so training can know what was knowable at the time instead of quietly borrowing Thursday from Saturday.
 
-## Why This Is Feasible For Your 24h Manual Run
+![Versioned lineup ingestion and as-of feature selection](diagrams/lineup-as-of.svg)
 
-Your current operating pattern (manual run within 24 hours of the first game) is a good fit:
+[Editable Mermaid source](diagrams/lineup-as-of.mmd)
 
-- Team-list articles are already published by then.
-- Late-mail updates may still land, but you can rerun ingestion quickly.
-- Inference is now designed to degrade safely if lineup scraping fails.
+## Source and parser contract
 
-In practice, the minimum reliable sequence is:
+[`pipeline/lineups.py`](../pipeline/lineups.py) discovers official nrl.com Team Lists and Late Mail articles in two modes:
 
-1. `footy-tipper lineups --lineups-mode recent`
-2. `footy-tipper infer`
-3. `footy-tipper send --test --dry-run` (optional sanity check)
+- `recent`: refresh the team-list hub, optionally including sitemap URLs.
+- `backfill`: crawl topic pages and sitemap archives for the requested year window.
 
-If you prefer one command, use `footy-tipper predict`.
-It now auto-trains when model artifacts are missing.
-For historical training coverage, `footy-tipper train` also bootstraps a one-time backfill when needed.
+The parser supports modern `.match-header`/`.team-list` pages and older 2012–2018 text-style team lists inside `.s-cms-content`. NRLW and non-NRL competitions are filtered out.
 
-## What Was Added
+Required parser dependencies are `beautifulsoup4` and `lxml`. Missing packages or fetch/parse failures log and continue by default. `--lineups-strict` is the only CLI mode that turns ingestion errors into command failure.
 
-### New ingestion entrypoint
+## Storage contract
 
-- `pipeline/lineups.py`
-- Pulls article URLs from Team Lists hub (`recent`) or sitemap archives (`backfill`).
-- Fetches and parses structured team sheets from NRL team-list/late-mail articles.
-- Supports both:
-  - current `.match-header` / `.team-list` article templates
-  - legacy 2012-2018 text-style team-list pages inside `.s-cms-content`
-- Writes snapshots and normalized player rows into SQLite.
+| Table | Grain and responsibility |
+| --- | --- |
+| `lineup_article_snapshots` | One content-version record with URL, article/fetch timestamps, hash, parse status, and entry count. |
+| `lineup_entries` | Normalized team/player/jersey/position/squad rows linked to a snapshot and match round. |
+| `lineup_ingestion_runs` | Recent/backfill run summaries used for coverage and bootstrap decisions. |
 
-### New lineup storage tables
+Content hashes prevent duplicate article versions. A special repair path handles a previously stored snapshot whose hash is unchanged but `entry_count = 0`: improved parser logic can populate that same snapshot and its entries instead of creating a duplicate article row.
 
-Created automatically when ingestion runs:
+## As-of selection
 
-- `lineup_article_snapshots`
-- `lineup_entries`
-- `lineup_ingestion_runs`
+Training and inference intentionally select different eligible endpoints:
 
-`lineup_article_snapshots` stores per-fetch metadata (`article_url`, timestamps, parse status, hash).  
-`lineup_entries` stores normalized rows (`team`, `player`, `jersey`, `position`, `squad_group`, `year/round`).
-`lineup_ingestion_runs` stores backfill/recent run summaries so the CLI can tell whether historical bootstrap has already been done.
+- **Training:** latest snapshot known at or before `kickoff - FOOTY_TIPPER_LINEUPS_AS_OF_HOURS_BEFORE_KICKOFF`, default 24 hours.
+- **Inference:** latest available pre-game snapshot at run time.
 
-Important repair behavior:
-- if a previously scraped snapshot already exists with the same content hash but `entry_count = 0`, a later rerun can now repair that snapshot in place and insert the newly parsed lineup rows
-- this matters for historical backfills because many older pages were discovered correctly before the legacy parser existed, but had no extracted entries
+Historical backtests therefore do not use final lineups that were unavailable at the configured decision time. Within-week snapshot changes still inform churn and uncertainty features.
 
-### New feature generation
+## Feature families
 
-Model features are built in Python from latest lineup snapshots per team/year/round and merged into train/infer datasets:
+The same feature builder runs for training and inference. It produces home/away values and matchup deltas for:
 
-- availability: `lineup_data_available_home/away`
-- roster size: named/interchange/reserve counts
-- composition: spine counts, spine complete flags, bench hooker counts, bench spine-cover counts
-- freshness: lineup source age in hours
-- continuity: retained player ratio vs previous lineup, starter/spine retention, same-halves-pair and same-spine flags
-- role-group strength: historical experience and margin-rating aggregates for spine, halves, middles, edges, outside backs, and interchange
-- cohesion/stability: named/spine pair cohesion, repeated halves pairing, recent named/spine stability over the last four matches
-- change tracking: snapshot window hours plus named/spine change counts and per-snapshot change rates
-- matchup deltas: home-away differences for all major lineup metrics
-- uncertainty: expected named/spine/interchange counts and lineup-selection uncertainty
-- quality flag: `lineup_features_missing`
+- availability and missingness;
+- named, interchange, reserve, and spine counts;
+- bench hooker and spine-cover composition;
+- snapshot age and observation window;
+- retained-player, starter, spine, halves-pair, and full-spine continuity;
+- role-group experience and margin ratings for spine, halves, middles, edges, outside backs, and interchange;
+- named and spine cohesion/stability across recent matches;
+- within-week named/spine changes and change rates;
+- expected squad composition and selection uncertainty.
 
-Player lists are also attached as strings:
+`lineup_home_players` and `lineup_away_players` are retained for traceability, not used as model predictors. When no eligible lineup exists, numeric features receive safe defaults and `lineup_features_missing` exposes the gap.
 
-- `lineup_home_players`
-- `lineup_away_players`
+## Selection uncertainty
 
-These list columns are currently for traceability/debugging and are not used as model predictors.
+Historical transitions from earlier to later snapshots estimate how much a published squad tends to move. Tier B's conditional win probability is then marginalized over noisy score means with:
 
-### Selection uncertainty and win-probability marginalization
+- `FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES` (default `64`)
+- `FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE` (default `0.12`)
 
-The model now estimates lineup-selection uncertainty from historical snapshot transitions (earlier squad -> latest squad in the same match week) and uses it in two places:
+The random stream is derived from `game_id`, so the same inputs reproduce the same probability.
 
-- features:
-  - `lineup_expected_named_count_*`
-  - `lineup_expected_spine_count_*`
-  - `lineup_expected_interchange_count_*`
-  - `lineup_selection_uncertainty_*`
-- probability stack input:
-  - Tier-B conditional home win probability is Monte Carlo-marginalized over lineup uncertainty.
+## CLI behavior
 
-## CLI Behavior
+Lineup refresh runs before `prep`, `train`, `infer`, and `predict` unless `--skip-lineups` is set. `train` additionally checks historical coverage and, by default, performs a one-time backfill before the normal recent refresh. Auto-training from `infer`/`predict` inherits that bootstrap unless lineups were skipped.
 
-Lineup refresh now runs before `prep`, `train`, `infer`, and `predict` unless explicitly skipped.
+```bash
+footy-tipper lineups
+footy-tipper lineups --lineups-mode recent --lineups-max-articles 80
+footy-tipper lineups --lineups-mode backfill --start-year 2010 --end-year 2026 --lineups-max-articles 2000
+```
 
-`train` has one extra default:
-- if historical lineup backfill has not been bootstrapped for the configured training window, it runs a one-time backfill before the normal recent refresh
-
-`predict` stays fast for weekly use:
-- it runs the normal recent refresh
-- if models are missing and auto-training is triggered, that training run inherits the same historical lineup bootstrap logic
-
-New command:
-
-- `footy-tipper lineups`
-
-New options (also available on `prep/train/infer/predict`):
+Shared flags:
 
 - `--skip-lineups`
 - `--lineups-mode recent|backfill`
@@ -106,57 +79,37 @@ New options (also available on `prep/train/infer/predict`):
 - `--lineups-include-sitemap-in-recent`
 - `--lineups-strict`
 
-## Environment Variables
+## Configuration
 
-Optional runtime controls:
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FOOTY_TIPPER_LINEUPS_ENABLED` | `true` | Global ingestion switch. |
+| `FOOTY_TIPPER_LINEUPS_MODE` | `recent` | Recent refresh or historical backfill. |
+| `FOOTY_TIPPER_LINEUPS_MAX_ARTICLES` | mode-dependent | Per-run article ceiling. |
+| `FOOTY_TIPPER_LINEUPS_BACKFILL_MAX_ARTICLES` | `2000` | Train-bootstrap ceiling. |
+| `FOOTY_TIPPER_LINEUPS_INCLUDE_SITEMAP_IN_RECENT` | `false` | Broaden recent discovery. |
+| `FOOTY_TIPPER_LINEUPS_STRICT` | `false` | Fail the command on ingestion errors. |
+| `FOOTY_TIPPER_LINEUPS_AUTO_BACKFILL` | `true` | Allow training bootstrap. |
+| `FOOTY_TIPPER_LINEUPS_AS_OF_HOURS_BEFORE_KICKOFF` | `24` | Historical decision cutoff. |
+| `FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES` | `64` | Uncertainty integration draws. |
+| `FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE` | `0.12` | Score-mean noise scale. |
 
-- `FOOTY_TIPPER_LINEUPS_ENABLED` (default: `true`)
-- `FOOTY_TIPPER_LINEUPS_MODE` (`recent` or `backfill`; default: `recent`)
-- `FOOTY_TIPPER_LINEUPS_MAX_ARTICLES` (default: mode-dependent)
-- `FOOTY_TIPPER_LINEUPS_BACKFILL_MAX_ARTICLES` (default: `2000` for train bootstrap)
-- `FOOTY_TIPPER_LINEUPS_INCLUDE_SITEMAP_IN_RECENT` (default: `false`)
-- `FOOTY_TIPPER_LINEUPS_STRICT` (default: `false`)
-- `FOOTY_TIPPER_LINEUPS_AUTO_BACKFILL` (default: `true`)
-- `FOOTY_TIPPER_LINEUPS_AS_OF_HOURS_BEFORE_KICKOFF` (default: `24`)
-- `FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES` (default: `64`)
-- `FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE` (default: `0.12`)
+## State transitions and idempotency
 
-## Python Dependencies
+1. Discover URLs for the requested mode/window.
+2. Fetch content and calculate the hash.
+3. Skip an already healthy identical snapshot.
+4. Repair an identical zero-entry snapshot if the current parser now extracts rows.
+5. Otherwise insert a new content version and normalized entries.
+6. Record run counts/status in `lineup_ingestion_runs`.
+7. Select an eligible as-of version during feature building.
 
-Lineup scraping requires:
+This supports safe reruns: broad backfills do not multiply identical articles, and parser improvements can heal old sparse state.
 
-- `beautifulsoup4`
-- `lxml`
+## Failure and coverage limits
 
-If these are missing, lineup refresh skips in fail-soft mode (unless strict mode is enabled).
-
-## Reliability + Failure Modes
-
-- Default mode is fail-soft: lineup ingestion errors do not crash train/infer.
-- Strict mode is opt-in (`--lineups-strict` or env).
-- Existing train/infer contracts remain intact (`Final` for training, `Pre Game` for inference).
-- If no lineup data exists, lineup predictors are filled with safe defaults and model execution continues.
-- Partial coverage is normal if only some current-round team-list articles have been published when you run.
-
-## Backfill Strategy
-
-Manual backfill is still available when you want it:
-
-```bash
-footy-tipper lineups --lineups-mode backfill --start-year 2018 --end-year 2026 --lineups-max-articles 2000
-```
-
-Backfill now emits progress logs during:
-- topic-page discovery
-- sitemap discovery/scanning
-- article processing progress counters
-- repair notices when old zero-entry snapshots are upgraded with parsed lineup rows
-
-Run once, then switch back to `recent` for weekly operation.
-
-## Notes / Limits
-
-- Parsing is still schema-sensitive, but now covers both the modern structured template and the older text-style official team-list pages used across much of 2012-2018.
-- Some older "Late Mail" / commentary-only pages still do not contain a full structured squad and may remain zero-entry snapshots.
-- NRLW/non-NRL competitions are filtered out from lineup ingestion.
-- Commercial/licensed feeds are still the best long-term option for stronger ID stability and legal clarity.
+- Some Late Mail/commentary pages do not contain a full squad and may legitimately remain zero-entry snapshots.
+- Partial current-round coverage is normal before all clubs publish.
+- Article markup remains schema-sensitive; monitor parse-rate shifts.
+- Missing or sparse lineup data never blocks train/infer in default mode.
+- Commercial feeds may provide stronger stable player IDs and clearer service guarantees; official-page scraping should remain polite, cache-aware, and reviewable.

@@ -1,0 +1,148 @@
+{
+  "generated_at": "2026-07-14T07:38:56.344457+00:00",
+  "config": {
+    "eval_seasons": [
+      2024,
+      2025,
+      2026
+    ],
+    "n_seasons_requested": 3,
+    "rows": 3561,
+    "selected_predictor_count": 540,
+    "git_sha": "a167a6b3365f2105e7808fcfc21991d3d9f1d7fb",
+    "manifest": {
+      "blend_weight_home": 1.0,
+      "blend_weight_away": 0.9,
+      "lambda3": 0.0,
+      "tier_a_baseline": {
+        "alpha": 0.1,
+        "carryover": 0.3,
+        "min_rate": 0.5,
+        "max_rate": 80.0,
+        "base_home": 22.735186745296264,
+        "base_away": 19.789104184217916
+      },
+      "predictor_count": 540
+    },
+    "env": {
+      "FOOTY_TIPPER_EVAL_REPORT_PATH": "reports/evaluate-formoff-20260714.json",
+      "FOOTY_TIPPER_INCLUDE_MATCH_FORM": "false",
+      "FOOTY_TIPPER_PREP_MODE": "train",
+      "FOOTY_TIPPER_TEST_EMAIL": "levon_rush@hotmail.com"
+    }
+  },
+  "seasons": [
+    {
+      "year": 2024,
+      "games": 212,
+      "correct": 132,
+      "log_loss": 0.6290486244134199,
+      "brier": 0.2195818720077385,
+      "blend_wh": 1.0,
+      "blend_wa": 0.8,
+      "market_games": 212,
+      "market_correct": 129,
+      "margin_mae": 13.476266896825049,
+      "margin_bias": -0.7521270052023205,
+      "market_margin_games": 212,
+      "market_margin_mae": 13.783018867924529,
+      "margin_blend_mae": 13.81227696331465,
+      "bets": 204,
+      "bet_wins": 121,
+      "profit": 6.29,
+      "comp_sim": {
+        "games": 212,
+        "user_score": 132,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 129,
+        "p_first": 0.112875,
+        "p_top": 0.17575,
+        "expected_rank": 3.369625,
+        "mean_rival_score": 123.47075,
+        "mean_best_rival_score": 134.3105
+      }
+    },
+    {
+      "year": 2025,
+      "games": 212,
+      "correct": 129,
+      "log_loss": 0.6529224798596667,
+      "brier": 0.23029777395487566,
+      "blend_wh": 1.0,
+      "blend_wa": 0.8,
+      "market_games": 212,
+      "market_correct": 131,
+      "margin_mae": 13.952172746677249,
+      "margin_bias": -1.7021693844144754,
+      "market_margin_games": 212,
+      "market_margin_mae": 13.747641509433961,
+      "margin_blend_mae": 13.741647828443105,
+      "bets": 202,
+      "bet_wins": 111,
+      "profit": 7.679999999999996,
+      "comp_sim": {
+        "games": 212,
+        "user_score": 129,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 131,
+        "p_first": 0.0,
+        "p_top": 0.0,
+        "expected_rank": 20.297375,
+        "mean_rival_score": 124.9852,
+        "mean_best_rival_score": 135.95075
+      }
+    },
+    {
+      "year": 2026,
+      "games": 140,
+      "correct": 88,
+      "log_loss": 0.6500491262590701,
+      "brier": 0.22751522180645187,
+      "blend_wh": 1.0,
+      "blend_wa": 0.9,
+      "market_games": 140,
+      "market_correct": 85,
+      "margin_mae": 15.949784795262543,
+      "margin_bias": 2.045736749630178,
+      "market_margin_games": 140,
+      "market_margin_mae": 15.807142857142857,
+      "margin_blend_mae": 15.769207911079269,
+      "bets": 135,
+      "bet_wins": 77,
+      "profit": 8.590000000000002,
+      "comp_sim": {
+        "games": 140,
+        "user_score": 88,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 85,
+        "p_first": 0.086125,
+        "p_top": 0.14375,
+        "expected_rank": 3.7595,
+        "mean_rival_score": 81.40154,
+        "mean_best_rival_score": 90.27175
+      }
+    }
+  ],
+  "pooled": {
+    "games": 564,
+    "correct": 349,
+    "accuracy": 0.6187943262411347,
+    "market_games": 564,
+    "market_correct": 345,
+    "market_accuracy": 0.6117021276595744,
+    "log_loss": 0.6432353755002911,
+    "brier": 0.22557910637761958,
+    "bets": 541,
+    "profit": 22.559999999999995,
+    "roi_pct": 4.170055452865064,
+    "margin_mae": 14.269147297445468,
+    "market_margin_mae": 14.272163120567376,
+    "market_margin_games": 564,
+    "margin_blend_mae": 14.27149142447472,
+    "comp_p_first": 0.06633333333333334,
+    "comp_expected_rank": 9.142166666666666
+  }
+}

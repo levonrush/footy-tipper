@@ -2,20 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased] - 2026-02-18
+## [Unreleased]
+
+### Documentation
+- Audited repository Markdown against the current nine-command CLI, R preparation modes, SQL contracts, Tier A/B/C model path, line markets, LOSO calibration, dispersion fallback, state sync, and Actions workflows.
+- Added task-oriented documentation, research/literature indexes, a curated research-to-production matrix, the complete eleven-part Medium series, and canonical Mermaid diagram sources with SVG previews.
+- Corrected the runtime start-year default to `2010`, the test recipient fallback to `levon_rush@hotmail.com`, and provider ownership: Claude/Anthropic writes optional email copy while OpenAI generates an optional banner.
+- Documented `pipeline/common/nrl_data/` as a feed-migration prototype that is not yet invoked by the CLI or R preparation.
+- Added a private linked Notion project hub; repository Markdown remains canonical.
+
+## [0.1.0] - 2026-02-18
 
 ### Added
 - Added `CHANGELOG.md` and `AGENTS.md` for project history and agent/operator guidance.
 - Added first-class CLI entrypoint (`footy-tipper`) with subcommands:
   - `prep`, `train`, `infer`, `send`, `predict`
 - Added packaging entrypoint (`pyproject.toml`) so `footy-tipper` is available as an installed command via `pip install -e .`.
-- Added dynamic season controls:
-  - `FOOTY_TIPPER_START_YEAR` (default `2018`)
+- Added dynamic season controls (the original start-year default was `2018`; it is now `2010`):
+  - `FOOTY_TIPPER_START_YEAR`
   - `FOOTY_TIPPER_END_YEAR` (defaults to current calendar year)
   - `FOOTY_TIPPER_INCLUDE_PERFORMANCE` (default `true`)
-- Added test-send workflow with single-recipient mode (default test address: `levon.rush@gmail.com`).
-- Added dedicated CLI documentation (`CLI.md`).
-- Added fallback email generation when OpenAI is unavailable or not configured.
+- Added test-send workflow with single-recipient mode (the fallback address has since changed).
+- Added the original dedicated `CLI.md` documentation (later removed in favour of `docs/cli-reference.md`).
+- Added the original provider-backed email generation and fallback path (copy generation has since moved to Claude; OpenAI now handles the optional banner).
 - Added safe no-op behavior for Google Drive/Sheets actions when dependencies or credentials are missing.
 - Added joker-round recommendation logic (market-odds based) with configurable strategy:
   - `FOOTY_TIPPER_JOKER_STRATEGY` (`auto`, `points`, `protect`, `chase`)
@@ -58,7 +67,7 @@ All notable changes to this project are documented in this file.
 - Python/Conda OpenAI dependency range updated to v1-compatible (`requirements.txt`, `environment.yml`).
 - Conda Python version aligned with Docker Python 3.11 (`environment.yml`).
 - README redesigned to be lightweight and operator-friendly, with deep technical content moved to `docs/`.
-- Legacy docs `CLI.md` and `cli/README.md` now act as pointers to `docs/` pages.
+- Legacy docs `CLI.md` and `cli/README.md` acted as pointers during the transition and were later removed.
 - CLI now includes lineup orchestration controls:
   - new `lineups` command
   - lineup refresh runs before `prep`, `train`, `infer`, and `predict` by default
@@ -66,7 +75,7 @@ All notable changes to this project are documented in this file.
 - `train` now auto-bootstraps a historical lineup backfill when the configured training window has not been backfilled yet; auto-train from `infer`/`predict` inherits the same behavior unless lineups are explicitly skipped.
 - `infer` and `predict` now auto-run training when required model artifacts are missing (unless `--skip-auto-train` is provided), so default commands are one-step for operators.
 - Lineup features now use as-of snapshot cutoffs (default 24h before kickoff for training rows) to better match real run timing.
-- Legacy wrappers now include lineup refresh:
+- Legacy wrappers included lineup refresh at that stage and were later removed:
   - `footy-tipper-train.py`
   - `footy-tipper-predict.py`
 

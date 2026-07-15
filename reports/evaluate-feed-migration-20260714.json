@@ -1,0 +1,147 @@
+{
+  "generated_at": "2026-07-14T07:09:38.371290+00:00",
+  "config": {
+    "eval_seasons": [
+      2024,
+      2025,
+      2026
+    ],
+    "n_seasons_requested": 3,
+    "rows": 3561,
+    "selected_predictor_count": 578,
+    "git_sha": "e4eb47926271305f8af6ff9ec1e3f324c04297bd",
+    "manifest": {
+      "blend_weight_home": 1.0,
+      "blend_weight_away": 0.9,
+      "lambda3": 0.0,
+      "tier_a_baseline": {
+        "alpha": 0.1,
+        "carryover": 0.3,
+        "min_rate": 0.5,
+        "max_rate": 80.0,
+        "base_home": 22.735186745296264,
+        "base_away": 19.789104184217916
+      },
+      "predictor_count": 578
+    },
+    "env": {
+      "FOOTY_TIPPER_EVAL_REPORT_PATH": "reports/evaluate-feed-migration-20260714.json",
+      "FOOTY_TIPPER_PREP_MODE": "train",
+      "FOOTY_TIPPER_TEST_EMAIL": "levon_rush@hotmail.com"
+    }
+  },
+  "seasons": [
+    {
+      "year": 2024,
+      "games": 212,
+      "correct": 131,
+      "log_loss": 0.6297957188535727,
+      "brier": 0.2198366313271741,
+      "blend_wh": 1.0,
+      "blend_wa": 0.9,
+      "market_games": 212,
+      "market_correct": 129,
+      "margin_mae": 13.571944941978588,
+      "margin_bias": -0.6992148604697385,
+      "market_margin_games": 212,
+      "market_margin_mae": 13.783018867924529,
+      "margin_blend_mae": 13.804087832403232,
+      "bets": 204,
+      "bet_wins": 120,
+      "profit": 5.180000000000001,
+      "comp_sim": {
+        "games": 212,
+        "user_score": 131,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 129,
+        "p_first": 0.02775,
+        "p_top": 0.05,
+        "expected_rank": 4.990125,
+        "mean_rival_score": 123.47075,
+        "mean_best_rival_score": 134.3105
+      }
+    },
+    {
+      "year": 2025,
+      "games": 212,
+      "correct": 129,
+      "log_loss": 0.6536549334911151,
+      "brier": 0.23052977997035998,
+      "blend_wh": 1.0,
+      "blend_wa": 0.9,
+      "market_games": 212,
+      "market_correct": 131,
+      "margin_mae": 14.038800952339571,
+      "margin_bias": -1.578390389410409,
+      "market_margin_games": 212,
+      "market_margin_mae": 13.747641509433961,
+      "margin_blend_mae": 13.761492446418627,
+      "bets": 201,
+      "bet_wins": 110,
+      "profit": 7.479999999999997,
+      "comp_sim": {
+        "games": 212,
+        "user_score": 129,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 131,
+        "p_first": 0.0,
+        "p_top": 0.0,
+        "expected_rank": 20.297375,
+        "mean_rival_score": 124.9852,
+        "mean_best_rival_score": 135.95075
+      }
+    },
+    {
+      "year": 2026,
+      "games": 140,
+      "correct": 89,
+      "log_loss": 0.6532260426674165,
+      "brier": 0.22881409261329705,
+      "blend_wh": 1.0,
+      "blend_wa": 0.9,
+      "market_games": 140,
+      "market_correct": 85,
+      "margin_mae": 16.04171568500518,
+      "margin_bias": 1.8321379614140751,
+      "market_margin_games": 140,
+      "market_margin_mae": 15.807142857142857,
+      "margin_blend_mae": 15.799112380561201,
+      "bets": 135,
+      "bet_wins": 77,
+      "profit": 8.590000000000002,
+      "comp_sim": {
+        "games": 140,
+        "user_score": 89,
+        "field_size": 75,
+        "n_sims": 4000,
+        "market_favourite_score": 85,
+        "p_first": 0.25075,
+        "p_top": 0.35775,
+        "expected_rank": 2.46725,
+        "mean_rival_score": 81.40154,
+        "mean_best_rival_score": 90.27175
+      }
+    }
+  ],
+  "pooled": {
+    "games": 564,
+    "correct": 349,
+    "accuracy": 0.6187943262411347,
+    "market_games": 564,
+    "market_correct": 345,
+    "market_accuracy": 0.6117021276595744,
+    "log_loss": 0.6445801139548087,
+    "brier": 0.2260844896470546,
+    "bets": 540,
+    "profit": 21.25,
+    "roi_pct": 3.935185185185185,
+    "margin_mae": 14.360493484922296,
+    "market_margin_mae": 14.272163120567376,
+    "market_margin_games": 564,
+    "margin_blend_mae": 14.283295660263834,
+    "comp_p_first": 0.09283333333333332,
+    "comp_expected_rank": 9.251583333333333
+  }
+}

@@ -1,0 +1,52 @@
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":30,"rankSpacing":42},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"14px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+flowchart TB
+  NRL[/nrl.com Team Lists<br/>Late Mail · match-day lists/]
+  DISCOVER([Discover URLs<br/>recent hub or backfill sitemap])
+  FETCH([Polite fetch and parse<br/>modern + 2012–2018 text layouts])
+  HASH{Content hash<br/>already stored?}
+  HEALTHY{Existing snapshot<br/>has entries?}
+  SKIP([Skip identical<br/>healthy version])
+  REPAIR([Repair zero-entry snapshot<br/>with improved parser])
+  INSERT([Insert new article version<br/>and normalized entries])
+  STORE[(lineup_article_snapshots<br/>lineup_entries · ingestion_runs)]
+  CONTEXT{Feature context?}
+  TRAIN([Training cutoff<br/>latest at kickoff minus 24h])
+  INFER([Inference cutoff<br/>latest known pre-game version])
+  ELIGIBLE{Eligible snapshot<br/>available?}
+  FEATURES[[Shared lineup features<br/>roles · continuity · cohesion · churn]]
+  DEFAULTS([Safe defaults<br/>missingness exposed])
+  UNC[[Selection uncertainty model<br/>snapshot transition history]]
+  MODEL([Tier-B probability<br/>deterministic Monte Carlo marginalization])
+
+  NRL --> DISCOVER
+  DISCOVER --> FETCH
+  FETCH --> HASH
+  HASH -->|no| INSERT
+  HASH -->|yes| HEALTHY
+  HEALTHY -->|yes| SKIP
+  HEALTHY -->|no| REPAIR
+  INSERT --> STORE
+  REPAIR --> STORE
+  SKIP --> STORE
+  STORE --> CONTEXT
+  CONTEXT -->|historical Final row| TRAIN
+  CONTEXT -->|current Pre Game row| INFER
+  TRAIN --> ELIGIBLE
+  INFER --> ELIGIBLE
+  ELIGIBLE -->|yes| FEATURES
+  ELIGIBLE -->|no| DEFAULTS
+  FEATURES --> UNC
+  DEFAULTS --> UNC
+  UNC --> MODEL
+
+  classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
+  classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
+  classDef data fill:#CCFBF1,stroke:#0F766E,color:#0F172A,stroke-width:2px;
+  classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
+  classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
+
+  class NRL source;
+  class DISCOVER,FETCH,SKIP,REPAIR,INSERT,TRAIN,INFER,DEFAULTS,MODEL process;
+  class STORE data;
+  class FEATURES,UNC model;
+  class HASH,HEALTHY,CONTEXT,ELIGIBLE decision;

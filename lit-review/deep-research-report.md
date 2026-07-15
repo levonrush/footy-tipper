@@ -1,5 +1,7 @@
 # Deep Research Report on Upgrading an NRL Match Prediction Pipeline
 
+> **Archival AI-assisted research export.** Internal tokens such as `citeturn…` and entity markers are broken capture metadata, not usable citations. Recommendations below reflect the system at the time of research and may now be shipped, superseded, or rejected. Use the curated [research and history guide](../docs/research-and-history.md) for implementation status and verified primary references.
+
 ## Executive synthesis for your constraints
 
 A pipeline that treats bookmaker markets as a strong, auditable prior, then learns leak-safe residual structure from your existing feeds, is the most reliable way to improve accuracy without adding paid data or breaking off-season robustness. Betting odds routinely set a high bar for match forecasting, and several peer‑reviewed studies argue for combining markets with statistical models rather than trying to “beat” markets head‑on. citeturn57view0turn32view0turn56view0
@@ -569,4 +571,3 @@ You can implement the same idea in a simpler two-outcome NRL setting:
 - Calibrate \(p^*\) post-hoc.
 
 This is the “markets as prior” idea, expressed in a way that matches your current outputs and avoids needing three-way draw modelling.
-

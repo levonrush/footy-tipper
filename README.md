@@ -1,67 +1,69 @@
-# The Footy-Tipper: A Machine Learning Approach to Winning the Pub Tipping Comp
+# The Footy Tipper
 
-Footy Tipper is an open-source NRL prediction engine that aggressively mashes together R, Python, SQLite, probability theory, and a questionable amount of confidence.
+An NRL prediction engine built from R, Python, SQLite, probability theory, and the stubborn belief that the pub tipping comp deserves production infrastructure.
 
-The mission is twofold:
-- help win tipping comps
-- teach what actually went into building the thing, not just dump picks and pretend it was magic
+Footy Tipper prepares match data, versions team lists, trains calibrated score and winner models, simulates coherent scorelines, finds value against the market, and turns the result into a weekly email and static site. It takes the football seriously. It remains open to the possibility that the football does not care.
 
-It takes the game seriously, but not itself.
+![Footy Tipper logo](images/footy-tipper-logo.jpg)
 
-![Footy Tipper Logo](/images/footy-tipper-logo.jpg)
-
-## Start Here
+## Fastest safe start
 
 ```bash
 conda env create -f environment.yml
 conda activate footy-tipper
 cp secrets.env.example secrets.env
-# edit secrets.env with your feed credentials
+# Add only the credentials needed for the workflow you intend to run.
+
+footy-tipper --help
+footy-tipper predict --test --dry-run --skip-drive
 ```
 
-Core commands:
+The last command refreshes lineups, prepares inference data, auto-trains if required artifacts are missing, runs inference, and renders a test email without sending it. See [Getting started](docs/getting-started.md) before a live run.
+
+## The operator commands
 
 ```bash
-footy-tipper train
-footy-tipper predict
-footy-tipper send --test --dry-run
-footy-tipper evaluate --skip-prep   # honest held-out metrics
-footy-tipper site                   # static tips site -> docs/site/
+footy-tipper train                       # lineup bootstrap + prep + models
+footy-tipper predict                     # lineup refresh + infer + send
+footy-tipper send --test --dry-run       # inspect delivery without sending
+footy-tipper evaluate --skip-prep        # nested season-out evidence
+footy-tipper state pull                  # restore DB and models from Drive
+footy-tipper site                        # generate docs/site/
 ```
 
-`train` and `predict` are designed as simple defaults:
-- `train` runs historical lineup bootstrap when needed, then lineup refresh + prep + model training.
-- `predict` runs lineup refresh + inference + send flow (and auto-trains if models are missing).
+There are nine commands in total: `prep`, `train`, `infer`, `send`, `predict`, `lineups`, `site`, `evaluate`, and `state`. Their flags and defaults are in the [CLI reference](docs/cli-reference.md).
 
-## Docs
+## Today and next
 
-Main README is intentionally lightweight.
+**Today:** the runnable production path uses credentialled XML feeds for fixtures, ladder, and performance data; nrl.com team-list articles for versioned lineups; SQLite for prepared data and operational state; calibrated Python models; GitHub Actions for scheduling; and Google Drive for mutable state.
 
-The deep stuff lives in `docs/`:
-- Quick setup and runtime config: `docs/getting-started.md`
-- Full command reference: `docs/cli-reference.md`
-- End-to-end architecture: `docs/how-it-works.md`
-- Lineup ingestion + lineup-aware model features: `docs/lineup-integration.md`
-- Modelling techniques and tradeoffs: `docs/modeling-techniques.md`
-- Joker strategy (lit review to production): `docs/joker-strategy.md`
-- Reliability, reruns, and ops contracts: `docs/operations-reliability.md`
+**Next:** the `feed-migration` branch contains prototype nrl.com draw, match-centre, ladder, performance, and odds-ingestion modules. They are research-backed and useful, but they are **not yet invoked by the CLI or R preparation pipeline**. The production feed remains the current path until that wiring, parity testing, and cutover are complete. See [Data-source migration](docs/data-source-migration.md).
 
-Start at `docs/README.md`.
+The expected GitHub Pages endpoint is [the Footy Tipper site](https://levonrush.github.io/footy-tipper/site/). It should be treated as unpublished while it returns 404; generate locally with `footy-tipper site` and enable Pages before calling it live.
 
-## What This Project Tries To Teach
+## Documentation
 
-- how to split train/infer data correctly (`Final` vs `Pre Game`)
-- how to blend and calibrate models for decisions, not vibes
-- how to turn probabilities into actions (value picks, staking, joker timing)
-- how to build robust pipelines that fail gracefully when providers don’t play nice
+The repository Markdown is the technical source of truth. Notion is a curated map back to it.
 
-## Example Output
+- [Documentation map](docs/README.md) — choose a path by task or audience.
+- [Getting started](docs/getting-started.md) — setup, secrets, safe runs, and failures.
+- [Architecture](docs/how-it-works.md) — data, models, state, and delivery ownership.
+- [Models and evidence](docs/modeling-techniques.md) — Tier A/B/C, calibration, simulation, and limitations.
+- [Research and history](docs/research-and-history.md) — research-to-production status and the complete Medium series.
+- [Operations](docs/operations-reliability.md) — Actions, Drive state, reruns, backups, and Pages.
+- [Research notebooks](research/README.md) and [literature reviews](lit-review/README.md) — historical exploration and source material.
 
-![Prediction Example](/images/example_simulation.png)
+## Boundaries worth remembering
 
-## Legacy / History
+- Training rows are explicitly `game_state_name == "Final"`; inference rows are `game_state_name == "Pre Game"`.
+- Missing lineup data fails soft unless strict mode is requested.
+- Missing Google, Claude, or OpenAI integrations degrade to skips or deterministic fallbacks where documented.
+- Claude/Anthropic writes optional email copy. OpenAI is optional banner generation, not the copywriter.
+- Production sends are idempotent by season and round unless `--force-resend` is used.
+- No season end year or local machine path belongs in runtime code.
 
-- Literature and research notes: `lit-review/`
-- Medium dev write-up: <https://medium.com/@levonrush/the-footy-tipper-a-machine-learning-approach-to-winning-the-pub-tipping-comp-dc07a7325292>
+## The story
+
+The eleven-part [Footy Tipper Medium series](docs/research-and-history.md#the-medium-series) follows the project from a spreadsheet-shaped hunch through leakage, automation, model rebuilding, Reg R-ai-gan, and agent-led reconstruction. The repository records what runs now; the essays record how it learned to run.
 
 If these tips nuke your comp, this README has never seen you before in its life.

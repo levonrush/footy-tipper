@@ -1,108 +1,109 @@
-# Modeling Techniques
+# Models, markets, and evaluation
 
-This doc explains the modelling choices and tradeoffs in Footy Tipper.
+The model is an ensemble because NRL games are not obliged to be convenient. One component remembers team strength, one models scores, one models the winner directly, the market contributes its own information, and a calibrated meta-layer settles the argument.
 
-## 1) Tier-A Baseline Layer
+![Production model, market, calibration, margin, and simulation flow](diagrams/model-stack.svg)
 
-Tier-A provides a stable prior using team state and market-aware context.
+[Editable Mermaid source](diagrams/model-stack.mmd)
 
-Why it matters:
-- gives sane predictions when features are sparse/noisy
-- improves robustness early season and around roster disruption
+## Tier A: dynamic baseline
 
-## 2) Tier-B Score Models
+Tier A builds sequential team state from matches available before each game. Its tuned alpha/carryover settings provide expected home and away scores plus a conditional home-win probability. It is deliberately stable when richer features are sparse, especially early in a season.
 
-Two separate Poisson regressors model:
-- expected home score
-- expected away score
+It is not a full Bayesian attack/defence hierarchy. The research case for that model remains exploratory; calling the current baseline Bayesian would be borrowing a dinner jacket.
 
-Why score models first:
-- score distributions can generate both margin and win probability
-- easier to simulate than direct class-only models
+## Tier B: home and away score models
 
-## 3) Blend Instead of Replace
+Separate tuned Poisson pipelines predict expected home and away scores from fixture, ladder, recent performance, and lineup-derived predictors. Training creates out-of-fold (OOF) score means so blend and meta-model fitting are not judged only on in-sample predictions.
 
-The system blends Tier-A and Tier-B expected scores using learned weights.
+Learned weights blend Tier A and Tier B score means separately by side. These means generate a conditional home-win signal after marginalizing over lineup-selection uncertainty with deterministic per-game Monte Carlo draws.
 
-Why blend:
-- pure model can overfit
-- pure baseline can underfit
-- blend gives smoother bias/variance behavior
+## Tier C: direct winner model
 
-## 4) Probability Stacking + Calibration
+Tier C is a binary classifier trained on non-draw outcomes with the same selected predictor frame. Its OOF probabilities enter stacker training; the final `binary_model.pkl` supplies the inference signal. This gives the ensemble a direct classification view alongside score-derived probabilities.
 
-From blended scores, the pipeline creates conditional home-win probability signals:
+If the binary artifact is absent in an older compatible model bundle, inference can continue without it.
+
+## Markets stay separate
+
+Head-to-head prices are de-vigged to a conditional market probability. Line inputs add the implied spread, line overround, cover signal, and model-versus-market disagreement. These signals enter the meta-layer; they are not buried inside Tier-B score predictors.
+
+That separation makes the ensemble interpretable and avoids feeding the bookmaker into a score model, then counting the bookmaker again in the stacker. The full rationale and bibliography are in [Principled odds integration](principled-odds-integration.md).
+
+![Naive and current odds integration](diagrams/odds-before-after.svg)
+
+[Editable Mermaid source](diagrams/odds-before-after.mmd)
+
+## Stacking and calibration
+
+The regularized logistic stacker combines:
+
 - Tier-A conditional probability
-- Tier-B conditional probability
-- market conditional probability
+- OOF Tier-B conditional probability
+- OOF Tier-C probability
+- market conditional probability and an odds-missing indicator
+- Tier/market disagreement terms
+- line-market features
 
-These are stacked with logistic regression, then calibrated with a beta calibrator.
+The regularization strength is selected by cross-validation from a defined grid. When enough season groups exist, the beta calibrator is fitted to leave-one-season-out (LOSO) stacker predictions, so it does not calibrate the same meta-model rows used to fit the deployed stacker. With fewer than three season groups it falls back to the explicitly logged in-sample stack output.
 
-Why this stack:
-- different signals dominate in different matches
-- calibration improves downstream decision quality (value picks, joker calls)
+At inference, missing stacker or calibrator artifacts degrade to Tier B or uncalibrated stack output for compatibility. Current training writes both artifacts.
 
-## 5) Bivariate Poisson Simulation
+## Margin and coherent scorelines
 
-Inference simulates outcomes using bivariate Poisson with shared component `lambda3`.
+Winner probability and expected margin are related but not identical decisions:
 
-Why not independent Poisson only:
-- independent score assumptions often understate shared game conditions
-- `lambda3` captures correlated scoring environments
+- a small ridge blend uses OOF model margin, bookmaker spread, and Tier-A margin when enough honest line rows exist;
+- games without a usable line fall back to the simulated margin;
+- output margin and scoreline are reweighted to agree with the calibrated winner probability, and the margin sign is clamped to the selected tip.
 
-## 6) Decision Layer, Not Just Prediction Layer
+Score simulation uses a bivariate Poisson shared component `lambda3`. When OOF residuals support valid overdispersion estimates, gamma-mixed Poisson draws supply a negative-binomial fallback per side; otherwise the ordinary Poisson path remains. Deterministic game-specific seeds prevent a rerun from flipping a tip through random-number drift.
 
-Predictions are converted into decisions:
-- value picks from expected value (`p * odds - 1`)
-- Kelly-derived stake sizing with caps/floors
-- joker timing recommendation
+## Artifacts
 
-This is intentional: the model is built for tipping decisions, not just leaderboard metrics.
+| File | Contents |
+| --- | --- |
+| `home_model.pkl`, `away_model.pkl` | Tier-B score pipelines |
+| `binary_model.pkl` | Tier-C classifier |
+| `stacker.pkl` | version-aware logistic meta-model |
+| `win_prob_calibrator.pkl` | beta calibrator |
+| `model_manifest.json` | predictor schema, blend weights, Tier-A config, `lambda3`, dispersion, uncertainty, margin metadata |
+| `joker_policy.json` | historical joker-policy backtest summary |
 
-## 7) Practical Design Constraints
+## Honest evaluation
 
-Key constraints considered during implementation:
-- strict train/infer split (`Final` vs `Pre Game`)
-- no hardcoded season end year
-- graceful degradation when Google/OpenAI deps are missing
-- offseason-safe behavior when no pre-game fixtures exist
+Use:
 
-## 8) Known Modeling Risks
+```bash
+footy-tipper evaluate --skip-prep --seasons 3
+```
 
-- odds availability by round can vary; decision confidence should reflect coverage
-- feed latency can create temporary mismatch between market and model snapshot
-- competition-winning objectives depend on field behavior, not only expected points
+The evaluator holds out each recent season in turn and fits blend weights, stacker, and calibrator only on earlier seasons. It also reports calibration, tipping, market comparison, score/margin behavior, ROI simulations, and competition-policy evidence where coverage allows. Reports are written under `reports/`.
 
-That last point is why joker policy includes simulation of field dynamics.
+The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the current 2024–2026 nested holdout summary: 552 pooled non-draw games, 63.4% tipping accuracy, 0.6413 log loss, and 61.2% market-favourite accuracy on covered games. The competition simulation reported about a 35.0% win probability in its configured field scenario. These are historical evaluation results, not a promise about the next round.
 
-## 9) 2026-07 Upgrades
+Training-time metrics remain useful diagnostics, but the meta-layer has seen the season's OOF rows; do not substitute them for the nested evaluation.
 
-Changes shipped in the July 2026 modelling pass (each gated on the honest
-nested eval in `footy-tipper evaluate`; reports persist to `reports/`):
+## Decisions downstream
 
-- **Line/spread market in the stacker.** The handicap market is the
-  bookmaker's own margin model. The stacker now sees the line cover
-  probability (Shin), line overround, and the model-vs-line spread
-  disagreement (`calibration.build_line_market_features`). Stacker feature
-  layouts are versioned, so pre-upgrade pickles still load.
-- **Margin blend for the tie-breaker.** A 3-coefficient ridge (OOF model
-  margin + market spread + Tier-A margin) saved in the manifest overrides
-  the simulated margin at inference; games without a line fall back to the
-  simulation. Margin/scoreline are also importance-reweighted to agree with
-  the calibrated win probability and sign-clamped to the tip.
-- **LOSO calibrator.** The beta calibrator is fit on leave-one-season-out
-  stacker predictions, removing the stacker-overfit flattery in calibration.
-- **Tier-A tuning (default on).** Alpha/carryover grid-searched on
-  sequential log-loss; evaluate tunes only on pre-holdout seasons.
-- **Negative-binomial simulation.** Per-side dispersion estimated from OOF
-  residuals; the simulation draws gamma-mixed Poisson scores when set
-  (NRL points are 2/4/6-lumpy, so Poisson understates margin variance).
-- **Joker uses model probabilities** for the current round and reports the
-  no-joker baseline + lift; strategy ties within epsilon resolve to points.
-- **Competition strategy layer** (`docs/comp-strategy.md`): P(win comp)
-  optimized tip deviations — shadow the field when leading, contrarian when
-  chasing. Advisory by default, `auto` applies to outgoing emails.
+The calibrated prediction becomes:
 
-Honest benchmark moved from 62.0% accuracy / 0.6450 log-loss / 26.5%
-P(win comp in a 75-field) to 63.4% / 0.6413 / ~35% (2024-2026 held out;
-market favourite baseline 61.2%).
+- a tip and confidence statement;
+- expected value `p * decimal_odds - 1` on either side;
+- Kelly-derived staking, bounded by configured minimums and maximums;
+- a points or competition-win joker recommendation;
+- advisory or automatic competition strategy, depending on configuration.
+
+See [Competition strategy](comp-strategy.md) and [Joker strategy](joker-strategy.md) for the stateful decision contracts.
+
+## Limitations
+
+- Historical odds and line coverage are incomplete and time-varying.
+- Pre-game market snapshots can be stale relative to kickoff.
+- Player identities and old team-list layouts are noisier than match-level IDs.
+- A score model cannot fully represent rugby league's discrete scoring and tactical state; dispersion and shared components only soften the assumption.
+- `lambda3` may estimate near zero when the evidence does not support a shared component.
+- A competition-win policy depends on field size, points gap, opponent behavior, and joker rules; it is scenario-dependent.
+- The nrl.com feed replacement is not yet on the runtime path.
+
+For the research lineage and what has not shipped, see [Research and history](research-and-history.md).

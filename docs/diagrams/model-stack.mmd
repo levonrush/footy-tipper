@@ -1,0 +1,57 @@
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":40},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"14px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+flowchart TB
+  DATA[(Final rows for training<br/>Pre Game rows for inference)]
+  FOOTBALL([Match · ladder · performance<br/>and as-of lineup features])
+  ODDS[/H2H and line-market inputs/]
+
+  A[[Tier A<br/>sequential baseline]]
+  B[[Tier B<br/>home and away score models]]
+  C[[Tier C<br/>binary winner model]]
+  MARKET[[Market expert<br/>Shin + line features]]
+  BLEND[[Learned score-mean blend<br/>Tier A + Tier B]]
+  UNC([Lineup uncertainty<br/>marginalization])
+  STACK[[Regularized stacker<br/>OOF tier signals]]
+  CAL[[Beta calibrator<br/>LOSO stack predictions]]
+  MARGIN[[Margin ridge<br/>model + line + Tier A]]
+  DISP{Valid dispersion<br/>estimate?}
+  SIM([Bivariate score simulation<br/>shared lambda3])
+  COHERE([Probability · margin · scoreline<br/>coherence and sign clamp])
+  OUT[(predictions_table<br/>tip · probability · margin · scoreline)]
+
+  DATA --> FOOTBALL
+  FOOTBALL --> A
+  FOOTBALL --> B
+  FOOTBALL --> C
+  ODDS --> MARKET
+  A --> BLEND
+  B --> BLEND
+  B --> DISP
+  BLEND --> UNC
+  A --> STACK
+  UNC --> STACK
+  C --> STACK
+  MARKET --> STACK
+  STACK --> CAL
+  BLEND --> MARGIN
+  MARKET --> MARGIN
+  A --> MARGIN
+  BLEND --> SIM
+  CAL --> SIM
+  DISP -->|yes: gamma-mixed Poisson| SIM
+  DISP -->|no: Poisson fallback| SIM
+  SIM --> COHERE
+  MARGIN --> COHERE
+  CAL --> COHERE
+  COHERE --> OUT
+
+  classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
+  classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
+  classDef data fill:#CCFBF1,stroke:#0F766E,color:#0F172A,stroke-width:2px;
+  classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
+  classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
+
+  class ODDS source;
+  class FOOTBALL,UNC,SIM,COHERE process;
+  class DATA,OUT data;
+  class A,B,C,MARKET,BLEND,STACK,CAL,MARGIN model;
+  class DISP decision;

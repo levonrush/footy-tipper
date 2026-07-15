@@ -1,77 +1,59 @@
-# Competition Strategy Layer
+# Competition strategy
 
-Pure argmax tipping maximizes expected correct tips. A tipping comp is won on
-*relative* score against the field, which changes the optimal play:
+Picking the most likely winner maximizes expected correct tips. Winning a competition means beating other people, which is a different objective once the ladder position matters.
 
-- **Leading**: mirror the field's tips on coin-flip games. If everyone scores
-  the same, nobody can catch you — deviation is variance you don't need.
-- **Trailing**: you need variance. High-EV contrarian picks (where the model
-  disagrees with the market) buy catch-up probability that favourite-tipping
-  never will.
+When leading, correlated tips can protect a gap. When chasing, a carefully chosen disagreement can buy the variance required to catch up. The strategy layer searches those deviations without altering the canonical model predictions.
 
-`pipeline/common/use_predictions/comp_strategy.py` implements this as a
-search over small deviations from the model's argmax tips, scored by
-simulated P(win comp).
+## Simulation contract
 
-## How it works
+[`comp_strategy.py`](../pipeline/common/use_predictions/comp_strategy.py) performs a deterministic per-round simulation:
 
-1. **Reality model**: game outcomes for the current round are drawn from the
-   *calibrated model probabilities* (our best estimate of what will happen).
-2. **Field model**: N rivals tip the market favourite, flipping to the
-   underdog at a per-rival skill rate (`~N(0.12, 0.06)` clipped). Their
-   correctness is evaluated against the same simulated outcomes, so
-   correlation between your tips and the field's emerges naturally.
-3. **Future rounds**: approximated from market prices via the joker round
-   metrics (mu/sigma per remaining round). Your future mean gets a small
-   edge (`FOOTY_TIPPER_COMP_USER_EDGE`, default 0.15 correct tips/round)
-   reflecting the model's honest-eval advantage over market favourites.
-4. **Search**: every subset of ≤ `FOOTY_TIPPER_COMP_MAX_FLIPS` flips among
-   games with calibrated prob inside the flip band ([0.38, 0.62] by default)
-   is scored against the *same* simulated draws (exactly paired comparisons).
-   The best set must beat the baseline by `FOOTY_TIPPER_COMP_MIN_PWIN_GAIN`
-   (default 0.002) or the model's tips stand.
+1. Draw each game's outcome from the calibrated model probability.
+2. Simulate rival tips around the market favourite with heterogeneous skill.
+3. Approximate future rounds from the priced round opportunity metrics.
+4. Enumerate subsets of at most the configured number of flips inside the uncertainty band.
+5. Compare every candidate against the baseline using the same random draws.
+6. Apply a deviation only when its estimated competition-win gain clears the configured threshold.
 
-Everything is deterministic per round (seeded from `GAME_SEED_BASE`), and
-every failure path returns "unavailable" — the model's tips are never lost.
+The layer returns `unavailable` on failure and preserves the base model tips.
 
-## Modes
+## Modes and ownership
 
-`FOOTY_TIPPER_COMP_STRATEGY`:
+| Mode | Email behavior | Database behavior |
+| --- | --- | --- |
+| `off` | No strategy advice | No applied deviations |
+| `advisory` (default) | Explain proposed deviations; send base tips | Audit decision only |
+| `auto` | Apply selected deviations to outgoing tips | `predictions_table` remains unchanged |
 
-- `off` — layer disabled.
-- `advisory` (default) — deviations are logged and shown in the email
-  closing with the P(win comp) math, but the sent tips stay pure model.
-- `auto` — deviations are applied to the outgoing email's tips. The
-  `predictions_table` is **never** modified; margins/scorelines are
-  re-clamped to the adjusted tip.
-
-Every run (production sends) writes one row per game to the
-`comp_strategy_decisions` table: baseline tip, strategy tip, mode, scenario,
-points gap, and both P(win) numbers — so you can audit every deviation after
-the season.
+In `auto`, outgoing scoreline/margin presentation is re-clamped to the adjusted tip. The underlying `predictions_table` is never rewritten: it remains the model record, while `comp_strategy_decisions` records baseline tip, strategy tip, mode, scenario, points gap, and both competition-win estimates for each game.
 
 ## Configuration
 
-| Env var | Default | Meaning |
+| Variable | Default | Meaning |
 | --- | --- | --- |
-| `FOOTY_TIPPER_COMP_STRATEGY` | `advisory` | `off` / `advisory` / `auto` |
-| `FOOTY_TIPPER_COMP_GAP` | joker gap or 0 | Points behind the leader (negative = leading) |
-| `FOOTY_TIPPER_COMP_FIELD_SIZE` | 75 | Rivals in the comp |
-| `FOOTY_TIPPER_COMP_MAX_FLIPS` | 2 | Max deviations per round |
-| `FOOTY_TIPPER_COMP_SIMULATIONS` | 8000 | Monte Carlo draws |
-| `FOOTY_TIPPER_COMP_FLIP_BAND_LO/HI` | 0.38 / 0.62 | Only games this uncertain may be flipped |
-| `FOOTY_TIPPER_COMP_MIN_PWIN_GAIN` | 0.002 | Required P(win) lift before deviating |
-| `FOOTY_TIPPER_COMP_USER_EDGE` | 0.15 | Your expected extra correct tips per future round |
-| `FOOTY_TIPPER_COMP_ROUNDS_LEFT` | all priced | Cap on modelled future rounds |
+| `FOOTY_TIPPER_COMP_STRATEGY` | `advisory` | `off`, `advisory`, or `auto` |
+| `FOOTY_TIPPER_COMP_GAP` | joker gap or `0` | Points behind the leader; negative means ahead |
+| `FOOTY_TIPPER_COMP_FIELD_SIZE` | `75` | Rival count in the simulated competition |
+| `FOOTY_TIPPER_COMP_MAX_FLIPS` | `2` | Maximum current-round deviations |
+| `FOOTY_TIPPER_COMP_SIMULATIONS` | `8000` | Monte Carlo draws |
+| `FOOTY_TIPPER_COMP_FLIP_BAND_LO` / `HI` | `0.38` / `0.62` | Eligible model-probability band |
+| `FOOTY_TIPPER_COMP_MIN_PWIN_GAIN` | `0.002` | Required estimated gain before deviating |
+| `FOOTY_TIPPER_COMP_USER_EDGE` | `0.15` | Expected extra correct tips per future round |
+| `FOOTY_TIPPER_COMP_ROUNDS_LEFT` | all priced | Optional future-round cap |
 
-`FOOTY_TIPPER_COMP_GAP` falls back to `FOOTY_TIPPER_JOKER_POINTS_GAP` so the
-joker and strategy layers share one view of the standings. Update it weekly.
+Update the points gap and field size from the actual competition. Defaults make the model runnable; they do not know your pub.
 
-## Expected behaviour
+## Expected transitions
 
-- Big lead, plenty of season left → flips marginal anti-market picks to the
-  market side (shadowing the field).
-- Neutral → rarely deviates; the model's tips are usually optimal.
-- Chasing → takes the model's highest-edge contrarian picks; if the deficit
-  is too large for two flips to matter, it says so honestly (P(win) ≈ 0
-  regardless — the joker round is the bigger lever there).
+- **Leading:** marginal anti-market tips may be flipped back toward the field to reduce catch-up variance.
+- **Neutral:** most rounds retain the model argmax because a deviation has little relative value.
+- **Chasing:** high-edge contrarian candidates may be selected when their estimated catch-up benefit exceeds the threshold.
+- **Mathematically cooked:** the system should report near-zero win probability instead of inventing a heroic two-flip rescue.
+
+## Idempotency and audit
+
+Simulations are seeded from round/game state, so an unchanged rerun produces the same comparison. Production runs record decision rows, but do not mutate model predictions. Email idempotency still lives in `email_sends`; `--force-resend` does not authorize a different simulation input and should not be used to fish for a better result.
+
+## Relationship to betting decisions
+
+Competition strategy optimizes relative tipping score. Value picks use expected monetary value, and staking uses a bounded Kelly fraction. A contrarian comp tip is not automatically a value bet, and a value bet is not automatically the right tipping-comp deviation. See [Principled odds integration](principled-odds-integration.md).
