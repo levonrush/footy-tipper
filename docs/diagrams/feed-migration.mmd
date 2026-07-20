@@ -1,51 +1,65 @@
-%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":32,"rankSpacing":42},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"14px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":30,"rankSpacing":42},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"13px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
 flowchart TB
-  subgraph NOW[Today — production]
-    direction LR
-    XML[/Credentialled XML<br/>fixtures · ladder · performance/]
-    RPREP([R provider refresh<br/>invoked by CLI])
-    CACHE[(feed_cache_fixtures<br/>ladders · performance)]
-    ODDS[(odds_snapshots)]
-    TABLES[(Prepared SQLite<br/>train · infer · context)]
-    XML --> RPREP
-    RPREP --> CACHE
-    RPREP --> ODDS
-    CACHE --> TABLES
-  end
-
-  subgraph NEXT[Next — prototype / WIP]
+  subgraph PROD[Production default — FOOTY_TIPPER_FEED_SOURCE=python]
     direction TB
     DRAW[/nrl.com draw JSON/]
-    MATCH[/nrl.com match centre/]
-    HIST[/Historical odds source<br/>terms and matching review/]
-    LIVE{Live odds<br/>provider decision}
-    PY([Python nrl_data refresh<br/>not called by CLI or R])
+    MATCH[/nrl.com match centres/]
+    HIST[/Australia Sports Betting<br/>historical workbook/]
+    LIVE[/Betfair Exchange<br/>live markets/]
+    PY([Python nrl-data refresh<br/>and historical backfill])
     DERIVE([Derive ladder and<br/>performance aggregates])
-    VALIDATE{Parity and temporal<br/>validation passes?}
-    TARGET[(Same feed_cache schemas<br/>plus odds ledger)]
+    ODDS([Python odds live<br/>and historical backfill])
+    CACHE[(feed_cache_fixtures<br/>ladders · performance)]
+    HISTORY[(odds_history<br/>timestamped snapshots)]
+    RPREP([R preparation<br/>reads caches])
+    TABLES[(Prepared SQLite<br/>training · inference · context)]
 
-    DRAW -.->|WIP| PY
-    MATCH -.->|WIP| PY
-    PY -.->|WIP| DERIVE
-    HIST -.->|WIP| TARGET
-    LIVE -.->|not selected| TARGET
-    DERIVE -.->|WIP| VALIDATE
-    VALIDATE -.->|only after shadow cutover| TARGET
+    DRAW --> PY
+    MATCH --> PY
+    PY --> DERIVE
+    PY --> CACHE
+    DERIVE --> CACHE
+    HIST --> ODDS
+    LIVE --> ODDS
+    ODDS --> HISTORY
+    ODDS --> CACHE
+    CACHE --> RPREP
+    HISTORY --> RPREP
+    RPREP --> TABLES
   end
 
-  CACHE -.->|schema contract to preserve| TARGET
+  subgraph ROLLBACK[Explicit rollback — FOOTY_TIPPER_FEED_SOURCE=feed]
+    direction LR
+    XML[/Credentialled XML<br/>fixtures · ladder · performance/]
+    RXML([Legacy R fetch])
+    XML -.-> RXML
+  end
+
+  RXML -.->|same cache contract| CACHE
+
+  subgraph FUTURE[Independent future extensions]
+    direction LR
+    PLAYER([Identity-linked<br/>player ratings])
+    TOTALS([Totals-based<br/>score offsets])
+    CONTEXT([Weather · referee<br/>travel · rest])
+  end
+
+  MATCH -.->|evaluate| PLAYER
+  HISTORY -.->|coverage and temporal gates| TOTALS
+  TABLES -.->|train/infer symmetry| CONTEXT
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
   classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
   classDef data fill:#CCFBF1,stroke:#0F766E,color:#0F172A,stroke-width:2px;
-  classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
-  classDef wip fill:#FFF7ED,stroke:#DC2626,color:#0F172A,stroke-width:2px,stroke-dasharray:6 4;
+  classDef rollback fill:#FFF7ED,stroke:#DC2626,color:#0F172A,stroke-width:2px,stroke-dasharray:6 4;
+  classDef future fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px,stroke-dasharray:6 4;
 
-  class XML,DRAW,MATCH,HIST source;
-  class RPREP process;
-  class CACHE,ODDS,TABLES data;
-  class LIVE,VALIDATE decision;
-  class PY,DERIVE,TARGET wip;
+  class DRAW,MATCH,HIST,LIVE source;
+  class PY,DERIVE,ODDS,RPREP process;
+  class CACHE,HISTORY,TABLES data;
+  class XML,RXML rollback;
+  class PLAYER,TOTALS,CONTEXT future;
 
-  style NOW fill:#F8FAFC,stroke:#0F766E,stroke-width:2px
-  style NEXT fill:#FFF7ED,stroke:#DC2626,stroke-width:2px,stroke-dasharray:6 4
+  style PROD fill:#F8FAFC,stroke:#0F766E,stroke-width:2px
+  style ROLLBACK fill:#FFF7ED,stroke:#DC2626,stroke-width:2px,stroke-dasharray:6 4
+  style FUTURE fill:#FFFBEB,stroke:#F59E0B,stroke-width:2px,stroke-dasharray:6 4

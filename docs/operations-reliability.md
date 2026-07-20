@@ -2,7 +2,7 @@
 
 This is the runbook for what owns state, what happens on a rerun, and how the automated path fails without turning one missing provider into a small constitutional crisis.
 
-![Actions gate, Drive state, prediction, send, backup, and Pages flow](diagrams/operations-state.svg)
+![Local model publication plus Actions gate, prediction, send, backup, and Pages flow](diagrams/operations-state.svg)
 
 [Editable Mermaid source](diagrams/operations-state.mmd)
 
@@ -12,12 +12,12 @@ This is the runbook for what owns state, what happens on a rerun, and how the au
 | --- | --- | --- |
 | Code and hand-written docs | Git | Human-reviewed commits |
 | `data/footy-tipper-db.sqlite` | Local run / Drive `state/` | R prep, inference, and operational ledgers |
-| `models/` | Training / Drive `state/` | Replace only after successful training and push |
+| `models/` | Local training / Drive `state/` | Publish only after successful training and validation |
 | `schedule.json` | State scheduler / Drive `state/` | Derived from next unsent round |
 | `docs/site/` | Site generator / GitHub Pages branch path | Generated; publish explicitly or from Actions |
 | Email delivery | SMTP | One live `(competition_year, round_id)` unless forced |
 
-`footy-tipper state pull` restores DB and models before cloud work. `state push` uploads DB, models, and schedule after successful work. All stateful Actions jobs share concurrency group `footy-tipper-state` with cancellation disabled.
+`footy-tipper state pull` restores the published DB and models before either local training or cloud prediction. Model downloads are staged and validated before replacing the local last-known-good set. `state push` refuses an incomplete home/away/manifest artifact set, then uploads a consistent DB snapshot, models, and derived schedule. The stateful prediction job uses concurrency group `footy-tipper-state` with cancellation disabled.
 
 ## Prediction and send idempotency
 
@@ -35,18 +35,17 @@ This is the runbook for what owns state, what happens on a rerun, and how the au
 
 | Workflow | Trigger | Contract |
 | --- | --- | --- |
-| `predict.yml` | Hourly at minute 7; manual `test`, `live`, or `refresh` | Run a small Drive-backed gate, then pull state, predict, push state, and attempt site publication for non-skip modes. |
-| `train.yml` | Monday 19:00 UTC; manual | Pull state, train in the container, push only if the job completes. |
+| `predict.yml` | Every 15 minutes; manual `test`, `live`, or `refresh` | Run a small Drive-backed gate, then pull state, predict with `--skip-auto-train`, push state, and attempt site publication for non-skip modes. |
 | `build-image.yml` | Relevant runtime-file changes on `main`; manual | Build/push `ghcr.io/levonrush/footy-tipper:latest` and SHA tag. |
 | `smoke-checks.yml` | Push and pull request | Python compile/lint/tests plus R source parsing; no publication. |
 
 The scheduled prediction gate reads Drive `schedule.json` and chooses:
 
-- `send`: from six hours before first kickoff of the next unsent round until twelve hours after it;
+- `send`: from 11:00 `Australia/Sydney` on the local calendar day of the next unsent round's first game until twelve hours after kickoff;
 - `refresh`: when the schedule is more than eight days old;
 - `skip`: otherwise.
 
-A green gate-only run may mean `skip`; inspect whether the `predict` job ran. The twelve-hour grace window gives hourly retries while `email_sends` prevents duplicates. The gate also attempts to re-enable scheduled predict/train workflows to reduce offseason inactivity risk.
+A green gate-only run may mean `skip`; inspect whether the `predict` job ran. The 15-minute poll means the first eligible run is normally the first poll at or after 11:00 Sydney; `zoneinfo` handles AEST/AEDT and UTC date boundaries. The twelve-hour post-kickoff grace window supplies retries while `email_sends` prevents duplicates. An expired unsent round is skipped in favour of the next actionable round. Workflows never self-enable, so an operator pause remains authoritative until `gh workflow enable predict.yml` is run explicitly.
 
 Manual dispatches:
 
@@ -54,11 +53,10 @@ Manual dispatches:
 gh workflow run predict.yml -f mode=test
 gh workflow run predict.yml -f mode=refresh
 gh workflow run predict.yml -f mode=live
-gh workflow run train.yml
 gh run watch
 ```
 
-`test` is the default manual mode and does not write the production send ledger. `refresh` runs `predict --skip-send`. `live` sends to the real list.
+`test` is the default manual mode and does not write the production send ledger. `refresh` runs `predict --skip-send`. `live` sends to the real list. All three modes include `--skip-auto-train`; a missing published model fails the job instead of starting a hosted retrain.
 
 ## Actions secrets
 
@@ -81,21 +79,48 @@ The workflow masks each environment value before subsequent steps. Because workf
 | Missing Claude/Anthropic | Use deterministic email copy when generation cannot run. |
 | Missing OpenAI/banner generation | Continue with the normal/static presentation. |
 | Missing Google dependencies or credentials | Skip Drive-dependent actions with a clear message where the command permits; cloud production should treat an unexpected skip as an alert. |
-| Missing required models | `infer`/`predict` auto-train unless `--skip-auto-train` is set. |
+| Missing required models locally | Standalone `infer`/`predict` auto-train unless `--skip-auto-train` is set. |
+| Missing required models in Actions | Fail clearly because every cloud prediction passes `--skip-auto-train`; publish a complete local model set. |
 
 Claude writes copy. OpenAI generates an optional banner. They are independent failure boundaries.
 
-## Weekly operator runbook
+## Local model publication runbook
 
-1. Pull shared state when working from a fresh machine: `footy-tipper state pull`.
-2. Inspect the derived schedule: `footy-tipper state schedule`.
-3. Train if scheduled or if model/data contracts changed: `footy-tipper train`.
-4. Run a safe full pass: `footy-tipper predict --test --dry-run --skip-drive`.
-5. Verify season/round, fixtures, lineup coverage, confidence, value picks, stakes, joker call, and competition advice.
-6. Use `footy-tipper predict` for the intended live workflow.
-7. Confirm `email_sends`, Drive push, backup, and site publication messages.
+Run this from the repository root in the `footy-tipper` Conda environment:
 
-The weekly `predict` path uses recent lineup refresh. It enters historical backfill only if missing models trigger auto-training and the requested lineup history is not bootstrapped.
+```bash
+conda activate footy-tipper
+
+# Prevent Drive-state races during the long local run.
+gh workflow disable predict.yml
+# Wait until both commands list no runs, then disable once more.
+gh run list --workflow predict.yml --status queued
+gh run list --workflow predict.yml --status in_progress
+gh workflow disable predict.yml
+gh api 'repos/{owner}/{repo}/actions/workflows/predict.yml' --jq .state
+
+footy-tipper state pull
+FOOTY_TIPPER_TUNE_ITER=100 footy-tipper train
+
+# Validate that the new artifacts load without allowing another train.
+footy-tipper infer \
+  --skip-prep \
+  --skip-lineups \
+  --skip-nrl-data \
+  --skip-auto-train
+
+footy-tipper state schedule
+footy-tipper state push
+
+gh workflow enable predict.yml
+gh workflow run predict.yml -f mode=refresh
+```
+
+After disabling the workflow, wait for both queued and in-progress runs to drain (`gh run watch <run-id>`), disable it again, and confirm the API reports `disabled_manually` before pulling. This second disable is especially important on the first cutover run because an older in-flight gate may have started before self-enabling was removed. The 100-candidate value is the normal local default and is shown explicitly so an old shell override cannot silently reduce the search. Bayesian candidates run in parallel across the machine; individual LightGBM fits use one thread. Inspect the validation inference and printed schedule before publication. The push must find loadable `home_model.pkl` and `away_model.pkl` artifacts plus a valid `model_manifest.json`; optional current artifacts should travel with them.
+
+If training or validation fails, do **not** run `state push`. Re-enable `predict.yml`; Drive keeps the previous good models. The manual `refresh` is for a successful publication only and updates cloud data/state without emailing anybody.
+
+The scheduled `predict` path performs only recent ingestion, inference, and distribution. It never enters a historical training bootstrap because `--skip-auto-train` is mandatory in Actions.
 
 ## Recovery runbooks
 
@@ -107,13 +132,13 @@ Fix the provider/configuration issue and rerun. No `email_sends` row or joker tr
 
 Check `email_sends` before doing anything. Rerun without `--force-resend`; the ledger should prevent a duplicate email while allowing diagnosis of remaining local/state tasks. Use explicit state/site commands where possible.
 
-### Drive has older good models after training timeout
+### Local training or validation fails
 
-This is intentional: `train.yml` pushes only after training completes. Pull Drive state to restore the last successful artifact set.
+Do not publish partial output. Re-enable `predict.yml`; Drive retains the last successful artifact set. A later `state pull` restores those models because staged downloads do not replace them until archive validation passes.
 
 ### State is missing on a new installation
 
-Create the local DB/models through prep/train, then seed once with `footy-tipper state push`. Do not push an empty state directory over a known-good remote without verifying contents.
+Create the local DB/models through prep/train, validate them, then seed once with `footy-tipper state push`. The command rejects missing required artifacts, but still verify the intended DB and optional model set before replacing a known-good remote.
 
 ### Lineup coverage collapses
 
@@ -130,6 +155,7 @@ The expected endpoint is [the Footy Tipper GitHub Pages site](https://levonrush.
 ## Diagnostic checklist
 
 - Gate decision and reason in Actions logs
+- local training/validation result and Drive model publication timestamp
 - latest season/round chosen by `prediction_table.sql`
 - row counts in `inference_data` and `predictions_table`
 - lineup run status, zero-entry rate, and eligible as-of coverage

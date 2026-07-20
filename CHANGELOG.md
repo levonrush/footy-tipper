@@ -5,11 +5,21 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Documentation
-- Audited repository Markdown against the current nine-command CLI, R preparation modes, SQL contracts, Tier A/B/C model path, line markets, LOSO calibration, dispersion fallback, state sync, and Actions workflows.
+- Audited repository Markdown against the current eleven-command CLI, R preparation modes, SQL contracts, Tier A/B/C model path, line markets, LOSO calibration, dispersion fallback, state sync, and Actions workflows.
 - Added task-oriented documentation, research/literature indexes, a curated research-to-production matrix, the complete eleven-part Medium series, and canonical Mermaid diagram sources with SVG previews.
 - Corrected the runtime start-year default to `2010`, the test recipient fallback to `levon_rush@hotmail.com`, and provider ownership: Claude/Anthropic writes optional email copy while OpenAI generates an optional banner.
-- Documented `pipeline/common/nrl_data/` as a feed-migration prototype that is not yet invoked by the CLI or R preparation.
+- Reconciled the feed documentation with the shipped cutover: Python nrl.com/odds ingestion is production and the credentialled XML feed is the rollback path.
+- Documented local-authoritative model training, Drive publication, Actions prediction-only ownership, the 11:00 Sydney gate, and the safe local training runbook.
 - Added a private linked Notion project hub; repository Markdown remains canonical.
+
+### Changed
+- Retired hosted GitHub Actions training. Local training again uses the 100-candidate default, with Bayesian search parallelism outside single-threaded LightGBM fits.
+- Scheduled prediction now polls every 15 minutes and becomes eligible at 11:00 `Australia/Sydney` on the first-game day of the next unsent round.
+- Actions test, refresh, and live prediction modes all disable auto-training and fail clearly when published artifacts are missing.
+
+### Reliability / Hardening
+- Model publication validates the required home, away, and manifest artifacts before uploading Drive state.
+- Drive pulls stage and validate model archives before replacing the local last-known-good artifact set.
 
 ## [0.1.0] - 2026-02-18
 

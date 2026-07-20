@@ -5,3 +5,9 @@
 node_modules/
 secrets.env
 service-account-token.json
+data/*
+!data/.gitkeep
+!data/reference/
+!data/reference/**
+models/*
+!models/.gitkeep

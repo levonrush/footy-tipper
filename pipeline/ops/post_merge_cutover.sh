@@ -60,6 +60,6 @@ else
 fi
 
 log "dispatching predict test run"
-gh workflow run predict.yml --ref main -f mode=test && log "test predict dispatched" || log "test dispatch failed (non-fatal; hourly gate will run regardless)"
+gh workflow run predict.yml --ref main -f mode=test && log "test predict dispatched" || log "test dispatch failed (non-fatal; 15-minute gate will run regardless)"
 
 log "cutover automation complete"

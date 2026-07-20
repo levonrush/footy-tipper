@@ -1,9 +1,10 @@
 """Sync pipeline state (SQLite DB + model artifacts) with Google Drive.
 
-Used by the GitHub Actions workflows so runs on fresh runners can pull the
-current DB/models before a run and push them back after. Also computes a
-small schedule.json (upcoming round kickoffs + sent status) that the scheduled
-gate job reads to decide whether it is time to run predict.
+Used by the local training publication flow and the GitHub Actions prediction
+workflow. Both can pull the current DB/models before a run and push validated
+state afterward. Also computes a small schedule.json (upcoming round kickoffs
+and sent status) that the scheduled gate reads to decide whether it is time to
+run predict.
 
 Deliberately imports only the stdlib plus google-api-python-client/google-auth,
 so the gate job can run it after installing just those two packages (no pandas
@@ -39,6 +40,7 @@ STATE_FOLDER_NAME = "state"
 DB_ARCHIVE = "footy-tipper-db-latest.sqlite.gz"
 MODELS_ARCHIVE = "models-latest.tar.gz"
 SCHEDULE_FILE = "schedule.json"
+REQUIRED_MODEL_FILES = ("home_model.pkl", "away_model.pkl", "model_manifest.json")
 
 SYDNEY_TIMEZONE = ZoneInfo("Australia/Sydney")
 SEND_HOUR_LOCAL = 11
@@ -132,6 +134,110 @@ def download_to(service, file_id, local_path) -> None:
         done = False
         while not done:
             _, done = downloader.next_chunk()
+
+
+def _missing_required_models(models_dir):
+    models_dir = pathlib.Path(models_dir)
+    return [
+        name for name in REQUIRED_MODEL_FILES
+        if not (models_dir / name).is_file()
+    ]
+
+
+def _validate_model_artifacts(models_dir) -> None:
+    """Prove a staged/publication model set is loadable before it can replace state."""
+    models_dir = pathlib.Path(models_dir)
+    missing_models = _missing_required_models(models_dir)
+    if missing_models:
+        raise ValueError(
+            f"missing required artifacts: {', '.join(missing_models)}"
+        )
+
+    manifest_path = models_dir / "model_manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("model_manifest.json is not valid JSON") from exc
+    predictors = manifest.get("predictors") if isinstance(manifest, dict) else None
+    if (
+        not isinstance(predictors, list)
+        or not predictors
+        or not all(isinstance(name, str) and name for name in predictors)
+    ):
+        raise ValueError(
+            "model_manifest.json must contain a non-empty string predictor list"
+        )
+
+    try:
+        import dill as model_pickle
+    except ImportError as exc:
+        raise ValueError("dill is required to validate model artifacts") from exc
+
+    loaded = {}
+    for model_path in sorted(models_dir.glob("*.pkl")):
+        try:
+            with open(model_path, "rb") as handle:
+                loaded[model_path.name] = model_pickle.load(handle)
+        except Exception as exc:
+            raise ValueError(f"{model_path.name} cannot be loaded") from exc
+
+    for name in ("home_model.pkl", "away_model.pkl"):
+        if not callable(getattr(loaded.get(name), "predict", None)):
+            raise ValueError(f"{name} does not expose a predict method")
+
+    for json_path in sorted(models_dir.glob("*.json")):
+        if json_path == manifest_path:
+            continue
+        try:
+            json.loads(json_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{json_path.name} is not valid JSON") from exc
+
+
+def _extract_models_archive(archive_path, destination) -> None:
+    """Safely extract a flat models archive into an isolated directory."""
+    destination = pathlib.Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    destination_root = destination.resolve()
+
+    with tarfile.open(archive_path, "r:gz") as tar:
+        for member in tar.getmembers():
+            member_path = (destination / member.name).resolve()
+            try:
+                member_path.relative_to(destination_root)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Unsafe path in models archive: {member.name}"
+                ) from exc
+            if member.issym() or member.islnk():
+                raise ValueError(
+                    f"Links are not allowed in models archive: {member.name}"
+                )
+            if not member.isfile() and not member.isdir():
+                raise ValueError(
+                    f"Unsupported entry in models archive: {member.name}"
+                )
+        try:
+            tar.extractall(destination, filter="data")
+        except TypeError:  # Python without extraction filters
+            tar.extractall(destination)
+
+
+def _replace_models_dir(staged_models, models_dir, transaction_dir) -> None:
+    """Replace models as a directory unit, restoring the old set on failure."""
+    staged_models = pathlib.Path(staged_models)
+    models_dir = pathlib.Path(models_dir)
+    backup_dir = pathlib.Path(transaction_dir) / "models-backup"
+    had_existing_models = models_dir.exists()
+
+    if had_existing_models:
+        os.replace(models_dir, backup_dir)
+    try:
+        os.replace(staged_models, models_dir)
+    except Exception:
+        if had_existing_models and backup_dir.exists():
+            os.replace(backup_dir, models_dir)
+        raise
 
 
 def _state_folder(service, root) -> str:
@@ -261,8 +367,17 @@ def push_state(root) -> int:
     if not db_path.exists():
         _log(f"DB not found at {db_path}; nothing to push.")
         return 1
-    if not models_dir.is_dir() or not any(models_dir.iterdir()):
-        _log(f"Models directory {models_dir} is empty; nothing to push.")
+    missing_models = _missing_required_models(models_dir)
+    if missing_models:
+        _log(
+            f"Models directory {models_dir} is incomplete; refusing to push. "
+            f"Missing required artifacts: {', '.join(missing_models)}."
+        )
+        return 1
+    try:
+        _validate_model_artifacts(models_dir)
+    except ValueError as exc:
+        _log(f"Models in {models_dir} are invalid; refusing to push: {exc}.")
         return 1
 
     service = drive_service(root / "service-account-token.json")
@@ -326,29 +441,60 @@ def pull_state(root) -> int:
     data_dir = root / "data"
     models_dir = root / "models"
     data_dir.mkdir(parents=True, exist_ok=True)
-    models_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    # Keep downloads, extraction, and the old models backup on the workspace
+    # filesystem so the final os.replace operations are atomic renames.
+    with tempfile.TemporaryDirectory(prefix=".state-pull-", dir=root) as tmp:
         tmp = pathlib.Path(tmp)
 
         db_gz = tmp / DB_ARCHIVE
         download_to(service, db_id, db_gz)
-        # Decompress beside the destination: os.replace must not cross
-        # filesystems (container /tmp vs mounted workspace).
-        db_path = data_dir / "footy-tipper-db.sqlite"
-        db_tmp = data_dir / "footy-tipper-db.sqlite.partial"
-        with gzip.open(db_gz, "rb") as src, open(db_tmp, "wb") as dst:
-            shutil.copyfileobj(src, dst)
-        os.replace(db_tmp, db_path)
-        _log(f"Restored DB to {db_path} ({db_path.stat().st_size / 1e6:.1f} MB).")
 
         models_tar = tmp / MODELS_ARCHIVE
         download_to(service, models_id, models_tar)
-        with tarfile.open(models_tar, "r:gz") as tar:
-            try:
-                tar.extractall(models_dir, filter="data")
-            except TypeError:  # Python without extraction filters
-                tar.extractall(models_dir)
+
+        staged_models = tmp / "models-staged"
+        try:
+            _extract_models_archive(models_tar, staged_models)
+        except (OSError, tarfile.TarError, ValueError) as exc:
+            _log(f"Downloaded models archive is invalid; local state was not changed: {exc}")
+            return 1
+
+        try:
+            _validate_model_artifacts(staged_models)
+        except ValueError as exc:
+            _log(
+                "Downloaded models archive failed artifact validation; "
+                f"local state was not changed: {exc}."
+            )
+            return 1
+        # The directory is replaced as a unit. Keep its tracked placeholder
+        # even when consuming an older Drive archive that predates .gitkeep.
+        (staged_models / ".gitkeep").touch(exist_ok=True)
+
+        staged_db = tmp / "db-staged.sqlite"
+        try:
+            with gzip.open(db_gz, "rb") as src, open(staged_db, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        except (OSError, EOFError) as exc:
+            _log(f"Downloaded DB archive is invalid; local state was not changed: {exc}")
+            return 1
+
+        db_path = data_dir / "footy-tipper-db.sqlite"
+        _replace_models_dir(staged_models, models_dir, tmp)
+        try:
+            os.replace(staged_db, db_path)
+        except Exception:
+            # The model swap happened first; restore the last-known-good set if
+            # the DB cannot be committed so local state remains coherent.
+            failed_models = tmp / "models-failed"
+            os.replace(models_dir, failed_models)
+            backup_dir = tmp / "models-backup"
+            if backup_dir.exists():
+                os.replace(backup_dir, models_dir)
+            raise
+
+        _log(f"Restored DB to {db_path} ({db_path.stat().st_size / 1e6:.1f} MB).")
         _log(f"Restored models into {models_dir}.")
     return 0
 

@@ -27,17 +27,40 @@ footy-tipper train                       # lineup bootstrap + prep + models
 footy-tipper predict                     # lineup refresh + infer + send
 footy-tipper send --test --dry-run       # inspect delivery without sending
 footy-tipper evaluate --skip-prep        # nested season-out evidence
-footy-tipper state pull                  # restore DB and models from Drive
+footy-tipper state pull                  # restore published DB/models from Drive
 footy-tipper site                        # generate docs/site/
 ```
 
-There are nine commands in total: `prep`, `train`, `infer`, `send`, `predict`, `lineups`, `site`, `evaluate`, and `state`. Their flags and defaults are in the [CLI reference](docs/cli-reference.md).
+There are eleven commands in total: `prep`, `train`, `infer`, `send`, `predict`, `lineups`, `nrl-data`, `odds`, `site`, `evaluate`, and `state`. Their flags and defaults are in the [CLI reference](docs/cli-reference.md).
 
 ## Today and next
 
-**Today:** the runnable production path uses credentialled XML feeds for fixtures, ladder, and performance data; nrl.com team-list articles for versioned lineups; SQLite for prepared data and operational state; calibrated Python models; GitHub Actions for scheduling; and Google Drive for mutable state.
+**Today:** Python ingests the nrl.com draw and match centres, derives ladder/performance caches, and refreshes historical or live odds before R preparation. Official team-list articles supply versioned lineups. SQLite owns prepared and operational state; calibrated models are trained on local hardware and published to Google Drive; GitHub Actions pulls that state and runs prediction/delivery only.
 
-**Next:** the `feed-migration` branch contains prototype nrl.com draw, match-centre, ladder, performance, and odds-ingestion modules. They are research-backed and useful, but they are **not yet invoked by the CLI or R preparation pipeline**. The production feed remains the current path until that wiring, parity testing, and cutover are complete. See [Data-source migration](docs/data-source-migration.md).
+The credentialled XML feed remains available as the explicit `FOOTY_TIPPER_FEED_SOURCE=feed` rollback, not the default. See [Data-source migration](docs/data-source-migration.md) for the shipped cutover, evidence, and remaining feed extensions.
+
+## Publishing a locally trained model
+
+Production training is intentionally local. Pull the last-known-good Drive state, train with the default 100-candidate Bayesian search, validate the new artifacts without allowing auto-training, then push the DB/models/schedule together. Pause `predict.yml` during that sequence so a cloud prediction cannot race the publication.
+
+```bash
+gh workflow disable predict.yml
+# Wait until both commands list no runs, then disable once more in case an
+# older in-flight gate re-enabled the workflow while it drained.
+gh run list --workflow predict.yml --status queued
+gh run list --workflow predict.yml --status in_progress
+gh workflow disable predict.yml
+gh api 'repos/{owner}/{repo}/actions/workflows/predict.yml' --jq .state
+footy-tipper state pull
+FOOTY_TIPPER_TUNE_ITER=100 footy-tipper train
+footy-tipper infer --skip-prep --skip-lineups --skip-nrl-data --skip-auto-train
+footy-tipper state schedule
+footy-tipper state push
+gh workflow enable predict.yml
+gh workflow run predict.yml -f mode=refresh
+```
+
+If training or validation fails, do not push; re-enable `predict.yml` and leave the published Drive models untouched. The complete runbook is in [Operations](docs/operations-reliability.md).
 
 The expected GitHub Pages endpoint is [the Footy Tipper site](https://levonrush.github.io/footy-tipper/site/). It should be treated as unpublished while it returns 404; generate locally with `footy-tipper site` and enable Pages before calling it live.
 
@@ -50,7 +73,7 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - [Architecture](docs/how-it-works.md) — data, models, state, and delivery ownership.
 - [Models and evidence](docs/modeling-techniques.md) — Tier A/B/C, calibration, simulation, and limitations.
 - [Research and history](docs/research-and-history.md) — research-to-production status and the complete Medium series.
-- [Operations](docs/operations-reliability.md) — Actions, Drive state, reruns, backups, and Pages.
+- [Operations](docs/operations-reliability.md) — local training, Actions prediction, Drive publication, reruns, backups, and Pages.
 - [Research notebooks](research/README.md) and [literature reviews](lit-review/README.md) — historical exploration and source material.
 
 ## Boundaries worth remembering
@@ -58,6 +81,7 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - Training rows are explicitly `game_state_name == "Final"`; inference rows are `game_state_name == "Pre Game"`.
 - Missing lineup data fails soft unless strict mode is requested.
 - Missing Google, Claude, or OpenAI integrations degrade to skips or deterministic fallbacks where documented.
+- Actions prediction always uses `--skip-auto-train`; missing published models are an operational failure, never an invitation to train on a hosted runner.
 - Claude/Anthropic writes optional email copy. OpenAI is optional banner generation, not the copywriter.
 - Production sends are idempotent by season and round unless `--force-resend` is used.
 - No season end year or local machine path belongs in runtime code.

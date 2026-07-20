@@ -1,49 +1,83 @@
-%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":30,"rankSpacing":42},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"14px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":40},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"13px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
 flowchart TB
-  TRIGGER[/Hourly cron or<br/>manual test · live · refresh/]
-  SCHEDULE[(Drive state<br/>schedule.json)]
-  GATE{Gate decision}
-  SKIP([Skip<br/>outside window])
-  PULL([Pull SQLite and models<br/>from Drive state])
-  MODE{Run mode?}
-  REFRESH([Predict --skip-send<br/>refresh data and state])
-  TEST([Predict --test<br/>single recipient])
-  LIVE([Predict<br/>production delivery])
-  LEDGER{Season and round<br/>already sent?}
-  EMAIL[/SMTP email/]
-  DB[(SQLite state<br/>predictions · email · joker)]
-  PUSH([Push DB · models<br/>and schedule to Drive])
-  BACKUP[/Drive backups<br/>newest eight retained/]
-  SITE([Generate docs/site/])
-  PAGES[/Expected GitHub Pages<br/>publish path/]
+  DRIVE[(Google Drive state<br/>DB · models · schedule)]
 
-  TRIGGER --> GATE
-  SCHEDULE --> GATE
-  GATE -->|skip| SKIP
-  GATE -->|send or refresh| PULL
-  PULL --> MODE
-  MODE -->|refresh| REFRESH
-  MODE -->|test| TEST
-  MODE -->|live| LIVE
-  LIVE --> LEDGER
-  LEDGER -->|already sent| SKIP
-  LEDGER -->|unsent| EMAIL
-  TEST --> EMAIL
-  REFRESH --> DB
-  EMAIL --> DB
-  DB --> PUSH
-  DB -.->|live success; optional| BACKUP
-  DB --> SITE
-  SITE -.->|publish; continue-on-error| PAGES
-  PUSH --> SCHEDULE
+  subgraph LOCAL[Local-authoritative model publication]
+    direction LR
+    OP[/Operator/]
+    PAUSE([Disable predict workflow])
+    LPULL([Pull last-known-good state])
+    TRAIN[[Train locally<br/>100 Bayesian candidates]]
+    CHECK{Infer loads artifacts<br/>with auto-train disabled?}
+    HOLD([Do not push<br/>re-enable prediction])
+    LPUSH([Validate and push<br/>DB · models · schedule])
+    RESUME([Re-enable prediction<br/>manual refresh])
+
+    OP --> PAUSE --> LPULL --> TRAIN --> CHECK
+    CHECK -->|no| HOLD
+    CHECK -->|yes| LPUSH --> RESUME
+  end
+
+  DRIVE --> LPULL
+  LPUSH --> DRIVE
+
+  subgraph CLOUD[GitHub Actions prediction and delivery only]
+    direction TB
+    TRIGGER[/15-minute cron or<br/>manual test · live · refresh/]
+    SCHEDULE[(schedule.json)]
+    GATE{11am Sydney gate<br/>decision}
+    SKIP([Skip<br/>outside target or already sent])
+    PULL([Stage and validate<br/>Drive state pull])
+    MODE{Run mode?}
+    REFRESH([Predict --skip-send<br/>--skip-auto-train])
+    TEST([Predict --test<br/>--skip-auto-train])
+    LIVE([Predict live<br/>--skip-auto-train])
+    LEDGER{Season and round<br/>already sent?}
+    EMAIL[/SMTP email/]
+    DB[(SQLite state<br/>predictions · email · joker)]
+    PUSH([Push DB · models<br/>and derived schedule])
+    BACKUP[/Drive backups<br/>newest eight retained/]
+    SITE([Generate docs/site/])
+    PAGES[/Expected GitHub Pages<br/>publish path/]
+
+    TRIGGER --> GATE
+    SCHEDULE --> GATE
+    GATE -->|skip| SKIP
+    GATE -->|send or stale refresh| PULL
+    PULL --> MODE
+    MODE -->|refresh| REFRESH
+    MODE -->|test| TEST
+    MODE -->|live| LIVE
+    LIVE --> LEDGER
+    LEDGER -->|already sent| SKIP
+    LEDGER -->|unsent| EMAIL
+    TEST --> EMAIL
+    REFRESH --> DB
+    EMAIL --> DB
+    DB --> PUSH
+    DB -.->|live success; optional| BACKUP
+    DB --> SITE
+    SITE -.->|publish; continue-on-error| PAGES
+  end
+
+  DRIVE --> SCHEDULE
+  DRIVE --> PULL
+  PUSH --> DRIVE
+  RESUME -.->|dispatch refresh| TRIGGER
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
   classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
   classDef data fill:#CCFBF1,stroke:#0F766E,color:#0F172A,stroke-width:2px;
+  classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
   classDef state fill:#E2E8F0,stroke:#0F172A,color:#0F172A,stroke-width:2px;
 
-  class TRIGGER,EMAIL,BACKUP,PAGES source;
-  class SKIP,PULL,REFRESH,TEST,LIVE,PUSH,SITE process;
+  class OP,TRIGGER,EMAIL,BACKUP,PAGES source;
+  class PAUSE,LPULL,HOLD,LPUSH,RESUME,SKIP,PULL,REFRESH,TEST,LIVE,PUSH,SITE process;
   class SCHEDULE,DB data;
-  class GATE,MODE,LEDGER decision;
+  class TRAIN model;
+  class CHECK,GATE,MODE,LEDGER decision;
+  class DRIVE state;
+
+  style LOCAL fill:#F8FAFC,stroke:#F59E0B,stroke-width:2px
+  style CLOUD fill:#F8FAFC,stroke:#0369A1,stroke-width:2px

@@ -104,6 +104,6 @@ See [Competition strategy](comp-strategy.md) and [Joker strategy](joker-strategy
 - A score model cannot fully represent rugby league's discrete scoring and tactical state; dispersion and shared components only soften the assumption.
 - `lambda3` may estimate near zero when the evidence does not support a shared component.
 - A competition-win policy depends on field size, points gap, opponent behavior, and joker rules; it is scenario-dependent.
-- The nrl.com feed replacement is not yet on the runtime path.
+- The nrl.com/odds feed replacement is on the runtime path, but source coverage and markup remain operational dependencies; the legacy XML feed is the rollback.
 
 For the research lineage and what has not shipped, see [Research and history](research-and-history.md).

@@ -30,12 +30,15 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Training:
   - `pipeline/train.py` builds Tier-A baseline features, trains Tier-B home/away Poisson models and the Tier-C binary classifier, blends expected scores, fits the regularized stacker + LOSO beta calibrator, estimates `lambda3`/dispersion, and saves artifacts in `models/`.
   - Key artifacts: `home_model.pkl`, `away_model.pkl`, `binary_model.pkl`, `stacker.pkl`, `win_prob_calibrator.pkl`, `model_manifest.json`, `joker_policy.json`.
+  - Production training runs on the operator's local hardware. The default Bayesian search budget is `FOOTY_TIPPER_TUNE_ITER=100`; search fits parallelize externally while each LightGBM fit remains single-threaded.
+  - Google Drive `state/` is the publication channel for validated models. GitHub Actions must not train or auto-train.
 - Inference:
   - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, simulates outcomes with bivariate Poisson (`lambda3`), and upserts into `predictions_table`.
 - Distribution:
   - `footy-tipper send` (pipeline/cli.py) reads the prediction view, computes EV-based value picks with Kelly-derived staking, and handles upload/email via `pipeline/common/use_predictions/` modules (joker, staking, scoreboard, email_copy, email_render, distribution, site).
-- Feed migration:
-  - `pipeline/common/nrl_data/` on `feed-migration` is prototype/WIP only. It is not production until a supported CLI/R path invokes it and parity/cutover gates are complete.
+- Production feeds:
+  - The default `FOOTY_TIPPER_FEED_SOURCE=python` path invokes `pipeline/common/nrl_data/` and odds ingestion before R preparation. R reads the resulting `feed_cache_*` tables.
+  - `FOOTY_TIPPER_FEED_SOURCE=feed` restores the credentialled XML path as an explicit rollback.
 - Documentation:
   - Repository Markdown is canonical. The private Notion hub is a curated navigation/story layer and must link back to it.
 
@@ -56,12 +59,20 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES` (default: `64`; uncertainty marginalization samples)
   - `FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE` (default: `0.12`; score-mean noise scale for uncertainty marginalization)
   - Python deps for scraping: `beautifulsoup4`, `lxml` (missing deps should fail soft unless strict mode is enabled)
-- Feed/API environment values expected in `secrets.env`:
+- Feed controls:
+  - `FOOTY_TIPPER_FEED_SOURCE` (`python` default; `feed` selects legacy XML rollback)
+  - `FOOTY_TIPPER_NRL_DATA_ENABLED` (default: `true`)
+  - `FOOTY_TIPPER_NRL_DATA_AUTO_BACKFILL` (default: `true`)
+  - `FOOTY_TIPPER_NRL_DATA_MAX_PAGES` (optional match-centre cap)
+- Legacy XML values, required only for `FOOTY_TIPPER_FEED_SOURCE=feed`:
   - `PASSWORD`
   - `BASE_URL`
   - `NRL_FIXTURES_EXTENTION`
   - `NRL_ROUND_LADDER_EXTENTION`
   - `NRL_PERFORMANCE_EXTENTION`
+- Odds values:
+  - `BETFAIR_APP_KEY`, `BETFAIR_USERNAME`, `BETFAIR_PASSWORD` (live pre-game odds; optional/fail-soft)
+  - `FOOTY_TIPPER_ODDS_HIST_URL` (optional historical workbook override)
 - Send/integration values:
   - `FOLDER_ID`, `FOLDER_URL`
   - `ANTHROPIC_API_KEY`, optional `CLAUDE_MODEL` (email copy)
@@ -88,6 +99,10 @@ This file is for coding/automation agents working on `footy-tipper`.
   - If no pre-game rows exist, send step exits cleanly without failing pipeline.
 - Provider-safe execution:
   - Missing Google/Claude/OpenAI dependencies should degrade gracefully where documented (skip/deterministic copy/static banner), not crash the core prediction path.
+- Training ownership:
+  - GitHub Actions runs prediction/distribution only and passes `--skip-auto-train` in every mode.
+  - Missing required model artifacts in Actions must fail clearly.
+  - A local model publication must pull Drive state, train, validate with `--skip-auto-train`, then push; do not push after a failed train/validation.
 - Lineup-safe execution:
   - Lineup ingestion should fail soft by default.
   - Train/infer must continue if lineup tables are unavailable or sparse.
@@ -109,6 +124,8 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `footy-tipper send`
   - `footy-tipper send --test --test-email levon_rush@hotmail.com`
   - `footy-tipper predict`
+  - `footy-tipper nrl-data refresh|backfill|validate`
+  - `footy-tipper odds live|backfill`
   - `footy-tipper evaluate`
   - `footy-tipper site`
   - `footy-tipper state pull|push|gate|schedule`
@@ -116,6 +133,11 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `footy-tipper train` should bootstrap historical lineups when needed, then run lineup refresh + prep + training without extra flags.
   - `footy-tipper predict` should run lineup refresh + inference + send workflow without extra flags.
   - `infer`/`predict` should auto-train if required model artifacts are missing (unless explicitly disabled via `--skip-auto-train`), and that auto-train path should inherit lineup bootstrap behavior unless `--skip-lineups` is set.
+  - The standalone CLI keeps that convenience behavior, but Actions prediction always supplies `--skip-auto-train` so cloud hardware cannot become a training fallback.
+- Local production training:
+  - Temporarily disable `predict.yml` to prevent a Drive-state race.
+  - Run `state pull`, `FOOTY_TIPPER_TUNE_ITER=100 footy-tipper train`, a no-prep/no-ingestion `infer --skip-auto-train` validation, `state schedule`, then `state push`.
+  - Re-enable `predict.yml` even when training fails; request a manual `refresh` only after a successful push.
 - Honest evaluation:
   - `footy-tipper evaluate --skip-prep` (nested season-out metrics)
 - Static site:
@@ -130,6 +152,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 
 ## Safety / Repo Hygiene
 - Never commit secrets (`secrets.env`, service-account token, passwords, API keys).
+- Never commit generated model artifacts; publish validated models through Drive state.
 - Keep `.gitignore` protections intact.
 - Prefer additive, testable changes; avoid broad refactors without smoke checks.
 - If changing feature columns, update both:

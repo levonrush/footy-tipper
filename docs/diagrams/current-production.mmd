@@ -1,41 +1,57 @@
-%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":30,"rankSpacing":42},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"15px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":30,"rankSpacing":42},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"14px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
 flowchart TB
-  XML[/Credentialled XML feeds<br/>fixtures · ladder · performance/]
-  NRL[/nrl.com Team Lists<br/>and Late Mail/]
-  ACTIONS([GitHub Actions gate<br/>or local operator])
-  DRIVE_IN[/Google Drive state pull<br/>DB · models · schedule/]
+  NRL_DATA[/nrl.com draw and match centres/]
+  ODDS[/Historical and live odds/]
+  TEAM_LISTS[/nrl.com Team Lists and Late Mail/]
+  LOCAL[/Local operator hardware/]
+  ACTIONS([GitHub Actions prediction only<br/>15-minute gate · 11am Sydney])
+  DRIVE[(Google Drive published state<br/>DB · models · schedule)]
 
   CLI([footy-tipper CLI])
+  INGEST([Python source ingestion<br/>nrl-data · odds])
+  LINEUPS([Versioned lineup ingestion])
   PREP([R preparation<br/>full · train · infer])
-  LINEUPS([Versioned lineup<br/>ingestion])
-  DB[(SQLite<br/>cache · prepared · lineup state)]
-  TRAIN[[Tier A/B/C training<br/>stack · calibration · policy]]
+  DB[(SQLite<br/>cache · prepared · operational state)]
+  TRAIN[[Local Tier A/B/C training<br/>stack · calibration · policy]]
   ART[[models/<br/>artifacts and manifest]]
+  VALIDATE{Inference validation<br/>without auto-training passes?}
+  PUBLISH([Validated state push])
   INFER([Pre-game inference<br/>and score simulation])
   PRED[(predictions_table)]
-  SEND{Delivery mode?}
   DECIDE([Tips · value · stakes<br/>joker · comp strategy])
-  DRIVE_OUT[/Google Drive state push<br/>DB · models · schedule · backups/]
+  SEND{Delivery mode?}
+  SYNC([Push DB and schedule<br/>models unchanged])
   EMAIL[/SMTP email<br/>test or production list/]
   PAGES[/Generated site<br/>expected GitHub Pages/]
 
-  ACTIONS --> CLI
-  DRIVE_IN -.->|cloud restore| CLI
-  XML --> PREP
-  NRL --> LINEUPS
-  CLI --> PREP
+  LOCAL -->|state pull · train| CLI
+  ACTIONS -->|predict --skip-auto-train| CLI
+  DRIVE -->|state pull| CLI
+  NRL_DATA --> INGEST
+  ODDS --> INGEST
+  TEAM_LISTS --> LINEUPS
+  CLI --> INGEST
   CLI --> LINEUPS
-  PREP --> DB
+  CLI --> PREP
+  INGEST --> DB
   LINEUPS --> DB
+  PREP --> DB
+  CLI -->|local training only| TRAIN
   DB --> TRAIN
   TRAIN --> ART
+  ART --> VALIDATE
+  DB --> VALIDATE
+  VALIDATE -->|yes| PUBLISH
+  PUBLISH --> DRIVE
+  CLI -->|Actions or local prediction| INFER
   DB --> INFER
   ART --> INFER
   INFER --> PRED
   PRED --> DECIDE
   DECIDE --> SEND
-  SEND -->|test / live| EMAIL
-  SEND -->|live state| DRIVE_OUT
+  SEND -->|test or live| EMAIL
+  SEND -->|state update| SYNC
+  SYNC --> DRIVE
   SEND -->|generate| PAGES
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
@@ -45,8 +61,9 @@ flowchart TB
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
   classDef state fill:#E2E8F0,stroke:#0F172A,color:#0F172A,stroke-width:2px;
 
-  class XML,NRL,DRIVE_IN,DRIVE_OUT,EMAIL,PAGES source;
-  class ACTIONS,CLI,PREP,LINEUPS,INFER,DECIDE process;
+  class NRL_DATA,ODDS,TEAM_LISTS,LOCAL,EMAIL,PAGES source;
+  class ACTIONS,CLI,INGEST,LINEUPS,PREP,PUBLISH,INFER,DECIDE,SYNC process;
   class DB,PRED data;
   class TRAIN,ART model;
-  class SEND decision;
+  class VALIDATE,SEND decision;
+  class DRIVE state;

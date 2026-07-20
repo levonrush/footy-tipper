@@ -1,9 +1,16 @@
 import datetime as dt
+import gzip
+import os
+import shutil
 import sqlite3
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 from zoneinfo import ZoneInfo
+
+import dill
 
 from pipeline.ops import state_sync
 
@@ -57,6 +64,275 @@ def _make_db(path, pre_game_rows, sent_rounds=()):
         con.commit()
     finally:
         con.close()
+
+
+def _make_models_archive(path, files):
+    source_dir = path.parent / f"{path.stem}-contents"
+    source_dir.mkdir()
+    with tarfile.open(path, "w:gz") as archive:
+        for name, contents in files.items():
+            source = source_dir / name
+            source.write_bytes(contents)
+            archive.add(source, arcname=name)
+
+
+class _PredictionModelStub:
+    def predict(self, rows):
+        return [0.0] * len(rows)
+
+
+def _valid_model_files(extra=None):
+    files = {
+        "home_model.pkl": dill.dumps(_PredictionModelStub()),
+        "away_model.pkl": dill.dumps(_PredictionModelStub()),
+        "model_manifest.json": b'{"predictors": ["round_id"]}',
+    }
+    files.update(extra or {})
+    return files
+
+
+def _mock_drive_downloads(downloads):
+    def fake_download(_service, file_id, local_path):
+        shutil.copyfile(downloads[file_id], local_path)
+
+    return mock.patch.multiple(
+        state_sync,
+        drive_service=mock.Mock(return_value=object()),
+        _state_folder=mock.Mock(return_value="state-folder"),
+        find_file_id=mock.Mock(
+            side_effect=lambda _service, _folder, name: {
+                state_sync.DB_ARCHIVE: "db-id",
+                state_sync.MODELS_ARCHIVE: "models-id",
+            }.get(name)
+        ),
+        download_to=mock.Mock(side_effect=fake_download),
+    )
+
+
+class StatePublicationTests(unittest.TestCase):
+    def test_push_rejects_incomplete_models_before_drive_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "data").mkdir()
+            (root / "data" / "footy-tipper-db.sqlite").touch()
+            (root / "models").mkdir()
+            (root / "models" / "home_model.pkl").write_bytes(b"home")
+            (root / "models" / "model_manifest.json").write_text("{}")
+
+            with mock.patch.object(state_sync, "drive_service") as drive:
+                result = state_sync.push_state(root)
+
+        self.assertEqual(result, 1)
+        drive.assert_not_called()
+
+    def test_push_rejects_invalid_models_before_drive_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "data").mkdir()
+            (root / "data" / "footy-tipper-db.sqlite").touch()
+            (root / "models").mkdir()
+            (root / "models" / "home_model.pkl").write_bytes(b"invalid")
+            (root / "models" / "away_model.pkl").write_bytes(b"invalid")
+            (root / "models" / "model_manifest.json").write_text("not-json")
+
+            with mock.patch.object(state_sync, "drive_service") as drive:
+                result = state_sync.push_state(root)
+
+        self.assertEqual(result, 1)
+        drive.assert_not_called()
+
+    def test_pull_rejects_incomplete_archive_and_preserves_local_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            data = root / "data"
+            models.mkdir()
+            data.mkdir()
+            (models / "home_model.pkl").write_bytes(b"old-home")
+            (models / "away_model.pkl").write_bytes(b"old-away")
+            (models / "model_manifest.json").write_text('{"old": true}')
+            (models / "old-only.pkl").write_bytes(b"keep-me")
+            (data / "footy-tipper-db.sqlite").write_bytes(b"old-db")
+
+            db_archive = root / "source-db.gz"
+            with gzip.open(db_archive, "wb") as archive:
+                archive.write(b"new-db")
+            models_archive = root / "source-models.tar.gz"
+            _make_models_archive(
+                models_archive,
+                {
+                    "home_model.pkl": b"new-home",
+                    "model_manifest.json": b"{}",
+                },
+            )
+
+            with _mock_drive_downloads(
+                {"db-id": db_archive, "models-id": models_archive}
+            ):
+                result = state_sync.pull_state(root)
+
+            self.assertEqual(result, 1)
+            self.assertEqual((models / "home_model.pkl").read_bytes(), b"old-home")
+            self.assertEqual((models / "away_model.pkl").read_bytes(), b"old-away")
+            self.assertEqual((models / "old-only.pkl").read_bytes(), b"keep-me")
+            self.assertEqual((data / "footy-tipper-db.sqlite").read_bytes(), b"old-db")
+
+    def test_pull_rejects_corrupt_archive_and_preserves_local_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            models.mkdir()
+            (models / "home_model.pkl").write_bytes(b"old-home")
+            (models / "away_model.pkl").write_bytes(b"old-away")
+            (models / "model_manifest.json").write_text("{}")
+
+            db_archive = root / "source-db.gz"
+            with gzip.open(db_archive, "wb") as archive:
+                archive.write(b"new-db")
+            models_archive = root / "source-models.tar.gz"
+            models_archive.write_bytes(b"not a tar archive")
+
+            with _mock_drive_downloads(
+                {"db-id": db_archive, "models-id": models_archive}
+            ):
+                result = state_sync.pull_state(root)
+
+            self.assertEqual(result, 1)
+            self.assertEqual((models / "home_model.pkl").read_bytes(), b"old-home")
+            self.assertEqual((models / "away_model.pkl").read_bytes(), b"old-away")
+
+    def test_pull_rejects_invalid_artifact_contents_and_preserves_local_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            data = root / "data"
+            models.mkdir()
+            data.mkdir()
+            (models / "home_model.pkl").write_bytes(b"old-home")
+            (models / "away_model.pkl").write_bytes(b"old-away")
+            (models / "model_manifest.json").write_text('{"old": true}')
+            (data / "footy-tipper-db.sqlite").write_bytes(b"old-db")
+
+            db_archive = root / "source-db.gz"
+            with gzip.open(db_archive, "wb") as archive:
+                archive.write(b"new-db")
+            models_archive = root / "source-models.tar.gz"
+            _make_models_archive(
+                models_archive,
+                {
+                    "home_model.pkl": b"not-a-model",
+                    "away_model.pkl": b"not-a-model",
+                    "model_manifest.json": b'{"predictors": ["round_id"]}',
+                },
+            )
+
+            with _mock_drive_downloads(
+                {"db-id": db_archive, "models-id": models_archive}
+            ):
+                result = state_sync.pull_state(root)
+
+            self.assertEqual(result, 1)
+            self.assertEqual((models / "home_model.pkl").read_bytes(), b"old-home")
+            self.assertEqual((models / "away_model.pkl").read_bytes(), b"old-away")
+            self.assertEqual((data / "footy-tipper-db.sqlite").read_bytes(), b"old-db")
+
+    def test_pull_rejects_corrupt_db_and_preserves_local_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            data = root / "data"
+            models.mkdir()
+            data.mkdir()
+            (models / "home_model.pkl").write_bytes(b"old-home")
+            (models / "away_model.pkl").write_bytes(b"old-away")
+            (models / "model_manifest.json").write_text("{}")
+            (data / "footy-tipper-db.sqlite").write_bytes(b"old-db")
+
+            db_archive = root / "source-db.gz"
+            db_archive.write_bytes(b"not a gzip archive")
+            models_archive = root / "source-models.tar.gz"
+            _make_models_archive(models_archive, _valid_model_files())
+
+            with _mock_drive_downloads(
+                {"db-id": db_archive, "models-id": models_archive}
+            ):
+                result = state_sync.pull_state(root)
+
+            self.assertEqual(result, 1)
+            self.assertEqual((models / "home_model.pkl").read_bytes(), b"old-home")
+            self.assertEqual((models / "away_model.pkl").read_bytes(), b"old-away")
+            self.assertEqual((data / "footy-tipper-db.sqlite").read_bytes(), b"old-db")
+
+    def test_valid_pull_replaces_models_as_a_complete_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            data = root / "data"
+            models.mkdir()
+            data.mkdir()
+            (models / "old-only.pkl").write_bytes(b"stale")
+            (data / "footy-tipper-db.sqlite").write_bytes(b"old-db")
+
+            db_archive = root / "source-db.gz"
+            with gzip.open(db_archive, "wb") as archive:
+                archive.write(b"new-db")
+            models_archive = root / "source-models.tar.gz"
+            _make_models_archive(
+                models_archive,
+                _valid_model_files(
+                    {"binary_model.pkl": dill.dumps(_PredictionModelStub())}
+                ),
+            )
+
+            with _mock_drive_downloads(
+                {"db-id": db_archive, "models-id": models_archive}
+            ):
+                result = state_sync.pull_state(root)
+
+            self.assertEqual(result, 0)
+            self.assertTrue((models / "home_model.pkl").is_file())
+            self.assertTrue((models / "away_model.pkl").is_file())
+            self.assertTrue((models / "binary_model.pkl").is_file())
+            self.assertTrue((models / ".gitkeep").is_file())
+            self.assertFalse((models / "old-only.pkl").exists())
+            self.assertEqual((data / "footy-tipper-db.sqlite").read_bytes(), b"new-db")
+
+    def test_db_commit_failure_restores_last_known_good_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "models"
+            data = root / "data"
+            models.mkdir()
+            data.mkdir()
+            (models / "home_model.pkl").write_bytes(b"old-home")
+            (models / "away_model.pkl").write_bytes(b"old-away")
+            (models / "model_manifest.json").write_text('{"old": true}')
+            (data / "footy-tipper-db.sqlite").write_bytes(b"old-db")
+
+            db_archive = root / "source-db.gz"
+            with gzip.open(db_archive, "wb") as archive:
+                archive.write(b"new-db")
+            models_archive = root / "source-models.tar.gz"
+            _make_models_archive(models_archive, _valid_model_files())
+
+            real_replace = os.replace
+
+            def fail_db_commit(source, destination):
+                if Path(source).name == "db-staged.sqlite":
+                    raise OSError("simulated DB commit failure")
+                return real_replace(source, destination)
+
+            with _mock_drive_downloads(
+                {"db-id": db_archive, "models-id": models_archive}
+            ), mock.patch.object(
+                state_sync.os, "replace", side_effect=fail_db_commit
+            ):
+                with self.assertRaisesRegex(OSError, "simulated DB commit failure"):
+                    state_sync.pull_state(root)
+
+            self.assertEqual((models / "home_model.pkl").read_bytes(), b"old-home")
+            self.assertEqual((models / "away_model.pkl").read_bytes(), b"old-away")
+            self.assertEqual((data / "footy-tipper-db.sqlite").read_bytes(), b"old-db")
 
 
 class ComputeScheduleTests(unittest.TestCase):

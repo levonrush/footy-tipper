@@ -5,12 +5,12 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 ## I need to run it
 
 1. [Getting started](getting-started.md) — prerequisites, Conda setup, workflow-specific secrets, and the first safe run.
-2. [CLI reference](cli-reference.md) — all nine commands, flags, defaults, and composition rules.
-3. [Operations and reliability](operations-reliability.md) — GitHub Actions, Drive state, schedules, idempotency, backups, Pages, and incident runbooks.
+2. [CLI reference](cli-reference.md) — all eleven commands, flags, defaults, and composition rules.
+3. [Operations and reliability](operations-reliability.md) — local model publication, Actions prediction, Drive state, schedules, idempotency, backups, Pages, and incident runbooks.
 
 ## I need to understand it
 
-1. [Architecture](how-it-works.md) — current production path, ownership boundaries, SQLite contracts, artifacts, and the feed-migration target.
+1. [Architecture](how-it-works.md) — current production path, ownership boundaries, SQLite contracts, artifacts, and feed rollback.
 2. [Models and evaluation](modeling-techniques.md) — Tier A/B/C, market separation, stacking, calibration, margin blending, simulation, and evidence.
 3. [Lineup integration](lineup-integration.md) — versioned snapshots, as-of selection, feature families, uncertainty, and repair behavior.
 4. [Principled odds integration](principled-odds-integration.md) — why odds are a separate signal and how the current stack avoids double-counting them.
@@ -23,7 +23,7 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 ## I need to change or research it
 
 - [Research and history](research-and-history.md) — curated findings, primary references, implementation matrix, and the full Medium series.
-- [Data-source migration](data-source-migration.md) — current feeds, the unconnected nrl.com prototype, parity gates, and cutover plan.
+- [Data-source migration](data-source-migration.md) — shipped nrl.com/odds production path, parity evidence, XML rollback, and remaining extensions.
 - [Research notebook index](../research/README.md) — historical R Markdown exploration and stale-path warnings.
 - [Literature-review index](../lit-review/README.md) — report theses and production influence.
 - [Changelog](../CHANGELOG.md) — genuine history, including retired interfaces.

@@ -9,8 +9,8 @@ This directory is the canonical home for editable Mermaid architecture sources a
 | Current production architecture | [source](current-production.mmd) | [preview](current-production.svg) |
 | Model, market, calibration, margin, and simulation | [source](model-stack.mmd) | [preview](model-stack.svg) |
 | Versioned lineup ingestion and as-of selection | [source](lineup-as-of.mmd) | [preview](lineup-as-of.svg) |
-| GitHub Actions, Drive state, send, backup, and Pages | [source](operations-state.mmd) | [preview](operations-state.svg) |
-| Current and target feed architecture | [source](feed-migration.mmd) | [preview](feed-migration.svg) |
+| Local model publication, Actions prediction, Drive state, send, backup, and Pages | [source](operations-state.mmd) | [preview](operations-state.svg) |
+| Python production feeds and legacy XML rollback | [source](feed-migration.mmd) | [preview](feed-migration.svg) |
 | Odds integration before and after | [source](odds-before-after.mmd) | [preview](odds-before-after.svg) |
 
 ## Shape semantics

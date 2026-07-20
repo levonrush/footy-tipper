@@ -94,8 +94,8 @@ data/*.sqlite
 data/*.sqlite3
 data/*.db
 data/backups/
-models/*.pkl
-models/*.joblib
+models/*
+!models/.gitkeep
 
 # Generated email banner
 images/email-banner-generated.png

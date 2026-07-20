@@ -23,7 +23,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      actions: write
     outputs:
       mode: ${{ steps.decide.outputs.mode }}
       reason: ${{ steps.decide.outputs.reason }}
@@ -61,13 +60,6 @@ jobs:
           else
             python -m pipeline.ops.state_sync gate
           fi
-
-      - name: Keep scheduled workflows enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh workflow enable predict.yml --repo "$GITHUB_REPOSITORY" || true
-          gh workflow enable train.yml --repo "$GITHUB_REPOSITORY" || true
 
   predict:
     needs: gate
@@ -118,9 +110,9 @@ jobs:
         run: |
           echo "Gate reason: ${{ needs.gate.outputs.reason }}"
           case "$RUN_MODE" in
-            test)    python -m pipeline.cli predict --test ;;
-            refresh) python -m pipeline.cli predict --skip-send ;;
-            *)       python -m pipeline.cli predict ;;
+            test)    python -m pipeline.cli predict --test --skip-auto-train ;;
+            refresh) python -m pipeline.cli predict --skip-send --skip-auto-train ;;
+            *)       python -m pipeline.cli predict --skip-auto-train ;;
           esac
 
       - name: Push state to Drive

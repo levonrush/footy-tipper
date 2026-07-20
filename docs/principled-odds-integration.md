@@ -94,7 +94,7 @@ lambda_home_market = (T + M) / 2
 lambda_away_market = (T - M) / 2
 ```
 
-Those means could become Poisson offsets, leaving Tier B to model residual score strength. The production feed has line inputs but not a dependable totals contract, so market totals and score offsets remain **not implemented**. The feed-migration prototype identifies historical totals as a possible future source; it is not wired to preparation or inference.
+Those means could become Poisson offsets, leaving Tier B to model residual score strength. Production ingestion now stores historical and available live totals observations, but coverage and prediction-time consistency have not yet been accepted as a modelling contract. Market-total score offsets therefore remain **not implemented**; the presence of a column is not permission to train against later closing information.
 
 ## Evaluation rules
 

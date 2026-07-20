@@ -1,6 +1,6 @@
 # Architecture
 
-Footy Tipper is a small production system wearing a tipping-comp scarf. R owns provider preparation and broad feature tables; Python owns orchestration, lineups, modelling, inference, decisions, and delivery; SQLite is the hand-off and operational ledger.
+Footy Tipper is a small production system wearing a tipping-comp scarf. Python owns source ingestion, orchestration, lineups, modelling, inference, decisions, and delivery; R reads the Python-owned feed caches and builds broad feature tables; SQLite is the hand-off and operational ledger.
 
 ![Current end-to-end production architecture](diagrams/current-production.svg)
 
@@ -11,26 +11,26 @@ Footy Tipper is a small production system wearing a tipping-comp scarf. R owns p
 | Boundary | Owner | Contract |
 | --- | --- | --- |
 | Operator CLI | `footy-tipper` -> [`pipeline/cli.py`](../pipeline/cli.py) | The supported day-to-day interface. |
-| Provider preparation | [`pipeline/data-prep.R`](../pipeline/data-prep.R) and `pipeline/common/data-prep/` | Refresh provider caches and write prepared match tables. |
+| Source ingestion | `pipeline/common/nrl_data/` and `pipeline/common/odds/` | Refresh nrl.com match data and market snapshots into compatible SQLite caches. |
+| Provider preparation | [`pipeline/data-prep.R`](../pipeline/data-prep.R) and `pipeline/common/data-prep/` | Read cached inputs and write prepared match tables. |
 | Lineup ingestion | [`pipeline/lineups.py`](../pipeline/lineups.py) and `pipeline/common/lineups/` | Discover, parse, version, normalize, and repair official team-list snapshots. |
 | Training | [`pipeline/train.py`](../pipeline/train.py) | Fit score, binary, stack, calibration, dispersion, margin, and joker artifacts. |
 | Inference | [`pipeline/inference.py`](../pipeline/inference.py) | Rebuild pre-game context, apply artifacts, simulate, and upsert predictions. |
 | Delivery | `pipeline/common/use_predictions/` | Select tips/value, size stakes, decide joker, render copy/site, send, and record state. |
-| Cloud state | `pipeline/ops/` and Google Drive | Synchronize mutable DB/model/schedule state around Actions jobs. |
+| Published state | `pipeline/ops/` and Google Drive | Publish validated local models and synchronize DB/model/schedule state around Actions prediction. |
 
 Removed wrapper scripts and historical `CLI.md` files are not alternate entrypoints. Their removal belongs in the [changelog](../CHANGELOG.md).
 
 ## Current external inputs
 
-The production preparation path currently reads credentialled XML endpoints configured by:
+The production default is `FOOTY_TIPPER_FEED_SOURCE=python`. Before R preparation, the CLI invokes:
 
-- `BASE_URL`
-- `NRL_FIXTURES_EXTENTION`
-- `NRL_ROUND_LADDER_EXTENTION`
-- `NRL_PERFORMANCE_EXTENTION`
-- `PASSWORD`
+- nrl.com draw JSON for fixture identity, round/state, scores, venue, and kickoff;
+- nrl.com match centres for team/player match statistics used to derive ladder and performance cache rows;
+- Australia Sports Betting for the one-time historical odds backfill;
+- Betfair Exchange for available live pre-game match, line, and totals snapshots.
 
-The fixtures feed also carries head-to-head and line-market columns where available. R persists season-scoped provider caches as `feed_cache_fixtures`, `feed_cache_ladders`, and `feed_cache_performance`, so smart refreshes can avoid refetching frozen seasons.
+The Python path writes season-scoped `feed_cache_fixtures`, `feed_cache_ladders`, and `feed_cache_performance` rows plus the odds history/snapshot contracts. Smart refreshes preserve frozen seasons and fail-soft network paths leave the last usable cache in place. `FOOTY_TIPPER_FEED_SOURCE=feed` is the explicit rollback: R fetches the legacy credentialled XML endpoints using `PASSWORD`, `BASE_URL`, and the `NRL_*_EXTENTION` values.
 
 Lineups are fetched separately from official nrl.com Team Lists and Late Mail articles. The parser supports modern structured pages and older 2012–2018 text layouts.
 
@@ -47,10 +47,10 @@ Lineups are fetched separately from official nrl.com Team Lists and Late Mail ar
 
 That explicit Final/Pre Game split is a leakage boundary, not a convenience.
 
-Preparation modes control cache and table writes:
+Preparation modes control ingestion scope and table writes:
 
-- `full`: refresh every requested season and replace prepared tables.
-- `train`: smart-refresh missing/current seasons and replace prepared tables.
+- `full`: refresh the requested source scope and replace prepared tables.
+- `train`: bootstrap missing historical nrl.com/odds coverage, smart-refresh current inputs, and replace prepared tables.
 - `infer`: smart-refresh a narrow context window, upsert context/training rows by `game_id`, replace the inference batch, and append odds snapshots.
 
 Lineup ingestion owns:
@@ -75,7 +75,7 @@ Prediction and operator state add:
 
 Training produces these principal files under `models/`:
 
-| Artifact | Purpose | Required to trigger no auto-train? |
+| Artifact | Purpose | Required for production inference? |
 | --- | --- | --- |
 | `home_model.pkl` | Tier-B home-score model | Yes |
 | `away_model.pkl` | Tier-B away-score model | Yes |
@@ -86,6 +86,8 @@ Training produces these principal files under `models/`:
 | `joker_policy.json` | backtested joker policy summary | Optional for core inference |
 
 The CLI regards home, away, and manifest files as the minimum artifact set. Inference can load older compatible state without Tier C/stacker/calibrator; it falls back toward the Tier-B conditional probability. A normal current training run writes all of them.
+
+Production training is local-authoritative. The normal search budget is 100 Bayesian candidates; candidate fits parallelize across the operator's cores while each LightGBM fit stays single-threaded. After a successful no-auto-train inference validation, `state push` validates the required artifact set and publishes it to Drive. Actions never trains: all test, refresh, and live prediction modes pass `--skip-auto-train` and consume the published model archive.
 
 ## Lineups and as-of state
 
@@ -108,19 +110,19 @@ Training selects the latest eligible snapshot at or before the configured cutoff
 
 A production send records the season/round before another live send is allowed, persists an eligible joker use only after successful delivery, refreshes the local site, and can upload Drive state and a gzipped DB backup. Test and dry-run modes do not perform the live state transition.
 
-GitHub Actions owns scheduling. Google Drive owns mutable cross-run state. Git owns code and hand-written documentation. Generated `docs/site/` output is a publication artifact, not a runtime source of truth.
+The local operator owns production training. GitHub Actions owns prediction scheduling and delivery, polling every 15 minutes and opening the next unsent round at 11:00 `Australia/Sydney` on its first-game day. Google Drive owns published mutable cross-run state. Git owns code and hand-written documentation. Generated `docs/site/` output is a publication artifact, not a runtime source of truth.
 
 ![GitHub Actions gate, Drive state, delivery, backup, and Pages flow](diagrams/operations-state.svg)
 
 [Editable Mermaid source](diagrams/operations-state.mmd)
 
-## Current versus target feeds
+## Production feed and rollback
 
-![Current production feeds and the target nrl.com migration](diagrams/feed-migration.svg)
+![Python nrl.com and odds production feeds with the legacy XML rollback](diagrams/feed-migration.svg)
 
 [Editable Mermaid source](diagrams/feed-migration.mmd)
 
-The modules under `pipeline/common/nrl_data/` on `feed-migration` are a **prototype/WIP**. They are not invoked by `footy-tipper`, `pipeline/data-prep.R`, or the current Actions workflows. Their cache-schema compatibility is useful groundwork; it is not production cutover. Dashed paths in the diagram mark this unfinished route. See [Data-source migration](data-source-migration.md) for parity gates and ownership decisions.
+The Python nrl.com/odds path cut over on `main` in PR #34 and is invoked by `prep`, `train`, `infer`, and `predict` unless `--skip-nrl-data` or the legacy feed source is selected. R deliberately keeps the same cache boundary. Dashed paths in the diagram mark the XML rollback and optional future feature extensions, not an unfinished production cutover. See [Data-source migration](data-source-migration.md) for parity evidence and recovery behavior.
 
 ## Failure boundaries
 
@@ -128,5 +130,5 @@ The modules under `pipeline/common/nrl_data/` on `feed-migration` are a **protot
 - Lineup ingestion: logs and continues by default; only strict mode fails the command.
 - Performance feed: when explicitly enabled, missing required data fails fast and names the problem.
 - Missing optional Google/Claude/OpenAI dependencies: Drive/banner/copy paths skip or fall back as documented; core prediction remains usable.
-- Missing required models: infer/predict auto-train unless `--skip-auto-train` requests a hard failure.
+- Missing required models: standalone infer/predict auto-train unless `--skip-auto-train` requests a hard failure; Actions always requests that hard failure so hosted hardware cannot train implicitly.
 - Re-runs: data writes use replacement/upsert or append-only snapshot contracts; production email and joker use have explicit idempotency ledgers.

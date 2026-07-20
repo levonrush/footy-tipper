@@ -18,6 +18,8 @@ python -m pipeline.cli --help
 | `send` | Render/distribute existing predictions | Drive upload + Claude copy + idempotent live send |
 | `predict` | Run the weekly prediction workflow | infer composition + send |
 | `lineups` | Run lineup ingestion only | recent team-list refresh |
+| `nrl-data` | Manage nrl.com match-data ingestion | refresh, backfill, or validate Python-owned caches |
+| `odds` | Manage market ingestion | Betfair live snapshot or historical workbook backfill |
 | `site` | Build the static site | write `docs/site/` locally |
 | `evaluate` | Run nested season-out evaluation | prepare, then hold out three recent seasons |
 | `state` | Manage Drive-backed runtime state | explicit `push`, `pull`, `gate`, or `schedule` action |
@@ -32,6 +34,7 @@ python -m pipeline.cli --help
 | `--end-year YEAR` | Override `FOOTY_TIPPER_END_YEAR` (default current year). |
 | `--include-performance` / `--without-performance` | Force performance features on/off. Environment default is on. |
 | `--require-odds` / `--allow-missing-odds` | Drop rows without head-to-head odds or keep them. Missing odds are allowed by default. |
+| `--skip-nrl-data` | Skip the normal nrl.com and odds refresh before preparation. Available on prep/train/infer/predict. |
 
 The preparation modes are not cosmetic:
 
@@ -63,7 +66,9 @@ footy-tipper train [--prep-mode train|full] [--skip-prep]
                    [shared data flags] [lineup flags]
 ```
 
-Default mode: `train`. Unless skipped, it performs a one-time historical lineup bootstrap when the requested window is not covered, refreshes recent team lists, prepares data, and trains. `--skip-prep` uses existing SQLite tables.
+Default mode: `train`. Unless skipped, it performs one-time historical nrl.com/odds and lineup bootstraps when coverage is absent, refreshes current inputs, prepares data, and trains. `--skip-prep` uses existing SQLite tables.
+
+The default tuning budget is `FOOTY_TIPPER_TUNE_ITER=100`. Bayesian search parallelizes candidate fits across available cores while each LightGBM fit uses one thread. Production artifacts are trained locally, validated, then published with `state push`; there is no hosted training workflow.
 
 ```bash
 footy-tipper train
@@ -79,7 +84,7 @@ footy-tipper infer [--prep-mode infer|full] [--infer-context-years N]
                    [shared data flags] [lineup flags]
 ```
 
-Default mode: `infer`. Required artifacts are checked before prediction; missing artifacts trigger `train` unless `--skip-auto-train` is present. Auto-training inherits lineup bootstrap behavior unless lineups were skipped.
+Default mode: `infer`. Required artifacts are checked before prediction; missing artifacts trigger `train` unless `--skip-auto-train` is present. Auto-training inherits data/lineup bootstrap behavior unless those inputs were skipped. Scheduled Actions always supplies `--skip-auto-train`, making missing published artifacts a hard operational failure.
 
 ## `send`
 
@@ -134,6 +139,25 @@ footy-tipper lineups --lineups-mode backfill --start-year 2010 --end-year 2026 -
 
 Lineup ingestion fails soft unless strict mode is requested. The environment-only bootstrap ceiling defaults to `FOOTY_TIPPER_LINEUPS_BACKFILL_MAX_ARTICLES=2000`.
 
+## `nrl-data`
+
+```bash
+footy-tipper nrl-data refresh [--season YEAR] [--max-pages N] [--strict]
+footy-tipper nrl-data backfill [--start-year YEAR] [--end-year YEAR] [--max-pages N] [--strict]
+footy-tipper nrl-data validate [--start-year YEAR] [--end-year YEAR] [--report-path PATH]
+```
+
+`refresh` updates current nrl.com draw/match-centre data and derived cache rows. `backfill` repairs historical match-centre coverage from 2012 onward. `validate` writes parity evidence without changing source state. The default `FOOTY_TIPPER_FEED_SOURCE=python` path invokes refresh automatically before R preparation; `FOOTY_TIPPER_FEED_SOURCE=feed` bypasses it and uses the legacy XML rollback.
+
+## `odds`
+
+```bash
+footy-tipper odds live [--strict]
+footy-tipper odds backfill [--xlsx-path PATH] [--url URL] [--strict]
+```
+
+`live` records available Betfair Exchange match, line, and totals markets for upcoming fixtures. `backfill` imports the Australia Sports Betting historical workbook. Both update `odds_history` and compatible fixture-cache fields; normal orchestration runs them fail-soft unless strict mode is explicitly requested.
+
 ## `site`
 
 ```bash
@@ -161,12 +185,14 @@ footy-tipper state schedule
 
 | Action | Contract |
 | --- | --- |
-| `push` | Upload SQLite, `models/`, and `schedule.json` to configured Drive state. |
-| `pull` | Download SQLite and model state before an automated run. |
-| `gate` | Read the schedule and print the workflow decision: send, refresh, or skip. |
+| `push` | Validate the DB and required home/away/manifest artifacts, then upload SQLite, `models/`, and `schedule.json` to Drive state. |
+| `pull` | Stage and validate downloaded SQLite/model state before replacing the local last-known-good files. |
+| `gate` | Read the schedule and print the workflow decision: send, refresh, or skip. `send` opens at 11:00 Sydney on the first-game day. |
 | `schedule` | Print the locally derived next-match schedule without changing Drive state. |
 
 These actions have no nested flags; configuration comes from the environment and service-account file.
+
+For a production model publication, temporarily disable `predict.yml`, run `state pull`, train locally, validate with `infer --skip-prep --skip-lineups --skip-nrl-data --skip-auto-train`, inspect `state schedule`, and only then run `state push`. Re-enable prediction whether the train succeeds or fails.
 
 ## Lineup flags shared by prep/train/infer/predict
 

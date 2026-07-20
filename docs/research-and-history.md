@@ -28,7 +28,7 @@ The joker work reframed “best round” as a sequential, stateful decision. Pro
 
 ### Feed migration
 
-The migration research found plausible nrl.com draw and match-centre replacements, a derivable ladder, richer player/team data, and historical/live odds options. Prototype modules on `feed-migration` target the existing cache schemas. They are **not connected to the CLI or R preparation**, so this remains next-state work rather than the system described in present tense.
+The migration research identified nrl.com draw/match-centre replacements, a derivable ladder/performance path, and historical/live odds sources. That work shipped on `main` in PR #34: Python refreshes the sources into the existing cache schemas before R preparation, with `FOOTY_TIPPER_FEED_SOURCE=feed` retaining the XML rollback. Richer player identity features and totals-based score offsets remain separate follow-on work.
 
 ## Research -> production matrix
 
@@ -50,12 +50,12 @@ The migration research found plausible nrl.com draw and match-centre replacement
 | As-of lineup selection | Shipped | default 24-hour historical cutoff |
 | Role/continuity/cohesion/churn features | Shipped | shared lineup feature builder |
 | Lineup uncertainty marginalization | Shipped | deterministic per-game Monte Carlo |
-| Player match-performance ratings | Partial | match-centre research/prototype exists; full production feature path does not |
+| Player match-performance ratings | Partial | match-centre ingestion is production; identity-linked rating features are not |
 | Joker opportunity, guardrails, and single-use ledger | Shipped | `joker_policy.json`, `joker_usage` |
 | Competition-win deviation search | Shipped | advisory default; audit table; model predictions unchanged |
 | Dynamic hierarchical Bayesian attack/defence | Exploratory | formal research only; current Tier A is simpler |
 | Market totals and Poisson score offsets | Not implemented | requires dependable prediction-time totals contract |
-| nrl.com draw/match-centre feed replacement | Partial | prototype modules exist; no CLI/R/Actions wiring or completed shadow cutover |
+| nrl.com draw/match-centre feed replacement | Shipped | Python ingestion runs before R prep; parity evidence checked in; XML retained as rollback |
 | Referee, weather, travel, and rest expansion | Exploratory | candidate sources/features; train/infer symmetry and evaluation still required |
 
 ## Evidence discipline
