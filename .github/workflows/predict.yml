@@ -1,17 +1,18 @@
 name: Predict
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Predict manual ({0})', inputs.mode) || 'Predict scheduled gate' }}
 
-# Hourly gate: reads schedule.json from Drive and runs the full predict job
-# once we are inside the 6-hour window before the first kickoff of the next
+# 15-minute gate: reads schedule.json from Drive and runs the full predict job
+# at the first poll after 11am Sydney on the first-game day of the next
 # unsent round. Manual dispatch bypasses the gate (mode=test emails only
 # FOOTY_TIPPER_TEST_EMAIL and never touches the production send ledger).
 
 on:
   schedule:
-    - cron: "7 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: "test = one email to the test address; live = real production send; refresh = no email, just refresh data/state"
+        description: "TEST (default) = test address only; LIVE = production list; REFRESH = update data/state without email"
         type: choice
         default: test
         options: [test, live, refresh]

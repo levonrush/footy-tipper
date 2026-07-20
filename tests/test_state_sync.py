@@ -1,13 +1,20 @@
+import datetime as dt
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from pipeline.ops import state_sync
 
 
 HOUR = 3600
 DAY = 86400
+SYDNEY = ZoneInfo("Australia/Sydney")
+
+
+def _epoch(year, month, day, hour, minute=0, tz=dt.timezone.utc):
+    return dt.datetime(year, month, day, hour, minute, tzinfo=tz).timestamp()
 
 
 def _make_db(path, pre_game_rows, sent_rounds=()):
@@ -113,37 +120,52 @@ class GateDecisionTests(unittest.TestCase):
         self.assertEqual(mode, "skip")
         self.assertIn("not seeded", reason)
 
-    def test_too_early_skips(self):
-        now = 1_000_000
+    def test_aest_target_is_11am_sydney(self):
+        kickoff = _epoch(2026, 7, 16, 19, 30, tz=SYDNEY)
+        target = state_sync.sydney_send_target_utc(kickoff)
+        self.assertEqual(target, _epoch(2026, 7, 16, 11, tz=SYDNEY))
+        self.assertEqual(target, _epoch(2026, 7, 16, 1))
+
+    def test_aedt_target_handles_utc_date_boundary(self):
+        kickoff = _epoch(2026, 3, 5, 19, 30, tz=SYDNEY)
+        target = state_sync.sydney_send_target_utc(kickoff)
+        self.assertEqual(target, _epoch(2026, 3, 5, 11, tz=SYDNEY))
+        self.assertEqual(target, _epoch(2026, 3, 5, 0))
+
+    def test_before_11am_sydney_skips(self):
+        kickoff = _epoch(2026, 7, 16, 19, 30, tz=SYDNEY)
+        now = _epoch(2026, 7, 16, 10, 59, tz=SYDNEY)
         schedule = self._schedule(
-            [{"round_id": 18, "first_kickoff_utc": now + 10 * HOUR, "sent": False}]
+            [{"round_id": 18, "first_kickoff_utc": kickoff, "sent": False}]
         )
         mode, reason = state_sync.gate_decision(schedule, now=now)
         self.assertEqual(mode, "skip")
         self.assertIn("too early", reason)
 
-    def test_window_open_sends(self):
-        now = 1_000_000
+    def test_at_11am_sydney_sends(self):
+        kickoff = _epoch(2026, 7, 16, 19, 30, tz=SYDNEY)
+        now = _epoch(2026, 7, 16, 11, tz=SYDNEY)
         schedule = self._schedule(
-            [{"round_id": 18, "first_kickoff_utc": now + 5 * HOUR, "sent": False}]
+            [{"round_id": 18, "first_kickoff_utc": kickoff, "sent": False}]
         )
         mode, _ = state_sync.gate_decision(schedule, now=now)
         self.assertEqual(mode, "send")
 
     def test_grace_after_kickoff_still_sends(self):
-        now = 1_000_000
+        kickoff = _epoch(2026, 7, 16, 19, 30, tz=SYDNEY)
+        now = kickoff + 11 * HOUR
         schedule = self._schedule(
-            [{"round_id": 18, "first_kickoff_utc": now - 11 * HOUR, "sent": False}]
+            [{"round_id": 18, "first_kickoff_utc": kickoff, "sent": False}]
         )
         mode, _ = state_sync.gate_decision(schedule, now=now)
         self.assertEqual(mode, "send")
 
     def test_sent_round_is_skipped_next_round_too_early(self):
-        now = 1_000_000
+        now = _epoch(2026, 7, 16, 12, tz=SYDNEY)
         schedule = self._schedule(
             [
-                {"round_id": 18, "first_kickoff_utc": now + HOUR, "sent": True},
-                {"round_id": 19, "first_kickoff_utc": now + 7 * DAY, "sent": False},
+                {"round_id": 18, "first_kickoff_utc": now + 7 * HOUR, "sent": True},
+                {"round_id": 19, "first_kickoff_utc": now + 7 * DAY + 7 * HOUR, "sent": False},
             ]
         )
         mode, reason = state_sync.gate_decision(schedule, now=now)
@@ -151,11 +173,11 @@ class GateDecisionTests(unittest.TestCase):
         self.assertIn("19", reason)
 
     def test_expired_unsent_round_falls_through_to_next(self):
-        now = 1_000_000
+        now = _epoch(2026, 7, 23, 12, tz=SYDNEY)
         schedule = self._schedule(
             [
-                {"round_id": 18, "first_kickoff_utc": now - 2 * DAY, "sent": False},
-                {"round_id": 19, "first_kickoff_utc": now + 3 * HOUR, "sent": False},
+                {"round_id": 18, "first_kickoff_utc": now - 7 * DAY + 7 * HOUR, "sent": False},
+                {"round_id": 19, "first_kickoff_utc": now + 7 * HOUR, "sent": False},
             ]
         )
         mode, reason = state_sync.gate_decision(schedule, now=now)

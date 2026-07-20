@@ -162,10 +162,17 @@ def train_model_pipeline(data, predictors, outcome_var,
     return pipeline
 
 
+def score_regressor():
+    """Build the score estimator used inside the parallel Bayesian search."""
+    # BayesSearchCV parallelises fits, so each individual LightGBM fit must
+    # stay single-threaded to avoid severe nested CPU oversubscription.
+    return lgb.LGBMRegressor(objective='poisson', n_jobs=1, verbose=-1)
+
+
 def train_and_select_best_model(data, predictors, outcome_var,
                                 use_rfe, num_folds, opt_metric):
     models_and_spaces = [
-        (lgb.LGBMRegressor(objective='poisson', n_jobs=-1, verbose=-1), {
+        (score_regressor(), {
             'n_estimators': Integer(20, 500),
             'learning_rate': Real(0.01, 0.9, prior='log-uniform'),
             'max_depth': Integer(2, 20),

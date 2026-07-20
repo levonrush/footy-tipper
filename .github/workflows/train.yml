@@ -1,4 +1,5 @@
 name: Train
+run-name: ${{ github.event_name == 'workflow_dispatch' && 'Train manual' || 'Train scheduled weekly' }}
 
 # Weekly retrain: Monday 19:00 UTC = Tuesday 5am AEST / 6am AEDT.
 # Pulls DB/models from Drive, retrains, pushes them back. If the job times
@@ -25,7 +26,8 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     env:
-      FOOTY_TIPPER_TUNE_ITER: ${{ vars.FOOTY_TIPPER_TUNE_ITER || '100' }}
+      # Bound weekly tuning so it reliably completes on a hosted runner.
+      FOOTY_TIPPER_TUNE_ITER: '10'
     steps:
       - uses: actions/checkout@v4
 

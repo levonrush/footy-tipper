@@ -2,7 +2,7 @@
 
 Used by the GitHub Actions workflows so runs on fresh runners can pull the
 current DB/models before a run and push them back after. Also computes a
-small schedule.json (upcoming round kickoffs + sent status) that the hourly
+small schedule.json (upcoming round kickoffs + sent status) that the scheduled
 gate job reads to decide whether it is time to run predict.
 
 Deliberately imports only the stdlib plus google-api-python-client/google-auth,
@@ -13,6 +13,7 @@ Usage: python -m pipeline.ops.state_sync {push|pull|gate|schedule}
 """
 
 import argparse
+import datetime as dt
 import gzip
 import json
 import os
@@ -22,6 +23,7 @@ import sqlite3
 import tarfile
 import tempfile
 import time
+from zoneinfo import ZoneInfo
 
 try:
     from google.oauth2 import service_account
@@ -38,7 +40,8 @@ DB_ARCHIVE = "footy-tipper-db-latest.sqlite.gz"
 MODELS_ARCHIVE = "models-latest.tar.gz"
 SCHEDULE_FILE = "schedule.json"
 
-WINDOW_HOURS = 6
+SYDNEY_TIMEZONE = ZoneInfo("Australia/Sydney")
+SEND_HOUR_LOCAL = 11
 GRACE_HOURS = 12
 STALE_DAYS = 8
 SCHEDULE_ROUND_LIMIT = 8
@@ -198,12 +201,22 @@ def compute_schedule(db_path, now=None) -> dict:
         con.close()
 
 
-def gate_decision(schedule, now=None, window_hours=WINDOW_HOURS,
-                  grace_hours=GRACE_HOURS, stale_days=STALE_DAYS):
-    """Decide what the hourly gate should do. Returns (mode, reason).
+def sydney_send_target_utc(first_kickoff_utc) -> float:
+    """Return 11:00 Australia/Sydney on the kickoff's local calendar day."""
+    kickoff = dt.datetime.fromtimestamp(float(first_kickoff_utc), tz=dt.timezone.utc)
+    local_kickoff = kickoff.astimezone(SYDNEY_TIMEZONE)
+    local_target = local_kickoff.replace(
+        hour=SEND_HOUR_LOCAL, minute=0, second=0, microsecond=0
+    )
+    return local_target.astimezone(dt.timezone.utc).timestamp()
+
+
+def gate_decision(schedule, now=None, grace_hours=GRACE_HOURS,
+                  stale_days=STALE_DAYS):
+    """Decide what the scheduled gate should do. Returns (mode, reason).
 
     mode is one of:
-      send    - inside [kickoff - window, kickoff + grace] of an unsent round
+      send    - from 11am Sydney on first-game day through kickoff + grace
       refresh - nothing actionable and schedule.json is stale; run predict
                 --skip-send just to refresh fixtures (offseason-safe)
       skip    - nothing to do
@@ -212,7 +225,6 @@ def gate_decision(schedule, now=None, window_hours=WINDOW_HOURS,
     if not schedule:
         return "skip", "state not seeded: schedule.json missing from Drive (run `footy-tipper state push` once)"
 
-    window = window_hours * 3600
     grace = grace_hours * 3600
     for entry in schedule.get("upcoming_rounds", []):
         if entry.get("sent"):
@@ -220,15 +232,17 @@ def gate_decision(schedule, now=None, window_hours=WINDOW_HOURS,
         kickoff = entry.get("first_kickoff_utc")
         if kickoff is None:
             continue
-        if now < kickoff - window:
-            hours_away = (kickoff - window - now) / 3600
+        target = sydney_send_target_utc(kickoff)
+        if now < target:
+            hours_away = (target - now) / 3600
             return "skip", (
-                f"too early: round {entry.get('round_id')} window opens in {hours_away:.1f}h"
+                f"too early: round {entry.get('round_id')} Sydney 11am target "
+                f"opens in {hours_away:.1f}h"
             )
         if now < kickoff + grace:
             return "send", (
-                f"round {entry.get('round_id')} in send window "
-                f"(kickoff {int(kickoff)}, now {int(now)})"
+                f"round {entry.get('round_id')} reached Sydney 11am send target "
+                f"(target {int(target)}, kickoff {int(kickoff)}, now {int(now)})"
             )
         # Past the grace window without a send: fall through to the next round.
 
