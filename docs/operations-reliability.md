@@ -64,7 +64,7 @@ GitHub Actions materializes:
 
 - `SECRETS_ENV`: the complete contents of local `secrets.env`;
 - `SERVICE_ACCOUNT_JSON`: the complete service-account JSON;
-- `GITHUB_TOKEN`: GitHub's short-lived automatic token for checkout, packages, workflow enablement, and site pushes.
+- `GITHUB_TOKEN`: GitHub's short-lived automatic token for checkout, package access, and site pushes.
 
 The workflow masks each environment value before subsequent steps. Because workflow logs are public with the repository, do not use `--dry-run` in Actions: it prints the rendered email. Rotate secrets through repository settings or `gh secret set`; never commit the materialized files.
 
