@@ -6,85 +6,77 @@ Footy Tipper prepares match data, versions team lists, trains calibrated score a
 
 ![Footy Tipper logo](images/footy-tipper-logo.jpg)
 
-## Fastest safe start
+## Start here
 
 ```bash
 conda env create -f environment.yml
 conda activate footy-tipper
 cp secrets.env.example secrets.env
-# Add only the credentials needed for the workflow you intend to run.
 
-footy-tipper --help
-footy-tipper predict --test --dry-run --skip-drive
+footy-tipper setup
+footy-tipper
 ```
 
-The last command refreshes lineups, prepares inference data, auto-trains if required artifacts are missing, runs inference, and renders a test email without sending it. See [Getting started](docs/getting-started.md) before a live run.
+Running `footy-tipper` on its own opens a guided menu. It shows what is ready, what is next, and the safe actions available. You do not need to remember the technical pipeline commands.
 
-## The operator commands
+## The everyday commands
 
 ```bash
-footy-tipper train                       # lineup bootstrap + prep + models
-footy-tipper predict                     # lineup refresh + infer + send
-footy-tipper send --test --dry-run       # inspect delivery without sending
-footy-tipper evaluate --skip-prep        # nested season-out evidence
-footy-tipper state pull                  # restore published DB/models from Drive
-footy-tipper site                        # generate docs/site/
+footy-tipper status          # explain whether the system is ready
+footy-tipper tips show       # display the currently published tips
+footy-tipper tips test       # run and wait for a one-recipient Actions test
+footy-tipper tips refresh    # refresh predictions without email
+footy-tipper update-model    # train, validate, publish, and activate a model
 ```
 
-There are eleven commands in total: `prep`, `train`, `infer`, `send`, `predict`, `lineups`, `nrl-data`, `odds`, `site`, `evaluate`, and `state`. Their flags and defaults are in the [CLI reference](docs/cli-reference.md).
+`tips live` exists for an intentional manual production send. It asks you to type the current round exactly, for example `SEND ROUND 21`, before it can dispatch. Scheduled production delivery normally needs no manual command.
 
-## Today and next
+The technical data, model, delivery, cloud, and site tools live under `footy-tipper advanced`. The complete hierarchy is in the [CLI reference](docs/cli-reference.md).
 
-**Today:** Python ingests the nrl.com draw and match centres, derives ladder/performance caches, and refreshes historical or live odds before R preparation. Official team-list articles supply versioned lineups. SQLite owns prepared and operational state; calibrated models are trained on local hardware and published to Google Drive; GitHub Actions pulls that state and runs prediction/delivery only.
+## How production works
 
-The credentialled XML feed remains available as the explicit `FOOTY_TIPPER_FEED_SOURCE=feed` rollback, not the default. See [Data-source migration](docs/data-source-migration.md) for the shipped cutover, evidence, and remaining feed extensions.
+Python ingests the nrl.com draw and match centres, derives ladder/performance caches, and refreshes historical or live odds before R preparation. Official team-list articles supply versioned lineups. The credentialled XML feed is an explicit rollback, not the normal source.
 
-## Publishing a locally trained model
+Local hardware owns model training. `footy-tipper update-model` uses the normal 100-candidate search, keeps the Mac awake, validates the result, publishes an immutable release to Google Drive, asks GitHub Actions to load that exact release in the production image, activates it, and requests a no-email refresh. It prevents two local updates from running together and terminates the trainer cleanly on Ctrl-C. If interrupted, rerun the same command; its journal revalidates evidence before resuming safe completed stages. GitHub Actions remains enabled while this happens; Docker Desktop is not required locally.
 
-Production training is intentionally local. Pull the last-known-good Drive state, train with the default 100-candidate Bayesian search, validate the new artifacts without allowing auto-training, then push the DB/models/schedule together. Pause `predict.yml` during that sequence so a cloud prediction cannot race the publication.
+GitHub Actions owns scheduled prediction and delivery. It polls every 15 minutes and becomes eligible at 11:00 `Australia/Sydney` on the calendar day of the round's first game. Actions pulls the active model release and mutable runtime database, but it never trains or silently falls back to training.
 
-```bash
-gh workflow disable predict.yml
-# Wait until both commands list no runs, then disable once more in case an
-# older in-flight gate re-enabled the workflow while it drained.
-gh run list --workflow predict.yml --status queued
-gh run list --workflow predict.yml --status in_progress
-gh workflow disable predict.yml
-gh api 'repos/{owner}/{repo}/actions/workflows/predict.yml' --jq .state
-footy-tipper state pull
-FOOTY_TIPPER_TUNE_ITER=100 footy-tipper train
-footy-tipper infer --skip-prep --skip-lineups --skip-nrl-data --skip-auto-train
-footy-tipper state schedule
-footy-tipper state push
-gh workflow enable predict.yml
-gh workflow run predict.yml -f mode=refresh
+Every human live-send command also dispatches that same serialized Actions workflow. The live run validates its sender credentials, service-account token, Google Sheet access, and recipient list before claiming the round's pending marker. A partial SMTP refusal leaves that marker pending/uncertain, so the system cannot automatically send the round again.
+
+Google Drive separates immutable model releases from mutable runtime state:
+
+```text
+state/
+  footy-tipper-db-latest.sqlite.gz
+  schedule.json
+  model-current.json
+  model-releases/<release-id>.tar.gz
+  model-releases/<release-id>.json
 ```
 
-If training or validation fails, do not push; re-enable `predict.yml` and leave the published Drive models untouched. The complete runbook is in [Operations](docs/operations-reliability.md).
-
-The expected GitHub Pages endpoint is [the Footy Tipper site](https://levonrush.github.io/footy-tipper/site/). It should be treated as unpublished while it returns 404; generate locally with `footy-tipper site` and enable Pages before calling it live.
+The old `models-latest.tar.gz` remains only for the first migration and rollback compatibility. See [Operations](docs/operations-reliability.md) for recovery details.
 
 ## Documentation
 
 The repository Markdown is the technical source of truth. Notion is a curated map back to it.
 
 - [Documentation map](docs/README.md) — choose a path by task or audience.
-- [Getting started](docs/getting-started.md) — setup, secrets, safe runs, and failures.
+- [Getting started](docs/getting-started.md) — setup and the safest everyday workflow.
+- [CLI reference](docs/cli-reference.md) — the complete operator and advanced command trees.
 - [Architecture](docs/how-it-works.md) — data, models, state, and delivery ownership.
 - [Models and evidence](docs/modeling-techniques.md) — Tier A/B/C, calibration, simulation, and limitations.
+- [Operations](docs/operations-reliability.md) — model releases, Actions, delivery safety, reruns, and recovery.
 - [Research and history](docs/research-and-history.md) — research-to-production status and the complete Medium series.
-- [Operations](docs/operations-reliability.md) — local training, Actions prediction, Drive publication, reruns, backups, and Pages.
-- [Research notebooks](research/README.md) and [literature reviews](lit-review/README.md) — historical exploration and source material.
 
 ## Boundaries worth remembering
 
 - Training rows are explicitly `game_state_name == "Final"`; inference rows are `game_state_name == "Pre Game"`.
+- Beginner commands never trigger a surprise local training run.
 - Missing lineup data fails soft unless strict mode is requested.
-- Missing Google, Claude, or OpenAI integrations degrade to skips or deterministic fallbacks where documented.
-- Actions prediction always uses `--skip-auto-train`; missing published models are an operational failure, never an invitation to train on a hosted runner.
+- Actions prediction consumes a named active release and fails clearly if it is missing or invalid.
+- A pending live-delivery marker is deliberately treated as uncertain and blocks automatic resend until it is reconciled.
 - Claude/Anthropic writes optional email copy. OpenAI is optional banner generation, not the copywriter.
-- Production sends are idempotent by season and round unless `--force-resend` is used.
-- No season end year or local machine path belongs in runtime code.
+- No season end year, secret, or machine-specific path belongs in runtime code.
 
 ## The story
 

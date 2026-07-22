@@ -5,6 +5,7 @@
 node_modules/
 secrets.env
 service-account-token.json
+.footy-tipper/
 data/*
 !data/.gitkeep
 !data/reference/

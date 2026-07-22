@@ -1,4 +1,3 @@
-import re
 import unittest
 from pathlib import Path
 
@@ -6,7 +5,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 PREDICT_WORKFLOW = WORKFLOW_DIR / "predict.yml"
+MODEL_CHECK_WORKFLOW = WORKFLOW_DIR / "model-check.yml"
 DOCKERIGNORE = REPO_ROOT / ".dockerignore"
+COMPOSE_FILE = REPO_ROOT / "compose.yml"
+POST_MERGE_CUTOVER = REPO_ROOT / "pipeline" / "ops" / "post_merge_cutover.sh"
 
 
 def _workflow_paths():
@@ -30,26 +32,76 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("footy-tipper train", workflow_text)
         self.assertNotIn("pipeline/train.py", workflow_text)
         self.assertNotIn("FOOTY_TIPPER_TUNE_ITER", workflow_text)
+        self.assertNotIn("footy-tipper update-model", workflow_text)
+        self.assertNotIn("pipeline.ops.model_release", workflow_text)
+        self.assertNotIn("model_release.py", workflow_text)
+        self.assertNotIn("caffeinate", workflow_text)
         self.assertNotRegex(workflow_text, r"gh workflow (?:enable|run) train\.yml")
 
-    def test_every_predict_mode_disables_automatic_training(self):
+    def test_predict_uses_exact_actions_runner_mode(self):
         workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
-        mode_commands = dict(re.findall(
-            r"^\s*(test|refresh|\*)\)\s+(python -m pipeline\.cli predict[^;\n]*)\s+;;$",
+        self.assertIn("options: [test, refresh, live]", workflow_text)
+        self.assertIn("default: test", workflow_text)
+        self.assertIn(
+            'python -m pipeline.ops.actions_runner predict --mode "$RUN_MODE"',
             workflow_text,
-            flags=re.MULTILINE,
-        ))
-        self.assertEqual(
-            mode_commands,
-            {
-                "test": "python -m pipeline.cli predict --test --skip-auto-train",
-                "refresh": "python -m pipeline.cli predict --skip-send --skip-auto-train",
-                "*": "python -m pipeline.cli predict --skip-auto-train",
-            },
         )
-        for command in mode_commands.values():
-            with self.subTest(command=command):
-                self.assertIn("--skip-auto-train", command)
+        self.assertNotIn("pipeline.cli predict", workflow_text)
+        self.assertNotRegex(workflow_text, r"(?m)^\s*\*\)\s+")
+        self.assertNotIn("--skip-auto-train", workflow_text)
+
+    def test_manual_live_is_bound_to_a_confirmed_round(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("confirmed_round:", workflow_text)
+        self.assertIn("Manual LIVE requires a numeric confirmed_round.", workflow_text)
+        self.assertIn('--confirmed-round "$CONFIRMED_ROUND"', workflow_text)
+        self.assertIn("confirmed_round is valid only for LIVE.", workflow_text)
+
+    def test_model_check_workflow_is_validation_only(self):
+        workflow_text = MODEL_CHECK_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", workflow_text)
+        self.assertNotIn("schedule:", workflow_text)
+        self.assertIn("contents: read", workflow_text)
+        self.assertIn("packages: read", workflow_text)
+        self.assertIn(
+            'python -m pipeline.ops.actions_runner model-check --release "$RELEASE_ID"',
+            workflow_text,
+        )
+        self.assertIn("printf 'FOLDER_ID=%s\\n'", workflow_text)
+        self.assertNotIn(
+            'printf \'%s\\n\' "$SECRETS_ENV" > secrets.env', workflow_text
+        )
+        for forbidden in (
+            "pipeline.cli train",
+            "pipeline/train.py",
+            "FOOTY_TIPPER_TUNE_ITER",
+            "publish_model_release",
+            "activate_model_release",
+            "runtime-push",
+            "state_sync push",
+            "predict --mode",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, workflow_text)
+
+    def test_workflow_uses_runtime_only_state_interface(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("pipeline.ops.actions_runner runtime-pull", workflow_text)
+        self.assertIn("pipeline.ops.actions_runner runtime-push", workflow_text)
+        self.assertNotIn("pipeline.ops.state_sync pull", workflow_text)
+        self.assertNotIn("pipeline.ops.state_sync push", workflow_text)
+
+    def test_test_mode_cannot_publish_runtime_or_site(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        guard = "if: success() && needs.gate.outputs.mode != 'test'"
+        self.assertEqual(workflow_text.count(guard), 2)
+        self.assertIn("pipeline.ops.actions_runner site-publish", workflow_text)
+        self.assertNotIn("continue-on-error: true", workflow_text)
+
+    def test_gate_uses_live_vocabulary_machine_interface(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("pipeline.ops.actions_runner gate", workflow_text)
+        self.assertNotIn("pipeline.ops.state_sync gate", workflow_text)
 
     def test_no_workflow_can_override_an_operator_pause(self):
         workflow_text = "\n".join(
@@ -57,6 +109,10 @@ class WorkflowContractTests(unittest.TestCase):
             for path in _workflow_paths()
         )
         self.assertNotRegex(workflow_text, r"gh workflow enable ")
+
+    def test_unsafe_legacy_job_launchers_are_removed(self):
+        self.assertFalse(COMPOSE_FILE.exists())
+        self.assertFalse(POST_MERGE_CUTOVER.exists())
 
     def test_docker_context_excludes_mutable_state_but_keeps_references(self):
         patterns = set(DOCKERIGNORE.read_text(encoding="utf-8").splitlines())

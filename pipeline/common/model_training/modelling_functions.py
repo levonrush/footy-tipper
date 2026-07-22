@@ -1,4 +1,5 @@
 import os
+import pathlib
 
 import pandas as pd
 import sqlite3
@@ -241,7 +242,7 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var,
             X_test_t = preprocessor_steps.transform(X_test)
 
             fold_model = type(best_estimator)(
-                objective="poisson", n_jobs=-1, verbose=-1, **best_params
+                objective="poisson", n_jobs=1, verbose=-1, **best_params
             )
             fold_model.fit(X_train_t, y_train)
             oof_preds.loc[test_mask] = np.maximum(fold_model.predict(X_test_t), 1e-6)
@@ -273,7 +274,7 @@ def train_binary_classifier(data, predictors, outcome_var, best_params, preproce
 
     X_t = preprocessor_steps.transform(X)
 
-    clf = lgb.LGBMClassifier(objective='binary', n_jobs=-1, verbose=-1, **best_params)
+    clf = lgb.LGBMClassifier(objective='binary', n_jobs=1, verbose=-1, **best_params)
     clf.fit(X_t, y)
 
     # Wrap into a Pipeline so inference can call predict_proba on raw DataFrames.
@@ -323,7 +324,7 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
             X_train_t = preprocessor_steps.transform(X_train)
             X_test_t = preprocessor_steps.transform(X_test)
 
-            fold_clf = lgb.LGBMClassifier(objective='binary', n_jobs=-1, verbose=-1, **best_params)
+            fold_clf = lgb.LGBMClassifier(objective='binary', n_jobs=1, verbose=-1, **best_params)
             fold_clf.fit(X_train_t, y_train)
             oof_preds.loc[test_mask] = fold_clf.predict_proba(X_test_t)[:, 1]
         except Exception as exc:
@@ -335,7 +336,7 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
     if nan_mask.any():
         try:
             X_all_t = preprocessor_steps.transform(data.loc[nd, predictors])
-            fallback_clf = lgb.LGBMClassifier(objective='binary', n_jobs=-1, verbose=-1, **best_params)
+            fallback_clf = lgb.LGBMClassifier(objective='binary', n_jobs=1, verbose=-1, **best_params)
             fallback_clf.fit(X_all_t, y_col[nd])
             fallback_preds = fallback_clf.predict_proba(preprocessor_steps.transform(data.loc[nan_mask, predictors]))[:, 1]
             oof_preds.loc[nan_mask] = fallback_preds
@@ -349,8 +350,10 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
     return oof_preds.values
 
 
-def save_models(pipeline, name, project_root):
-    path = project_root / 'models' / f"{name}.pkl"
+def save_models(pipeline, name, project_root, models_dir=None):
+    output_dir = pathlib.Path(models_dir) if models_dir is not None else project_root / 'models'
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"{name}.pkl"
     with open(path, 'wb') as f:
         pickle.dump(pipeline, f)
     print(f"Saved pipeline to {path}")

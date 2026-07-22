@@ -1,69 +1,87 @@
-%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":30,"rankSpacing":42},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"14px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":40},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"13px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
 flowchart TB
-  NRL_DATA[/nrl.com draw and match centres/]
+  OP[/Operator/]
+  ACTIONS[/GitHub Actions<br/>serialized prediction/delivery · production-image checks/]
+  NRL[/nrl.com match data/]
   ODDS[/Historical and live odds/]
-  TEAM_LISTS[/nrl.com Team Lists and Late Mail/]
-  LOCAL[/Local operator hardware/]
-  ACTIONS([GitHub Actions prediction only<br/>15-minute gate · 11am Sydney])
-  DRIVE[(Google Drive published state<br/>DB · models · schedule)]
+  LINEUP_SOURCE[/Team Lists and Late Mail/]
+  SMTP[/SMTP and test recipient/]
+  PAGES[/GitHub Pages/]
 
-  CLI([footy-tipper CLI])
-  INGEST([Python source ingestion<br/>nrl-data · odds])
-  LINEUPS([Versioned lineup ingestion])
-  PREP([R preparation<br/>full · train · infer])
-  DB[(SQLite<br/>cache · prepared · operational state)]
-  TRAIN[[Local Tier A/B/C training<br/>stack · calibration · policy]]
-  ART[[models/<br/>artifacts and manifest]]
-  VALIDATE{Inference validation<br/>without auto-training passes?}
-  PUBLISH([Validated state push])
-  INFER([Pre-game inference<br/>and score simulation])
-  PRED[(predictions_table)]
-  DECIDE([Tips · value · stakes<br/>joker · comp strategy])
-  SEND{Delivery mode?}
-  SYNC([Push DB and schedule<br/>models unchanged])
-  EMAIL[/SMTP email<br/>test or production list/]
-  PAGES[/Generated site<br/>expected GitHub Pages/]
+  CLI([Human CLI<br/>menu · status · tips · update-model])
+  MACHINE([Actions runner<br/>exact modes · never trains])
+  INGEST([Python source and lineup ingestion])
+  PREP([R preparation])
+  TRAIN_DB[(Local training DB<br/>authoritative history)]
+  RUNTIME_DB[(Runtime SQLite<br/>predictions · ledgers)]
+  RUNTIME_STATE[(Drive runtime state<br/>DB · schedule)]
+  TRAIN[[Staged local training<br/>100 candidates]]
+  VERIFY{Local inference and<br/>hash validation pass?}
+  RELEASE[[Immutable model release<br/>archive · receipt]]
+  MODEL_CHECK{Actions production image<br/>loads exact release?}
+  POINTER[(Active model pointer)]
+  GATE{Schedule gate<br/>live · refresh · skip}
+  INFER([Inference and simulation])
+  DECIDE([Tips · value · stakes · joker])
+  MODE{Exact run mode}
+  PREP_EMAIL([Prepare production envelope<br/>credentials · token · recipients])
+  NO_CLAIM([Fail safely<br/>no marker · no SMTP])
+  MARKER[(Delivery marker<br/>pending = uncertain · sent)]
+  EMAIL([Email delivery])
+  BLOCK([Fail run<br/>keep pending/uncertain])
+  SYNC([Push runtime DB and schedule only])
+  SITE([Generate site])
 
-  LOCAL -->|state pull · train| CLI
-  ACTIONS -->|predict --skip-auto-train| CLI
-  DRIVE -->|state pull| CLI
-  NRL_DATA --> INGEST
+  OP --> CLI
+  CLI -->|update-model| INGEST
+  CLI -->|tips commands and advanced live aliases| ACTIONS
+  ACTIONS --> MACHINE
+  MACHINE --> GATE
+  NRL --> INGEST
   ODDS --> INGEST
-  TEAM_LISTS --> LINEUPS
-  CLI --> INGEST
-  CLI --> LINEUPS
-  CLI --> PREP
-  INGEST --> DB
-  LINEUPS --> DB
-  PREP --> DB
-  CLI -->|local training only| TRAIN
-  DB --> TRAIN
-  TRAIN --> ART
-  ART --> VALIDATE
-  DB --> VALIDATE
-  VALIDATE -->|yes| PUBLISH
-  PUBLISH --> DRIVE
-  CLI -->|Actions or local prediction| INFER
-  DB --> INFER
-  ART --> INFER
-  INFER --> PRED
-  PRED --> DECIDE
-  DECIDE --> SEND
-  SEND -->|test or live| EMAIL
-  SEND -->|state update| SYNC
-  SYNC --> DRIVE
-  SEND -->|generate| PAGES
+  LINEUP_SOURCE --> INGEST
+  INGEST --> PREP
+  PREP --> TRAIN_DB
+  TRAIN_DB --> TRAIN
+  TRAIN --> VERIFY
+  VERIFY -->|pass| RELEASE
+  RELEASE --> MODEL_CHECK
+  ACTIONS --> MODEL_CHECK
+  MODEL_CHECK -->|pass| POINTER
+  POINTER --> MACHINE
+  RUNTIME_STATE --> MACHINE
+  MACHINE -->|runtime pull| RUNTIME_DB
+  MACHINE --> INGEST
+  PREP --> RUNTIME_DB
+  GATE -->|live or refresh| INFER
+  RELEASE --> INFER
+  RUNTIME_DB --> INFER
+  INFER --> DECIDE
+  DECIDE --> MODE
+  MODE -->|test| EMAIL
+  MODE -->|refresh| SYNC
+  MODE -->|live| PREP_EMAIL
+  PREP_EMAIL -->|invalid| NO_CLAIM
+  PREP_EMAIL -->|valid| MARKER
+  MARKER -->|pending claimed| EMAIL
+  EMAIL --> SMTP
+  SMTP -->|live success marks sent| MARKER
+  SMTP -->|live partial · refused · ambiguous| BLOCK
+  BLOCK -->|remains| MARKER
+  MARKER -->|sent then reconcile ledger| RUNTIME_DB
+  RUNTIME_DB --> SYNC
+  SYNC --> RUNTIME_STATE
+  MODE -->|refresh or live| SITE
+  SITE --> PAGES
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
   classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
   classDef data fill:#CCFBF1,stroke:#0F766E,color:#0F172A,stroke-width:2px;
   classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
-  classDef state fill:#E2E8F0,stroke:#0F172A,color:#0F172A,stroke-width:2px;
 
-  class NRL_DATA,ODDS,TEAM_LISTS,LOCAL,EMAIL,PAGES source;
-  class ACTIONS,CLI,INGEST,LINEUPS,PREP,PUBLISH,INFER,DECIDE,SYNC process;
-  class DB,PRED data;
-  class TRAIN,ART model;
-  class VALIDATE,SEND decision;
-  class DRIVE state;
+  class OP,ACTIONS,NRL,ODDS,LINEUP_SOURCE,SMTP,PAGES source;
+  class CLI,MACHINE,INGEST,PREP,INFER,DECIDE,PREP_EMAIL,NO_CLAIM,EMAIL,BLOCK,SYNC,SITE process;
+  class TRAIN_DB,RUNTIME_DB,RUNTIME_STATE,POINTER,MARKER data;
+  class TRAIN,RELEASE model;
+  class VERIFY,MODEL_CHECK,GATE,MODE decision;

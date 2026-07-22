@@ -1,4 +1,3 @@
-import argparse
 import os
 import pathlib
 import sqlite3
@@ -16,6 +15,7 @@ except Exception:
 
 DEFAULT_TEST_EMAIL = "levon_rush@hotmail.com"
 REQUIRED_MODEL_FILES = ("home_model.pkl", "away_model.pkl", "model_manifest.json")
+CONFIRMED_LIVE_ROUND_ENV = "FOOTY_TIPPER_CONFIRMED_LIVE_ROUND"
 CLI_START = time.monotonic()
 DEFAULT_LINEUP_BACKFILL_MAX_ARTICLES = 2000
 
@@ -366,12 +366,12 @@ def _ensure_models_for_prediction(env, root, auto_train=True, allow_lineup_boots
 
     if not auto_train:
         _log(
-            "Model artifacts are missing. Run `footy-tipper train` "
-            "or remove --skip-auto-train."
+            "Model artifacts are missing. Run `footy-tipper update-model` to publish "
+            "a production model, or use `footy-tipper advanced model train` locally."
         )
         return False
 
-    _log("Model artifacts are missing. Running `footy-tipper train` automatically.")
+    _log("Model artifacts are missing. Explicit advanced auto-train is starting now.")
     train_env = env.copy()
     train_env["FOOTY_TIPPER_PREP_MODE"] = "train"
     if allow_lineup_bootstrap:
@@ -415,20 +415,82 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
     except Exception:
         pass
 
-    # Idempotency gate: never email the production list twice for one round.
+    # A manually dispatched live workflow is authorized for one exact round.
+    # Re-check after inference resolves the actual outgoing predictions and
+    # before touching either idempotency store or any production side effect.
+    confirmed_round_raw = os.getenv(CONFIRMED_LIVE_ROUND_ENV)
+    confirmed_round_text = (confirmed_round_raw or "").strip()
+    if not test_mode and not dry_run and confirmed_round_text:
+        try:
+            confirmed_round = int(confirmed_round_text)
+        except (TypeError, ValueError):
+            _log(
+                f"Live send refused: {CONFIRMED_LIVE_ROUND_ENV} must be a whole round number."
+            )
+            return 3
+        if confirmed_round < 1 or send_round_id != confirmed_round:
+            actual = "unknown" if send_round_id is None else str(send_round_id)
+            _log(
+                "Live send refused: the operator confirmed round "
+                f"{confirmed_round}, but the outgoing predictions resolve to round {actual}. "
+                "No production state was changed and no email was sent."
+            )
+            return 3
+
+    def _existing_delivery_result(marker, reason):
+        marker = marker or {}
+        if marker.get("status") == "sent":
+            if sf.record_email_send(
+                db_path,
+                send_year,
+                send_round_id,
+                recipients_count=marker.get("recipients_count"),
+                source="drive_delivery_reconciliation",
+            ):
+                _log(
+                    f"Drive already confirms delivery for {send_year} round {send_round_id}. "
+                    "Reconciled the local DB ledger without sending another email."
+                )
+                return 0
+            _log(
+                "Drive confirms this round was sent, but the local DB ledger "
+                "could not be reconciled. No email was sent."
+            )
+            return 1
+        _log(
+            f"Production delivery blocked for {send_year} round {send_round_id}: "
+            f"{reason}. Marker status is {marker.get('status', 'unknown')}; "
+            "pending means the prior SMTP outcome must be checked by a human."
+        )
+        return 3
+
+    # Read both idempotency stores before doing the comparatively expensive
+    # rendering work. The pending marker itself is claimed immediately before
+    # SMTP, so a pre-render failure cannot strand a round as uncertain.
+    delivery_claim = None
     if not test_mode and not dry_run:
         prior_send = sf.email_send_already_recorded(db_path, send_year, send_round_id)
-        if prior_send and not force_resend:
+        if prior_send:
             _log(
                 f"Production email already sent for {send_year} round {send_round_id} "
                 f"(recorded {prior_send.get('sent_at_utc')} UTC). "
-                "Use --force-resend to send again."
+                "No email was sent. Reconcile the delivery records explicitly if "
+                "the recorded outcome is wrong."
             )
             return 0
-        if prior_send and force_resend:
-            _log(
-                f"Production email already sent for {send_year} round {send_round_id}; "
-                "resending because --force-resend was given."
+        try:
+            from pipeline.ops import delivery_state
+
+            existing_marker = delivery_state.get_delivery(
+                root, send_year, send_round_id
+            )
+        except Exception as exc:
+            _log(f"Could not check the production delivery safety marker: {exc}")
+            return 1
+        if existing_marker:
+            return _existing_delivery_result(
+                existing_marker,
+                f"delivery is already {existing_marker.get('status', 'unknown')}",
             )
 
     # Competition-aware tip strategy: advisory logs deviations, auto applies
@@ -514,7 +576,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
             _log(f"Test email sent to {test_email}.")
         else:
             _log("Test email flow skipped or failed.")
-        return 0
+        return 0 if sent else 1
 
     if dry_run:
         _log("Dry run enabled. Production email was not sent.")
@@ -523,21 +585,80 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
         _log(email_body)
         return 0
 
+    # Resolve every deterministic production-email dependency before claiming
+    # the Drive marker. A missing secret/token/dependency or an unreadable or
+    # invalid recipient sheet proves that SMTP was never attempted, so it must
+    # not strand the round as an uncertain pending delivery.
+    try:
+        prepared_delivery = sf.prepare_email_delivery(
+            "footy-tipper-email-list",
+            os.getenv("MY_EMAIL"),
+            os.getenv("EMAIL_PASSWORD"),
+            json_path,
+        )
+    except sf.EmailPreparationError as exc:
+        _log(
+            f"Production email preparation failed before delivery was claimed: {exc} "
+            "No email was sent and no pending marker was created."
+        )
+        return 1
+    except Exception as exc:
+        _log(
+            "Production email preparation failed unexpectedly before delivery was "
+            f"claimed ({type(exc).__name__}). No email was sent and no pending marker "
+            "was created."
+        )
+        return 1
+
+    try:
+        from pipeline.ops import delivery_state
+
+        delivery_claim = delivery_state.begin_delivery(
+            root,
+            send_year,
+            send_round_id,
+            source="actions_live" if os.getenv("GITHUB_ACTIONS") else "local_live",
+        )
+    except Exception as exc:
+        _log(f"Could not create the production delivery safety marker: {exc}")
+        return 1
+    if not delivery_claim.get("allowed"):
+        return _existing_delivery_result(
+            delivery_claim.get("marker"),
+            delivery_claim.get("reason", "another runner claimed this round"),
+        )
+
     sent = sf.send_emails(
-        "footy-tipper-email-list",
         subject,
         email_body,
-        os.getenv("MY_EMAIL"),
-        os.getenv("EMAIL_PASSWORD"),
-        json_path,
+        prepared_delivery,
         html_message=email_html,
         inline_images=inline_images,
     )
     if not sent:
         _log("Production email flow skipped or failed. Joker usage state unchanged.")
-        return 0
+        return 1
 
     recipients_count = sent if isinstance(sent, int) and not isinstance(sent, bool) else None
+    try:
+        from pipeline.ops import delivery_state
+
+        marker = delivery_claim.get("marker") if delivery_claim else {}
+        delivery_state.mark_sent(
+            root,
+            send_year,
+            send_round_id,
+            marker.get("attempt_id"),
+            recipients_count=recipients_count,
+        )
+        _log(f"Drive delivery marker recorded as sent for {send_year} round {send_round_id}.")
+    except Exception as exc:
+        _log(
+            "SMTP reported success, but the Drive marker could not be finalized. "
+            f"The round remains blocked as uncertain and must not be resent automatically: {exc}"
+        )
+        return 1
+
     if sf.record_email_send(
         db_path,
         send_year,
@@ -546,6 +667,12 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
         source="cli_send_production",
     ):
         _log(f"Send recorded in ledger for {send_year} round {send_round_id}.")
+    else:
+        _log(
+            "Drive says this round was sent, but the local DB ledger could not be updated. "
+            "Stopping so an operator can reconcile the runtime state."
+        )
+        return 1
 
     # Refresh the static site so the public page matches what was just sent.
     try:
@@ -555,7 +682,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
     except Exception as exc:
         _log(f"Site refresh skipped ({exc}).")
 
-    # Weekly DB backup to Drive (lineup history only lives on this machine).
+    # Weekly recoverable snapshot of the runtime database.
     if _to_bool(os.getenv("FOOTY_TIPPER_DB_BACKUP"), True):
         sf.backup_db_to_drive(db_path, json_path, os.getenv("FOLDER_ID"))
     else:
@@ -593,457 +720,21 @@ def _resolve_test_email(cli_value):
     return os.getenv("FOOTY_TIPPER_TEST_EMAIL", DEFAULT_TEST_EMAIL)
 
 
-def _add_season_args(parser):
-    parser.add_argument("--start-year", type=int, help="Override FOOTY_TIPPER_START_YEAR.")
-    parser.add_argument("--end-year", type=int, help="Override FOOTY_TIPPER_END_YEAR.")
-    perf = parser.add_mutually_exclusive_group()
-    perf.add_argument(
-        "--include-performance",
-        dest="include_performance",
-        action="store_true",
-        default=None,
-        help="Force include performance feed features.",
-    )
-    perf.add_argument(
-        "--without-performance",
-        dest="include_performance",
-        action="store_false",
-        default=None,
-        help="Disable performance feed features for this run.",
-    )
-
-    odds = parser.add_mutually_exclusive_group()
-    odds.add_argument(
-        "--require-odds",
-        dest="require_odds",
-        action="store_true",
-        default=None,
-        help="Advanced: keep only rows with available head-to-head odds.",
-    )
-    odds.add_argument(
-        "--allow-missing-odds",
-        dest="require_odds",
-        action="store_false",
-        default=None,
-        help="Default behavior: keep rows even when odds are missing.",
-    )
-
-
-def _add_prep_mode_args(
-    parser,
-    default_mode,
-    choices=("full", "train", "infer"),
-    include_infer_context_arg=True,
-):
-    if "train" in choices and "infer" in choices:
-        prep_help = (
-            "Data prep strategy. full forces a fresh API pull for all requested seasons; "
-            "train rebuilds prepared tables after a smart cache refresh of missing/current seasons; "
-            "infer limits season scope and performs incremental upserts using the same smart refresh."
-        )
-    elif "train" in choices:
-        prep_help = (
-            "Data prep strategy. full forces a fresh API pull for all requested seasons; "
-            "train rebuilds prepared tables after a smart cache refresh of missing/current seasons."
-        )
-    elif "infer" in choices:
-        prep_help = (
-            "Data prep strategy. full forces a fresh API pull for all requested seasons in scope; "
-            "infer limits season scope and performs incremental upserts using smart cache refresh."
-        )
-    else:
-        prep_help = "Data prep strategy for this command."
-
-    parser.add_argument(
-        "--prep-mode",
-        choices=choices,
-        default=default_mode,
-        help=prep_help,
-    )
-    if include_infer_context_arg:
-        parser.add_argument(
-            "--infer-context-years",
-            type=int,
-            default=None,
-            help=(
-                "When prep mode is infer, include this many prior seasons "
-                "for feature context (default from env or 1)."
-            ),
-        )
-
-
-def _add_llm_args(parser):
-    llm = parser.add_mutually_exclusive_group()
-    llm.add_argument(
-        "--with-llm",
-        dest="use_llm",
-        action="store_true",
-        help="Use Claude-generated email copy (default).",
-    )
-    llm.add_argument(
-        "--no-llm",
-        dest="use_llm",
-        action="store_false",
-        help="Use deterministic fallback email text instead of Claude.",
-    )
-    # Deprecated aliases kept for muscle memory; the copy comes from Claude,
-    # OpenAI is only used for the banner image.
-    llm.add_argument("--use-openai", dest="use_llm", action="store_true", help=argparse.SUPPRESS)
-    llm.add_argument("--without-openai", dest="use_llm", action="store_false", help=argparse.SUPPRESS)
-    parser.set_defaults(use_llm=True)
-
-
-def _add_nrl_data_args(parser):
-    parser.add_argument(
-        "--skip-nrl-data",
-        action="store_true",
-        help="Skip nrl.com data + odds refresh before this command.",
-    )
-
-
-def _add_lineup_args(parser, default_mode="recent", include_skip=True):
-    if include_skip:
-        parser.add_argument(
-            "--skip-lineups",
-            action="store_true",
-            help="Skip lineup ingestion refresh before this command.",
-        )
-    parser.add_argument(
-        "--lineups-mode",
-        choices=("recent", "backfill"),
-        default=None,
-        help=(
-            "Lineup ingestion mode: recent refreshes from team-lists hub; "
-            f"backfill additionally crawls sitemap archives (default: {default_mode})."
-        ),
-    )
-    parser.add_argument(
-        "--lineups-max-articles",
-        type=int,
-        default=None,
-        help="Limit number of lineup articles fetched in this run.",
-    )
-    parser.add_argument(
-        "--lineups-include-sitemap-in-recent",
-        action="store_true",
-        default=None,
-        help="In recent mode, also use sitemap URLs (broader but slower).",
-    )
-    parser.add_argument(
-        "--lineups-strict",
-        action="store_true",
-        default=None,
-        help="Fail command if lineup ingestion reports errors.",
-    )
-
-
 def build_parser():
-    parser = argparse.ArgumentParser(
-        prog="footy-tipper",
-        description="Footy Tipper CLI: run prep, train, inference, and send workflows.",
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    """Build the Footy Tipper 1.0 human-facing parser.
 
-    prep = subparsers.add_parser("prep", help="Run R data preparation and write SQLite tables.")
-    _add_season_args(prep)
-    _add_prep_mode_args(prep, default_mode="full", choices=("full", "train", "infer"))
-    _add_lineup_args(prep, default_mode="recent")
-    _add_nrl_data_args(prep)
+    Pipeline helpers remain in this module for the explicit advanced and
+    machine interfaces, while the small operator surface lives separately.
+    """
+    from pipeline.operator_cli import build_parser as build_operator_parser
 
-    train = subparsers.add_parser("train", help="Run training workflow.")
-    _add_season_args(train)
-    _add_prep_mode_args(
-        train,
-        default_mode="train",
-        choices=("full", "train"),
-        include_infer_context_arg=False,
-    )
-    _add_lineup_args(train, default_mode="recent")
-    _add_nrl_data_args(train)
-    train.add_argument("--skip-prep", action="store_true", help="Skip R data prep and train from existing SQLite tables.")
-
-    infer = subparsers.add_parser("infer", help="Run inference workflow.")
-    _add_season_args(infer)
-    _add_prep_mode_args(infer, default_mode="infer", choices=("infer", "full"))
-    _add_lineup_args(infer, default_mode="recent")
-    _add_nrl_data_args(infer)
-    infer.add_argument("--skip-prep", action="store_true", help="Skip R data prep and infer from existing SQLite tables.")
-    infer.add_argument(
-        "--skip-auto-train",
-        action="store_true",
-        help="Do not auto-run training when model artifacts are missing.",
-    )
-
-    send = subparsers.add_parser("send", help="Send predictions (Drive + email list) or run test send.")
-    send.add_argument("--test", action="store_true", help="Send a single test email instead of production list send.")
-    send.add_argument(
-        "--test-email",
-        default=None,
-        help=(
-            "Recipient for --test mode "
-            f"(default: FOOTY_TIPPER_TEST_EMAIL or {DEFAULT_TEST_EMAIL})."
-        ),
-    )
-    send.add_argument(
-        "--skip-drive",
-        action="store_true",
-        help="Skip Google Drive upload.",
-    )
-    _add_llm_args(send)
-    send.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
-    send.add_argument(
-        "--force-resend",
-        action="store_true",
-        help="Send to the production list even if this round was already emailed.",
-    )
-
-    predict = subparsers.add_parser("predict", help="Run full prediction workflow (prep -> infer -> send).")
-    _add_season_args(predict)
-    _add_prep_mode_args(predict, default_mode="infer", choices=("infer", "full"))
-    _add_lineup_args(predict, default_mode="recent")
-    _add_nrl_data_args(predict)
-    predict.add_argument("--skip-prep", action="store_true", help="Skip R data prep.")
-    predict.add_argument("--skip-send", action="store_true", help="Skip send step after inference.")
-    predict.add_argument(
-        "--skip-auto-train",
-        action="store_true",
-        help="Do not auto-run training when model artifacts are missing.",
-    )
-    predict.add_argument("--test", action="store_true", help="Use test send mode if send step is run.")
-    predict.add_argument(
-        "--test-email",
-        default=None,
-        help=(
-            "Recipient for --test mode "
-            f"(default: FOOTY_TIPPER_TEST_EMAIL or {DEFAULT_TEST_EMAIL})."
-        ),
-    )
-    predict.add_argument("--skip-drive", action="store_true", help="Skip Google Drive upload during send step.")
-    _add_llm_args(predict)
-    predict.add_argument("--dry-run", action="store_true", help="Print email output without sending.")
-    predict.add_argument(
-        "--force-resend",
-        action="store_true",
-        help="Send to the production list even if this round was already emailed.",
-    )
-
-    lineups = subparsers.add_parser("lineups", help="Run lineup ingestion only.")
-    _add_season_args(lineups)
-    _add_lineup_args(lineups, default_mode="recent", include_skip=False)
-
-    nrl_data = subparsers.add_parser(
-        "nrl-data",
-        help="nrl.com data ingestion: refresh caches, historical backfill, or parity validation.",
-    )
-    nrl_data.add_argument(
-        "action",
-        choices=("refresh", "backfill", "validate"),
-        help=(
-            "refresh: current season draw + match centres + derived caches; "
-            "backfill: historical match centres (2012+); "
-            "validate: parity report vs cached feed history (no writes)"
-        ),
-    )
-    nrl_data.add_argument("--start-year", type=int, default=None)
-    nrl_data.add_argument("--end-year", type=int, default=None)
-    nrl_data.add_argument("--season", type=int, default=None, help="refresh: season override.")
-    nrl_data.add_argument("--max-pages", type=int, default=None, help="Cap match centre pages this run.")
-    nrl_data.add_argument("--report-path", default=None, help="validate: CSV report destination.")
-    nrl_data.add_argument("--strict", action="store_true", help="Fail non-zero on ingestion errors.")
-
-    odds = subparsers.add_parser(
-        "odds",
-        help="Odds ingestion: Betfair live snapshot or aussportsbetting historical backfill.",
-    )
-    odds.add_argument(
-        "action",
-        choices=("live", "backfill"),
-        help="live: Betfair snapshot for upcoming games; backfill: historical xlsx",
-    )
-    odds.add_argument("--xlsx-path", default=None, help="backfill: local workbook override.")
-    odds.add_argument("--url", default=None, help="backfill: workbook URL override.")
-    odds.add_argument("--strict", action="store_true", help="Fail non-zero on errors.")
-
-    site = subparsers.add_parser("site", help="Generate the static tips site into docs/site/.")
-    site.add_argument(
-        "--publish",
-        action="store_true",
-        help="Commit and push docs/site after generating (for GitHub Pages).",
-    )
-
-    evaluate = subparsers.add_parser(
-        "evaluate",
-        help="Honest nested season-out evaluation (meta-layer never sees the test season).",
-    )
-    _add_season_args(evaluate)
-    evaluate.add_argument(
-        "--seasons",
-        type=int,
-        default=None,
-        help="Number of recent seasons to hold out (default: FOOTY_TIPPER_EVAL_SEASONS or 3).",
-    )
-    evaluate.add_argument(
-        "--skip-prep",
-        action="store_true",
-        help="Skip R data prep and evaluate from existing SQLite tables.",
-    )
-
-    state = subparsers.add_parser(
-        "state",
-        help="Sync DB/model state with Google Drive (used by scheduled GitHub Actions runs).",
-    )
-    state.add_argument(
-        "action",
-        choices=("push", "pull", "gate", "schedule"),
-        help=(
-            "push: upload DB+models+schedule.json; pull: download DB+models; "
-            "gate: decide send/refresh/skip from schedule.json; schedule: print local schedule"
-        ),
-    )
-
-    return parser
+    return build_operator_parser()
 
 
 def main(argv=None):
-    root = _project_root()
-    load_dotenv(dotenv_path=root / "secrets.env")
+    from pipeline.operator_cli import run
 
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    env = _build_env(args)
-    resolved_test_email = _resolve_test_email(getattr(args, "test_email", None))
-
-    if args.command == "prep":
-        if not args.skip_lineups:
-            _run_lineups(env, root)
-        if not args.skip_nrl_data:
-            _refresh_nrl_data(env, root)
-        _run_data_prep(env, root)
-        return 0
-
-    if args.command == "train":
-        if not args.skip_lineups:
-            _bootstrap_lineups_for_training_if_needed(env, root)
-            _run_lineups(env, root)
-        if not args.skip_nrl_data and not args.skip_prep:
-            _refresh_nrl_data(env, root, include_bootstrap=True)
-        _run_train(env, skip_prep=args.skip_prep, root=root)
-        return 0
-
-    if args.command == "infer":
-        if not args.skip_lineups:
-            _run_lineups(env, root)
-        if not args.skip_nrl_data and not args.skip_prep:
-            _refresh_nrl_data(env, root)
-        if not _ensure_models_for_prediction(
-            env,
-            root,
-            auto_train=not args.skip_auto_train,
-            allow_lineup_bootstrap=not args.skip_lineups,
-        ):
-            return 1
-        _run_inference(env, skip_prep=args.skip_prep, root=root)
-        return 0
-
-    if args.command == "lineups":
-        _run_lineups(env, root)
-        return 0
-
-    if args.command == "nrl-data":
-        extra = []
-        if args.start_year is not None:
-            extra.extend(["--start-year", str(args.start_year)])
-        if args.end_year is not None:
-            extra.extend(["--end-year", str(args.end_year)])
-        if args.season is not None:
-            extra.extend(["--season", str(args.season)])
-        if args.max_pages is not None:
-            extra.extend(["--max-pages", str(args.max_pages)])
-        if args.report_path:
-            extra.extend(["--report-path", args.report_path])
-        if args.strict:
-            extra.append("--strict")
-        _run_nrl_data(env, root, args.action, extra)
-        return 0
-
-    if args.command == "odds":
-        extra = []
-        if args.xlsx_path:
-            extra.extend(["--xlsx-path", args.xlsx_path])
-        if args.url:
-            extra.extend(["--url", args.url])
-        if args.strict:
-            extra.append("--strict")
-        _run_odds(env, root, args.action, extra)
-        return 0
-
-    if args.command == "site":
-        try:
-            from pipeline.common.use_predictions import site as site_mod
-        except ModuleNotFoundError as exc:
-            missing = getattr(exc, "name", "dependency")
-            _log(f"Site generation requires project dependencies (missing: {missing}).")
-            return 1
-        db_path = root / "data" / "footy-tipper-db.sqlite"
-        site_mod.generate_site(db_path, root)
-        if args.publish:
-            return 0 if site_mod.publish_site(root) else 1
-        return 0
-
-    if args.command == "evaluate":
-        if not _model_artifacts_exist(root):
-            _log("Model artifacts are missing. Run `footy-tipper train` first; evaluate reuses their tuned hyperparameters.")
-            return 1
-        if args.seasons is not None:
-            env["FOOTY_TIPPER_EVAL_SEASONS"] = str(args.seasons)
-        eval_env = env.copy()
-        eval_env.setdefault("FOOTY_TIPPER_PREP_MODE", "train")
-        _run_evaluate(eval_env, skip_prep=args.skip_prep, root=root)
-        return 0
-
-    if args.command == "state":
-        from pipeline.ops import state_sync
-        return state_sync.main([args.action])
-
-    if args.command == "send":
-        skip_drive = args.skip_drive or args.test
-        return _send_predictions(
-            test_mode=args.test,
-            test_email=resolved_test_email,
-            skip_drive=skip_drive,
-            use_llm=args.use_llm,
-            dry_run=args.dry_run,
-            force_resend=args.force_resend,
-        )
-
-    if args.command == "predict":
-        if not args.skip_lineups:
-            _run_lineups(env, root)
-        if not args.skip_nrl_data and not args.skip_prep:
-            _refresh_nrl_data(env, root)
-        if not _ensure_models_for_prediction(
-            env,
-            root,
-            auto_train=not args.skip_auto_train,
-            allow_lineup_bootstrap=not args.skip_lineups,
-        ):
-            return 1
-        _run_inference(env, skip_prep=args.skip_prep, root=root)
-        if args.skip_send:
-            _log("Send step skipped.")
-            return 0
-        skip_drive = args.skip_drive or args.test
-        return _send_predictions(
-            test_mode=args.test,
-            test_email=resolved_test_email,
-            skip_drive=skip_drive,
-            use_llm=args.use_llm,
-            dry_run=args.dry_run,
-            force_resend=args.force_resend,
-        )
-
-    parser.error(f"Unknown command: {args.command}")
-    return 2
+    return run(argv)
 
 
 if __name__ == "__main__":

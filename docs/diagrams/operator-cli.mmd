@@ -1,0 +1,69 @@
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":24,"rankSpacing":38},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"13px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+flowchart TB
+  CLI([footy-tipper 1.0])
+  MENU([Guided menu<br/>TTY only])
+  STATUS([status<br/>offline · JSON])
+  SETUP([setup])
+  TIPS([tips])
+  UPDATE[[update-model<br/>local golden path]]
+  ADV([advanced])
+
+  SHOW([show<br/>read-only])
+  TEST([test<br/>Actions test])
+  REFRESH([refresh<br/>no email])
+  LIVE{live<br/>type SEND ROUND N · Actions}
+
+  DATA([data])
+  MODEL([model])
+  LOCAL([local-run])
+  DELIVERY([delivery])
+  CLOUD([cloud])
+  SITE([site])
+
+  PREP([prepare<br/>all · training · tips])
+  LINEUPS([lineups<br/>refresh · backfill])
+  NRL([nrl<br/>refresh · backfill · validate])
+  ODDS([odds<br/>refresh · backfill])
+  MODEL_ACTIONS([train · infer · evaluate · verify<br/>list · activate · rollback])
+  RUN_MODES([preview · test<br/>live routes to Actions])
+  DELIVERY_MODES([preview · test<br/>live routes to Actions])
+  CLOUD_ACTIONS([pull-runtime · push-runtime<br/>schedule · gate])
+  SITE_ACTIONS([build · publish])
+
+  CLI --> MENU
+  CLI --> STATUS
+  CLI --> SETUP
+  CLI --> TIPS
+  CLI --> UPDATE
+  CLI --> ADV
+  TIPS --> SHOW
+  TIPS --> TEST
+  TIPS --> REFRESH
+  TIPS --> LIVE
+  ADV --> DATA
+  ADV --> MODEL
+  ADV --> LOCAL
+  ADV --> DELIVERY
+  ADV --> CLOUD
+  ADV --> SITE
+  DATA --> PREP
+  DATA --> LINEUPS
+  DATA --> NRL
+  DATA --> ODDS
+  MODEL --> MODEL_ACTIONS
+  LOCAL --> RUN_MODES
+  DELIVERY --> DELIVERY_MODES
+  CLOUD --> CLOUD_ACTIONS
+  SITE --> SITE_ACTIONS
+
+  classDef root fill:#0F172A,stroke:#0F172A,color:#FFFFFF,stroke-width:2px;
+  classDef everyday fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
+  classDef technical fill:#E2E8F0,stroke:#475569,color:#0F172A,stroke-width:2px;
+  classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
+  classDef safety fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
+
+  class CLI root;
+  class MENU,STATUS,SETUP,TIPS,SHOW,TEST,REFRESH everyday;
+  class UPDATE model;
+  class LIVE safety;
+  class ADV,DATA,MODEL,LOCAL,DELIVERY,CLOUD,SITE,PREP,LINEUPS,NRL,ODDS,MODEL_ACTIONS,RUN_MODES,DELIVERY_MODES,CLOUD_ACTIONS,SITE_ACTIONS technical;

@@ -1,0 +1,59 @@
+name: Model release check
+run-name: Model check (${{ inputs.release }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Immutable Drive model release ID to validate"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/${{ github.repository }}:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Materialise Drive credentials
+        env:
+          SECRETS_ENV: ${{ secrets.SECRETS_ENV }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        run: |
+          folder_id=''
+          while IFS= read -r line; do
+            case "$line" in ''|\#*) continue ;; esac
+            key="${line%%=*}"
+            value="${line#*=}"
+            value="${value%\"}"; value="${value#\"}"
+            value="${value%\'}"; value="${value#\'}"
+            if [ "$key" = "FOLDER_ID" ]; then
+              folder_id="$value"
+              break
+            fi
+          done <<EOF
+          $SECRETS_ENV
+          EOF
+          if [ -z "$folder_id" ]; then
+            echo "FOLDER_ID is missing from SECRETS_ENV." >&2
+            exit 2
+          fi
+          echo "::add-mask::$folder_id"
+          printf 'FOLDER_ID=%s\n' "$folder_id" > secrets.env
+          printf '%s\n' "$SERVICE_ACCOUNT_JSON" > service-account-token.json
+          chmod 600 secrets.env service-account-token.json
+
+      - name: Check exact candidate in production image
+        env:
+          RELEASE_ID: ${{ inputs.release }}
+        run: python -m pipeline.ops.actions_runner model-check --release "$RELEASE_ID"

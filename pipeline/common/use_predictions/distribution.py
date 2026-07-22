@@ -2,6 +2,8 @@
 
 import os
 import sqlite3
+from dataclasses import dataclass, field
+from email.utils import parseaddr
 
 import pandas as pd
 
@@ -22,6 +24,27 @@ import smtplib
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+
+EMAIL_LIST_SCOPE = (
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive",
+)
+
+
+class EmailPreparationError(RuntimeError):
+    """A safe, pre-SMTP production email configuration failure."""
+
+
+@dataclass(frozen=True)
+class PreparedEmailDelivery:
+    """Validated production envelope details resolved before delivery is claimed."""
+
+    sender_email: str
+    sender_password: str = field(repr=False)
+    recipients: tuple[str, ...]
 
 
 def _ensure_predictions_table_columns(con):
@@ -182,55 +205,149 @@ def _build_mime_message(
     return msg
 
 
-# The 'send_emails' function sends an email with the generated content.
-def send_emails(doc_name, subject, message, sender_email, sender_password, json_path, html_message=None, inline_images=None):
-    if service_account is None or gspread is None:
-        print("Email send skipped: Google Sheets dependencies are not installed.")
-        return False
-    if not sender_email or not sender_password:
-        print("Email send skipped: missing MY_EMAIL or EMAIL_PASSWORD.")
-        return False
-    if not os.path.exists(json_path):
-        print(f"Email send skipped: missing Google service account token at {json_path}.")
-        return False
+def _normalized_email_address(value):
+    raw = str(value or "").strip()
+    if not raw or "\r" in raw or "\n" in raw:
+        raise ValueError("missing or unsafe email address")
 
-    scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets',
-             "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
-    creds = service_account.Credentials.from_service_account_file(json_path, scopes=scope)
-    client = gspread.authorize(creds)
-    sheet = client.open(doc_name).sheet1
-    email_data = sheet.get_all_records()
-    recipient_emails = [row['Email'] for row in email_data if row.get('Email')]
+    _display_name, address = parseaddr(raw)
+    local, separator, domain = address.rpartition("@")
+    if (
+        not separator
+        or not local
+        or not domain
+        or address.count("@") != 1
+        or any(character.isspace() for character in address)
+    ):
+        raise ValueError("invalid email address")
+    return address
+
+
+def prepare_email_delivery(doc_name, sender_email, sender_password, json_path):
+    """Resolve and validate the production envelope before claiming delivery.
+
+    Google access and recipient-list failures are deterministic: no SMTP call
+    could have happened yet, so callers must run this before writing a pending
+    delivery marker.
+    """
+    if service_account is None or gspread is None:
+        raise EmailPreparationError("Google Sheets dependencies are not installed.")
+    if not str(sender_email or "").strip() or not str(sender_password or "").strip():
+        raise EmailPreparationError("MY_EMAIL or EMAIL_PASSWORD is missing.")
+    if not os.path.isfile(json_path):
+        raise EmailPreparationError("The Google service-account token is missing.")
+
+    try:
+        normalized_sender = _normalized_email_address(sender_email)
+    except ValueError as exc:
+        raise EmailPreparationError("MY_EMAIL is not a valid email address.") from exc
+
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            json_path,
+            scopes=EMAIL_LIST_SCOPE,
+        )
+    except Exception as exc:
+        raise EmailPreparationError(
+            "The Google service-account token could not be loaded."
+        ) from exc
+
+    try:
+        client = gspread.authorize(creds)
+        sheet = client.open(doc_name).sheet1
+        email_data = sheet.get_all_records()
+    except Exception as exc:
+        raise EmailPreparationError(
+            "The production recipient list could not be read from Google Sheets."
+        ) from exc
+
+    recipient_emails = []
+    seen = set()
+    invalid_count = 0
+    for row in email_data:
+        value = row.get("Email") if isinstance(row, dict) else None
+        if not str(value or "").strip():
+            continue
+        try:
+            recipient = _normalized_email_address(value)
+        except ValueError:
+            invalid_count += 1
+            continue
+        identity = recipient.casefold()
+        if identity not in seen:
+            recipient_emails.append(recipient)
+            seen.add(identity)
+
+    if invalid_count:
+        raise EmailPreparationError(
+            f"The production recipient list contains {invalid_count} invalid email address(es)."
+        )
     if not recipient_emails:
-        print("Email send skipped: no recipients found in the email list.")
-        return False
-    
+        raise EmailPreparationError("The production recipient list is empty.")
+
+    return PreparedEmailDelivery(
+        sender_email=normalized_sender,
+        sender_password=str(sender_password),
+        recipients=tuple(recipient_emails),
+    )
+
+
+# The 'send_emails' function sends to a prevalidated production envelope.
+def send_emails(
+    subject,
+    message,
+    prepared_delivery,
+    html_message=None,
+    inline_images=None,
+):
+    if not isinstance(prepared_delivery, PreparedEmailDelivery):
+        raise TypeError("prepared_delivery must come from prepare_email_delivery().")
+
     msg = _build_mime_message(
         subject=subject,
-        sender_email=sender_email,
-        recipients=recipient_emails,
+        sender_email=prepared_delivery.sender_email,
+        recipients=prepared_delivery.recipients,
         plain_message=message,
         html_message=html_message,
         inline_images=inline_images,
         bcc_recipients=True,
     )
 
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(sender_email, sender_password)
-    text = msg.as_string()
-    server.sendmail(sender_email, recipient_emails, text)
-    server.quit()
+    server = smtplib.SMTP("smtp.gmail.com", 587)
+    try:
+        server.starttls()
+        server.login(
+            prepared_delivery.sender_email,
+            prepared_delivery.sender_password,
+        )
+        refused = server.sendmail(
+            prepared_delivery.sender_email,
+            list(prepared_delivery.recipients),
+            msg.as_string(),
+        )
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
+
+    if refused:
+        print(
+            "SMTP refused one or more production recipients. Delivery may be partial; "
+            "the round must remain blocked as uncertain."
+        )
+        return False
+
     # Truthy on success; callers can use the count for the send ledger.
-    return len(recipient_emails)
+    return len(prepared_delivery.recipients)
 
 
 def backup_db_to_drive(db_path, json_path, parent_folder_id, keep=8):
     """Snapshot the SQLite DB, gzip it, and upload to a Drive backups folder.
 
-    The DB holds years of scraped lineups that would be painful to re-crawl
-    and it only lives on one machine. Uses the sqlite3 backup API so the
-    snapshot is consistent even mid-write. Keeps the newest `keep` backups.
+    The DB can hold costly-to-rebuild feed/lineup history and operational
+    state. Uses the sqlite3 backup API so the snapshot is consistent even
+    mid-write. Keeps the newest `keep` backups.
     Fail-soft: backup problems must never break a send.
     """
     import gzip
@@ -437,9 +554,16 @@ def send_test_email(subject, message, sender_email, sender_password, recipient_e
     )
 
     server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(sender_email, sender_password)
-    text = msg.as_string()
-    server.sendmail(sender_email, [recipient_email], text)
-    server.quit()
+    try:
+        server.starttls()
+        server.login(sender_email, sender_password)
+        refused = server.sendmail(sender_email, [recipient_email], msg.as_string())
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
+    if refused:
+        print("Test email was refused by SMTP.")
+        return False
     return True

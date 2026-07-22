@@ -1,7 +1,7 @@
 import os
-import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 from pipeline.common.use_predictions import distribution as dist
 
@@ -39,6 +39,88 @@ class MimeMessageTests(unittest.TestCase):
             plain_message="body",
         )
         self.assertEqual(msg["List-Unsubscribe"], "<mailto:sender@example.com?subject=unsubscribe>")
+
+
+class ProductionEmailTests(unittest.TestCase):
+    def test_full_smtp_success_returns_recipient_count(self):
+        prepared = dist.PreparedEmailDelivery(
+            sender_email="sender@example.com",
+            sender_password="app-password",
+            recipients=("one@example.com", "two@example.com"),
+        )
+        server = mock.Mock()
+        server.sendmail.return_value = {}
+
+        with mock.patch("pipeline.common.use_predictions.distribution.smtplib.SMTP", return_value=server):
+            result = dist.send_emails("Tips", "Body", prepared)
+
+        self.assertEqual(result, 2)
+        server.sendmail.assert_called_once()
+        self.assertEqual(server.sendmail.call_args.args[1], ["one@example.com", "two@example.com"])
+        server.quit.assert_called_once()
+
+    def test_partial_recipient_refusal_is_ambiguous_failure(self):
+        prepared = dist.PreparedEmailDelivery(
+            sender_email="sender@example.com",
+            sender_password="app-password",
+            recipients=("accepted@example.com", "refused@example.com"),
+        )
+        server = mock.Mock()
+        server.sendmail.return_value = {
+            "refused@example.com": (550, b"mailbox unavailable")
+        }
+
+        with mock.patch("pipeline.common.use_predictions.distribution.smtplib.SMTP", return_value=server):
+            result = dist.send_emails("Tips", "Body", prepared)
+
+        self.assertFalse(result)
+        server.quit.assert_called_once()
+
+    def test_prepare_resolves_recipients_once_and_deduplicates(self):
+        service_account = mock.Mock()
+        gspread = mock.Mock()
+        gspread.authorize.return_value.open.return_value.sheet1.get_all_records.return_value = [
+            {"Email": "one@example.com"},
+            {"Email": "One@example.com"},
+            {"Email": "Two Person <two@example.com>"},
+            {"Email": ""},
+        ]
+
+        with tempfile.NamedTemporaryFile() as token, mock.patch.object(
+            dist, "service_account", service_account
+        ), mock.patch.object(dist, "gspread", gspread):
+            prepared = dist.prepare_email_delivery(
+                "footy-tipper-email-list",
+                "sender@example.com",
+                "app-password",
+                token.name,
+            )
+
+        self.assertEqual(
+            prepared.recipients,
+            ("one@example.com", "two@example.com"),
+        )
+        service_account.Credentials.from_service_account_file.assert_called_once()
+        gspread.authorize.return_value.open.assert_called_once_with(
+            "footy-tipper-email-list"
+        )
+
+    def test_test_email_recipient_refusal_returns_false(self):
+        server = mock.Mock()
+        server.sendmail.return_value = {
+            "test@example.com": (550, b"mailbox unavailable")
+        }
+
+        with mock.patch("pipeline.common.use_predictions.distribution.smtplib.SMTP", return_value=server):
+            result = dist.send_test_email(
+                "Tips",
+                "Body",
+                "sender@example.com",
+                "app-password",
+                "test@example.com",
+            )
+
+        self.assertFalse(result)
 
 
 class SendLedgerTests(unittest.TestCase):

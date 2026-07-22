@@ -22,6 +22,7 @@ from pipeline.common.model_training import joker_policy as jp
 from pipeline.common.model_training import modelling_functions as mf
 from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
+from pipeline.runtime_paths import database_path, models_path, project_root as configured_project_root
 
 
 def _select_blend_weight_by_log_loss(y_selected, selection_mask, baseline_mu_home, baseline_mu_away, oof_mu_home, oof_mu_away):
@@ -72,8 +73,10 @@ def _non_draw_mask(df: pd.DataFrame) -> np.ndarray:
     return (df["team_final_score_home"].to_numpy(dtype=float) != df["team_final_score_away"].to_numpy(dtype=float))
 
 
-project_root = pathlib.Path().absolute()
-db_path = project_root / "data" / "footy-tipper-db.sqlite"
+project_root = configured_project_root()
+db_path = database_path(project_root)
+models_dir = models_path(project_root)
+models_dir.mkdir(parents=True, exist_ok=True)
 
 predictors = tc.filter_predictors(include_performance=tc.include_performance, predictor_list=tc.predictors)
 
@@ -591,7 +594,8 @@ try:
             print("  No games exceeded the edge threshold.")
         print(
             "  NOTE: blend weights, stacker, and calibrator were fitted using OOF rows "
-            "from this season too — run `footy-tipper evaluate` for fully held-out numbers."
+            "from this season too — run `footy-tipper advanced model evaluate` "
+            "for fully held-out numbers."
         )
 except Exception as exc:
     import traceback
@@ -599,11 +603,11 @@ except Exception as exc:
     print(f"Holdout evaluation skipped ({exc}).")
 
 print("Save model artefacts")
-mf.save_models(home_model, "home_model", project_root)
-mf.save_models(away_model, "away_model", project_root)
-mf.save_models(binary_model, "binary_model", project_root)
-calib.save_artifact(stacker, project_root / "models" / "stacker.pkl")
-calib.save_artifact(calibrator, project_root / "models" / "win_prob_calibrator.pkl")
+mf.save_models(home_model, "home_model", project_root, models_dir=models_dir)
+mf.save_models(away_model, "away_model", project_root, models_dir=models_dir)
+mf.save_models(binary_model, "binary_model", project_root, models_dir=models_dir)
+calib.save_artifact(stacker, models_dir / "stacker.pkl")
+calib.save_artifact(calibrator, models_dir / "win_prob_calibrator.pkl")
 
 manifest = {
     "predictors": selected_predictors,
@@ -622,7 +626,7 @@ manifest = {
 
 print("Running joker strategy backtest")
 try:
-    joker_policy_path = project_root / "models" / "joker_policy.json"
+    joker_policy_path = models_dir / "joker_policy.json"
     joker_policy = jp.save_joker_policy(training_data, joker_policy_path)
     manifest["joker_policy_file"] = str(joker_policy_path.name)
     manifest["joker_policy_default_strategy"] = joker_policy.get("default_strategy", "points")
@@ -635,7 +639,7 @@ try:
 except Exception as exc:
     print(f"Joker policy backtest skipped ({exc}).")
 
-manifest_path = project_root / "models" / "model_manifest.json"
+manifest_path = models_dir / "model_manifest.json"
 manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 print(f"Saved manifest to {manifest_path}")
 

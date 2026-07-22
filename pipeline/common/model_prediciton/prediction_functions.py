@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import pathlib
 from collections import Counter
 
 import dill as pickle
@@ -412,8 +413,10 @@ def get_predictions(db_path, sql_file):
     return predictions
 
 
-def load_models(model_name, project_root):
-    model_path = project_root / "models" / f"{model_name}.pkl"
+def load_models(model_name, project_root, models_dir=None):
+    model_path = (
+        pathlib.Path(models_dir) if models_dir is not None else project_root / "models"
+    ) / f"{model_name}.pkl"
     try:
         with open(model_path, "rb") as f:
             pipeline = pickle.load(f)

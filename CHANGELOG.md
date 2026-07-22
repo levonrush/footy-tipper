@@ -2,9 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [1.0.0] - 2026-07-22
 
 ### Documentation
+- Rewrote the operator documentation for the 1.0 guided CLI, exact advanced toolbox, one-command model update, immutable releases, and Drive-backed delivery marker.
+- Added the operator command hierarchy diagram and refreshed production/operations diagrams for the split model/runtime state contract.
 - Audited repository Markdown against the current eleven-command CLI, R preparation modes, SQL contracts, Tier A/B/C model path, line markets, LOSO calibration, dispersion fallback, state sync, and Actions workflows.
 - Added task-oriented documentation, research/literature indexes, a curated research-to-production matrix, the complete eleven-part Medium series, and canonical Mermaid diagram sources with SVG previews.
 - Corrected the runtime start-year default to `2010`, the test recipient fallback to `levon_rush@hotmail.com`, and provider ownership: Claude/Anthropic writes optional email copy while OpenAI generates an optional banner.
@@ -13,11 +15,39 @@ All notable changes to this project are documented in this file.
 - Added a private linked Notion project hub; repository Markdown remains canonical.
 
 ### Changed
+- Replaced the eleven pipeline-shaped top-level commands with `status`, `setup`, `tips`, `update-model`, and `advanced`. Retired names now fail with an exact replacement instead of forwarding.
+- Everyday `tips` commands dispatch and wait for exact GitHub Actions modes; manual live delivery requires typed `SEND ROUND N` confirmation.
+- Production model publication is now a resumable `update-model` transaction. It trains into staging on local hardware, validates and re-downloads an immutable release, dispatches an exact-release check in the GitHub Actions production image, activates a pointer, and requests a no-email refresh without disabling Actions or requiring local Docker.
+- Split mutable Actions runtime DB/schedule synchronization from immutable model publication. In-flight prediction jobs cannot upload or overwrite models.
+
+#### CLI 1.0 migration map
+
+| Retired top-level shape | 1.0 replacement |
+| --- | --- |
+| `footy-tipper prep` | `footy-tipper advanced data prepare all` |
+| `footy-tipper train` | `footy-tipper update-model` for production; `footy-tipper advanced model train` for an isolated technical run |
+| `footy-tipper infer` | `footy-tipper advanced model infer` |
+| `footy-tipper send` | `footy-tipper advanced delivery preview|test|live` |
+| `footy-tipper predict` | `footy-tipper advanced local-run preview|test|live` |
+| `footy-tipper lineups` | `footy-tipper advanced data lineups refresh|backfill` |
+| `footy-tipper nrl-data` | `footy-tipper advanced data nrl refresh|backfill|validate` |
+| `footy-tipper odds` | `footy-tipper advanced data odds refresh|backfill` |
+| `footy-tipper site` | `footy-tipper advanced site build|publish` |
+| `footy-tipper evaluate` | `footy-tipper advanced model evaluate` |
+| `footy-tipper state` | `footy-tipper advanced cloud pull-runtime|push-runtime|schedule|gate` |
 - Retired hosted GitHub Actions training. Local training again uses the 100-candidate default, with Bayesian search parallelism outside single-threaded LightGBM fits.
 - Scheduled prediction now polls every 15 minutes and becomes eligible at 11:00 `Australia/Sydney` on the first-game day of the next unsent round.
 - Actions test, refresh, and live prediction modes all disable auto-training and fail clearly when published artifacts are missing.
 
 ### Reliability / Hardening
+- Added schema-versioned status output, plain-language failures, secret redaction, stable exit codes, and an opt-in `--debug` traceback.
+- Added a Drive-backed pending/sent/uncertain delivery marker so SMTP success followed by runner/state-push failure cannot cause an automatic duplicate.
+- Actions uses a separate exact-allowlist machine runner; unknown workflow modes fail and no wildcard can default to live.
+- Model releases include a last-written training receipt with provenance, runtime versions, training range, sizes, and hashes. Release objects are create-only and verified after re-download before pointer activation.
+- Local model updates now hold an exclusive process lock, terminate/reap the trainer on interruption, and revalidate stage and active-pointer evidence before resuming.
+- Every human production send, including advanced live aliases, routes through the single serialized Actions workflow and binds manual authorization to the exact outgoing round.
+- Production delivery validates credentials and freezes the recipient envelope before claiming a pending marker; partial SMTP refusal leaves the round pending/uncertain instead of risking an automatic duplicate.
+- Explicit activation and rollback rerun the selected release in the hosted production image; a malformed pointer is archived before a confirmed repair.
 - Model publication validates the required home, away, and manifest artifacts before uploading Drive state.
 - Drive pulls stage and validate model archives before replacing the local last-known-good artifact set.
 

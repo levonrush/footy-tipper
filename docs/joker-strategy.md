@@ -62,12 +62,12 @@ The points gap is operational state; update it with the real competition table b
 
 ## Weekly runbook
 
-1. Refresh predictions and current-round markets.
+1. Run `footy-tipper tips refresh` if status says current inputs are stale.
 2. Confirm odds coverage and the configured points gap.
-3. Run `footy-tipper send --test --dry-run --skip-drive`.
-4. Read the objective, candidate round, baseline, lift, and guardrail explanation.
-5. Use the production command only when both the email and joker transition are intended.
-6. After delivery, verify `joker_usage` and `email_sends` if the call was `PLAY`.
+3. Run `footy-tipper tips test`.
+4. Read the objective, candidate round, baseline, lift, and guardrail explanation in the test email.
+5. Normally let the scheduled production run deliver. Use `footy-tipper tips live` only when both the email and joker transition are intended, and confirm the exact round phrase.
+6. After delivery, verify status reports sent and inspect `joker_usage`/`email_sends` through advanced diagnostics if the call was `PLAY`.
 
 ## Limits
 

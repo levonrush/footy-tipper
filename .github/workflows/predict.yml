@@ -3,8 +3,9 @@ run-name: ${{ github.event_name == 'workflow_dispatch' && format('Predict manual
 
 # 15-minute gate: reads schedule.json from Drive and runs the full predict job
 # at the first poll after 11am Sydney on the first-game day of the next
-# unsent round. Manual dispatch bypasses the gate (mode=test emails only
-# FOOTY_TIPPER_TEST_EMAIL and never touches the production send ledger).
+# unsent round. Manual dispatch bypasses the gate. The Actions-only runner has
+# an exact mode allowlist: test emails only FOOTY_TIPPER_TEST_EMAIL and never
+# publishes runtime/site state, refresh never emails, and live is explicit.
 
 on:
   schedule:
@@ -12,10 +13,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "TEST (default) = test address only; LIVE = production list; REFRESH = update data/state without email"
+        description: "TEST (default) = test address only; REFRESH = update without email; LIVE = production list"
         type: choice
         default: test
-        options: [test, live, refresh]
+        options: [test, refresh, live]
+      confirmed_round:
+        description: "Manual LIVE only: the round number you explicitly confirmed"
+        required: false
+        type: string
 
 jobs:
   gate:
@@ -53,12 +58,27 @@ jobs:
 
       - name: Gate decision
         id: decide
+        env:
+          CONFIRMED_ROUND: ${{ inputs.confirmed_round }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$DISPATCH_MODE" = "live" ]; then
+              case "$CONFIRMED_ROUND" in
+                ''|*[!0-9]*)
+                  echo "Manual LIVE requires a numeric confirmed_round." >&2
+                  exit 2
+                  ;;
+              esac
+            elif [ -n "$CONFIRMED_ROUND" ]; then
+              echo "confirmed_round is valid only for LIVE." >&2
+              exit 2
+            fi
+            echo "mode=$DISPATCH_MODE" >> "$GITHUB_OUTPUT"
             echo "reason=manual dispatch" >> "$GITHUB_OUTPUT"
           else
-            python -m pipeline.ops.state_sync gate
+            python -m pipeline.ops.actions_runner gate
           fi
 
   predict:
@@ -101,23 +121,26 @@ jobs:
           git config --global user.name "footy-tipper-bot"
           git config --global user.email "actions@users.noreply.github.com"
 
-      - name: Pull state from Drive
-        run: python -m pipeline.ops.state_sync pull
+      - name: Pull runtime state from Drive
+        run: python -m pipeline.ops.actions_runner runtime-pull
 
       - name: Run predict (${{ needs.gate.outputs.mode }})
         env:
+          GATE_REASON: ${{ needs.gate.outputs.reason }}
           RUN_MODE: ${{ needs.gate.outputs.mode }}
+          CONFIRMED_ROUND: ${{ inputs.confirmed_round }}
         run: |
-          echo "Gate reason: ${{ needs.gate.outputs.reason }}"
-          case "$RUN_MODE" in
-            test)    python -m pipeline.cli predict --test --skip-auto-train ;;
-            refresh) python -m pipeline.cli predict --skip-send --skip-auto-train ;;
-            *)       python -m pipeline.cli predict --skip-auto-train ;;
-          esac
+          printf 'Gate reason: %s\n' "$GATE_REASON"
+          if [ -n "$CONFIRMED_ROUND" ]; then
+            python -m pipeline.ops.actions_runner predict --mode "$RUN_MODE" --confirmed-round "$CONFIRMED_ROUND"
+          else
+            python -m pipeline.ops.actions_runner predict --mode "$RUN_MODE"
+          fi
 
-      - name: Push state to Drive
-        run: python -m pipeline.ops.state_sync push
+      - name: Push runtime state to Drive
+        if: success() && needs.gate.outputs.mode != 'test'
+        run: python -m pipeline.ops.actions_runner runtime-push
 
       - name: Publish site
-        continue-on-error: true
-        run: python -m pipeline.cli site --publish
+        if: success() && needs.gate.outputs.mode != 'test'
+        run: python -m pipeline.ops.actions_runner site-publish

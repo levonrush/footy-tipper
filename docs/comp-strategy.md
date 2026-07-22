@@ -52,7 +52,7 @@ Update the points gap and field size from the actual competition. Defaults make 
 
 ## Idempotency and audit
 
-Simulations are seeded from round/game state, so an unchanged rerun produces the same comparison. Production runs record decision rows, but do not mutate model predictions. Email idempotency still lives in `email_sends`; `--force-resend` does not authorize a different simulation input and should not be used to fish for a better result.
+Simulations are seeded from round/game state, so an unchanged rerun produces the same comparison. Production runs record decision rows, but do not mutate model predictions. Email idempotency is shared by the Drive delivery marker and `email_sends`; confirming a manual live dispatch does not authorize a different simulation input and should not be used to fish for a better result.
 
 ## Relationship to betting decisions
 

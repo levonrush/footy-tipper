@@ -1,83 +1,105 @@
-%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":40},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"13px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":26,"rankSpacing":38},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"13px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
 flowchart TB
-  DRIVE[(Google Drive state<br/>DB · models · schedule)]
+  DRIVE_RELEASES[(Drive immutable model releases)]
+  POINTER[(model-current.json)]
+  DRIVE_RUNTIME[(Drive runtime DB · schedule)]
+  DELIVERY_STATE[(Drive round marker)]
+  MODEL_CHECK[/GitHub Actions model-check.yml<br/>production image/]
 
-  subgraph LOCAL[Local-authoritative model publication]
+  subgraph LOCAL[Local update-model transaction]
     direction LR
     OP[/Operator/]
-    PAUSE([Disable predict workflow])
-    LPULL([Pull last-known-good state])
-    TRAIN[[Train locally<br/>100 Bayesian candidates]]
-    CHECK{Infer loads artifacts<br/>with auto-train disabled?}
-    HOLD([Do not push<br/>re-enable prediction])
-    LPUSH([Validate and push<br/>DB · models · schedule])
-    RESUME([Re-enable prediction<br/>manual refresh])
+    PREFLIGHT([Preflight and journal])
+    TRAIN_DB[(Local training DB<br/>backup · never runtime-pushed)]
+    TRAIN[[Staged train<br/>caffeinate · 100 candidates]]
+    VALIDATE{Technical validation<br/>and receipt complete?}
+    UPLOAD([Create-only upload])
+    REDOWNLOAD{Re-download and<br/>hash verification}
+    REQUEST_CHECK([Dispatch exact release<br/>and wait])
+    CHECK_RESULT{Production-image<br/>workflow succeeds?}
+    ACTIVATE([Move active pointer])
+    REFRESH([Dispatch no-email refresh])
+    KEEP([Keep previous release active<br/>resume or restart from journal])
 
-    OP --> PAUSE --> LPULL --> TRAIN --> CHECK
-    CHECK -->|no| HOLD
-    CHECK -->|yes| LPUSH --> RESUME
+    OP --> PREFLIGHT --> TRAIN_DB --> TRAIN --> VALIDATE
+    VALIDATE -->|no| KEEP
+    VALIDATE -->|yes| UPLOAD --> REDOWNLOAD
+    REDOWNLOAD -->|no| KEEP
+    REDOWNLOAD -->|yes| REQUEST_CHECK
+    CHECK_RESULT -->|no| KEEP
+    CHECK_RESULT -->|yes| ACTIVATE --> REFRESH
   end
 
-  DRIVE --> LPULL
-  LPUSH --> DRIVE
+  UPLOAD --> DRIVE_RELEASES
+  DRIVE_RELEASES --> REDOWNLOAD
+  REQUEST_CHECK --> MODEL_CHECK --> CHECK_RESULT
+  ACTIVATE --> POINTER
 
-  subgraph CLOUD[GitHub Actions prediction and delivery only]
+  subgraph CLOUD[Serialized GitHub Actions runtime and delivery]
     direction TB
-    TRIGGER[/15-minute cron or<br/>manual test · live · refresh/]
-    SCHEDULE[(schedule.json)]
-    GATE{11am Sydney gate<br/>decision}
-    SKIP([Skip<br/>outside target or already sent])
-    PULL([Stage and validate<br/>Drive state pull])
-    MODE{Run mode?}
-    REFRESH([Predict --skip-send<br/>--skip-auto-train])
-    TEST([Predict --test<br/>--skip-auto-train])
-    LIVE([Predict live<br/>--skip-auto-train])
-    LEDGER{Season and round<br/>already sent?}
-    EMAIL[/SMTP email/]
-    DB[(SQLite state<br/>predictions · email · joker)]
-    PUSH([Push DB · models<br/>and derived schedule])
-    BACKUP[/Drive backups<br/>newest eight retained/]
-    SITE([Generate docs/site/])
-    PAGES[/Expected GitHub Pages<br/>publish path/]
+    TRIGGER[/15-minute cron or exact manual mode/]
+    GATE{11am Sydney gate}
+    SKIP([Skip])
+    PULL([Pull runtime and active release])
+    RUNTIME_DB[(Runner runtime DB<br/>predictions · ledgers)]
+    CHECK{Active release valid?}
+    MODE{test · refresh · live}
+    TEST([Test email only<br/>no state or site mutation])
+    PREDICT([Refresh data and predict<br/>auto-training forbidden])
+    PREPARE([Validate credentials · token<br/>freeze recipient envelope])
+    NO_CLAIM([Fail safely<br/>no marker · no SMTP])
+    CLAIM{Claim round marker}
+    BLOCK([Block duplicate<br/>pending = uncertain · sent])
+    SMTP[/SMTP production email/]
+    RECONCILE([Mark Drive sent then<br/>reconcile DB ledger])
+    PUSH([Push runtime DB and schedule only])
+    SITE([Publish generated site])
 
     TRIGGER --> GATE
-    SCHEDULE --> GATE
     GATE -->|skip| SKIP
-    GATE -->|send or stale refresh| PULL
-    PULL --> MODE
-    MODE -->|refresh| REFRESH
+    GATE -->|live or stale refresh| PULL
+    PULL --> RUNTIME_DB
+    PULL --> CHECK
+    CHECK -->|no| SKIP
+    CHECK -->|yes| MODE
     MODE -->|test| TEST
-    MODE -->|live| LIVE
-    LIVE --> LEDGER
-    LEDGER -->|already sent| SKIP
-    LEDGER -->|unsent| EMAIL
-    TEST --> EMAIL
-    REFRESH --> DB
-    EMAIL --> DB
-    DB --> PUSH
-    DB -.->|live success; optional| BACKUP
-    DB --> SITE
-    SITE -.->|publish; continue-on-error| PAGES
+    MODE -->|refresh| PREDICT
+    MODE -->|live| PREDICT
+    RUNTIME_DB --> PREDICT
+    PREDICT -->|refresh| PUSH
+    PREDICT -->|live| PREPARE
+    PREPARE -->|invalid| NO_CLAIM
+    PREPARE -->|valid| CLAIM
+    CLAIM -->|not claimable| BLOCK
+    CLAIM -->|pending claimed| SMTP
+    SMTP -->|success| RECONCILE
+    SMTP -->|partial · refused · ambiguous| BLOCK
+    RECONCILE --> RUNTIME_DB
+    RUNTIME_DB --> PUSH
+    PUSH --> SITE
   end
 
-  DRIVE --> SCHEDULE
-  DRIVE --> PULL
-  PUSH --> DRIVE
-  RESUME -.->|dispatch refresh| TRIGGER
+  POINTER --> PULL
+  DRIVE_RELEASES --> PULL
+  DRIVE_RUNTIME --> PULL
+  OP -->|tips/advanced live| TRIGGER
+  CLAIM --> DELIVERY_STATE
+  DELIVERY_STATE --> CLAIM
+  RECONCILE --> DELIVERY_STATE
+  PUSH --> DRIVE_RUNTIME
+  REFRESH -.-> TRIGGER
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
   classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
   classDef data fill:#CCFBF1,stroke:#0F766E,color:#0F172A,stroke-width:2px;
   classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
-  classDef state fill:#E2E8F0,stroke:#0F172A,color:#0F172A,stroke-width:2px;
 
-  class OP,TRIGGER,EMAIL,BACKUP,PAGES source;
-  class PAUSE,LPULL,HOLD,LPUSH,RESUME,SKIP,PULL,REFRESH,TEST,LIVE,PUSH,SITE process;
-  class SCHEDULE,DB data;
+  class OP,TRIGGER,SMTP,MODEL_CHECK source;
+  class PREFLIGHT,UPLOAD,REQUEST_CHECK,ACTIVATE,REFRESH,KEEP,SKIP,PULL,TEST,PREDICT,PREPARE,NO_CLAIM,RECONCILE,PUSH,SITE process;
+  class TRAIN_DB,DRIVE_RELEASES,POINTER,DRIVE_RUNTIME,DELIVERY_STATE,RUNTIME_DB data;
   class TRAIN model;
-  class CHECK,GATE,MODE,LEDGER decision;
-  class DRIVE state;
+  class VALIDATE,REDOWNLOAD,CHECK_RESULT,GATE,CHECK,MODE,CLAIM,BLOCK decision;
 
   style LOCAL fill:#F8FAFC,stroke:#F59E0B,stroke-width:2px
   style CLOUD fill:#F8FAFC,stroke:#0369A1,stroke-width:2px

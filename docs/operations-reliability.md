@@ -1,170 +1,246 @@
 # Operations, reliability, and safety
 
-This is the runbook for what owns state, what happens on a rerun, and how the automated path fails without turning one missing provider into a small constitutional crisis.
+This is the runbook for model releases, scheduled tips, email idempotency, and recovery. Start with `footy-tipper status`; it translates the remote state into the next safe action.
 
-![Local model publication plus Actions gate, prediction, send, backup, and Pages flow](diagrams/operations-state.svg)
+![Immutable local model publication plus Actions runtime and delivery flow](diagrams/operations-state.svg)
 
 [Editable Mermaid source](diagrams/operations-state.mmd)
 
 ## State ownership
 
-| State | Owner | Write rule |
+| State | Authority | Write rule |
 | --- | --- | --- |
 | Code and hand-written docs | Git | Human-reviewed commits |
-| `data/footy-tipper-db.sqlite` | Local run / Drive `state/` | R prep, inference, and operational ledgers |
-| `models/` | Local training / Drive `state/` | Publish only after successful training and validation |
-| `schedule.json` | State scheduler / Drive `state/` | Derived from next unsent round |
-| `docs/site/` | Site generator / GitHub Pages branch path | Generated; publish explicitly or from Actions |
-| Email delivery | SMTP | One live `(competition_year, round_id)` unless forced |
+| Local training database | Operator hardware | Back up before model updates; never overwrite it with the Actions runtime DB |
+| Active model release | Drive immutable release + `model-current.json` | Create releases once; move the pointer only after validation and a successful GitHub Actions production-image check |
+| Runtime SQLite database | GitHub Actions / Drive | Pull at run start, push after stateful refresh/live success |
+| `schedule.json` | Runtime scheduler / Drive | Derived from the next actionable unsent round |
+| Delivery round marker | Drive | After pre-SMTP configuration/recipient validation, claim pending under serialized Actions concurrency; pending means uncertain until reconciled to sent |
+| `docs/site/` | Site generator / GitHub Pages | Generated; publish explicitly or in the production workflow |
+| Email delivery | SMTP | One live season/round after marker and DB-ledger checks |
 
-`footy-tipper state pull` restores the published DB and models before either local training or cloud prediction. Model downloads are staged and validated before replacing the local last-known-good set. `state push` refuses an incomplete home/away/manifest artifact set, then uploads a consistent DB snapshot, models, and derived schedule. The stateful prediction job uses concurrency group `footy-tipper-state` with cancellation disabled.
+Models and runtime state are deliberately separate. A runner that started with an old model may update predictions and schedule, but its runtime push cannot upload models or move the active pointer. A local training run cannot replace the smaller cloud runtime database.
 
-## Prediction and send idempotency
+## Drive layout
 
-- `predictions_table` is keyed/upserted by `game_id`; rerunning inference replaces the game's prediction rather than duplicating it.
-- [`prediction_table.sql`](../pipeline/common/sql/prediction_table.sql) selects the latest year with pre-game rows and the minimum round in that year.
-- `email_sends` prevents a second live email for the same season/round.
-- `--force-resend` bypasses only that email guard and must be an explicit operator decision.
-- `joker_usage` is written only after a successful live send whose recommendation is `PLAY`.
-- `odds_snapshots` is append-only by preparation run; repeated observations are evidence, not duplicates.
-- Lineup content hashes deduplicate identical article versions and repair old zero-entry snapshots in place.
-
-## GitHub Actions
-
-[The repository Actions dashboard](https://github.com/levonrush/footy-tipper/actions) is the live scheduler.
-
-| Workflow | Trigger | Contract |
-| --- | --- | --- |
-| `predict.yml` | Every 15 minutes; manual `test`, `live`, or `refresh` | Run a small Drive-backed gate, then pull state, predict with `--skip-auto-train`, push state, and attempt site publication for non-skip modes. |
-| `build-image.yml` | Relevant runtime-file changes on `main`; manual | Build/push `ghcr.io/levonrush/footy-tipper:latest` and SHA tag. |
-| `smoke-checks.yml` | Push and pull request | Python compile/lint/tests plus R source parsing; no publication. |
-
-The scheduled prediction gate reads Drive `schedule.json` and chooses:
-
-- `send`: from 11:00 `Australia/Sydney` on the local calendar day of the next unsent round's first game until twelve hours after kickoff;
-- `refresh`: when the schedule is more than eight days old;
-- `skip`: otherwise.
-
-A green gate-only run may mean `skip`; inspect whether the `predict` job ran. The 15-minute poll means the first eligible run is normally the first poll at or after 11:00 Sydney; `zoneinfo` handles AEST/AEDT and UTC date boundaries. The twelve-hour post-kickoff grace window supplies retries while `email_sends` prevents duplicates. An expired unsent round is skipped in favour of the next actionable round. Workflows never self-enable, so an operator pause remains authoritative until `gh workflow enable predict.yml` is run explicitly.
-
-Manual dispatches:
-
-```bash
-gh workflow run predict.yml -f mode=test
-gh workflow run predict.yml -f mode=refresh
-gh workflow run predict.yml -f mode=live
-gh run watch
+```text
+state/
+  footy-tipper-db-latest.sqlite.gz
+  schedule.json
+  models-latest.tar.gz                 # legacy migration compatibility only
+  model-current.json                   # active release pointer
+  model-releases/
+    <release-id>.tar.gz                # create-only artifact archive
+    <release-id>.json                  # create-only metadata/receipt
+  deliveries/
+    <season>-round-<round>.json         # pending (uncertain) or sent
 ```
 
-`test` is the default manual mode and does not write the production send ledger. `refresh` runs `predict --skip-send`. `live` sends to the real list. All three modes include `--skip-auto-train`; a missing published model fails the job instead of starting a hosted retrain.
+Release IDs are immutable. Publishing an existing ID with different bytes is an error. Each archive is re-downloaded after upload and verified against its receipt. A missing or malformed `model-current.json` is a hard production failure; Actions must not guess, fall back to the legacy archive, or train.
 
-## Actions secrets
+`models-latest.tar.gz` is retained so the first 1.0 rollout can import the already validated legacy bundle as the initial immutable release without retraining. After the pointer exists, it is not the production selection mechanism.
 
-GitHub Actions materializes:
+### One-time 1.0 rollout
 
-- `SECRETS_ENV`: the complete contents of local `secrets.env`;
-- `SERVICE_ACCOUNT_JSON`: the complete service-account JSON;
-- `GITHUB_TOKEN`: GitHub's short-lived automatic token for checkout, package access, and site pushes.
+The maintainer performing the code rollout imports the currently validated local artifact set once:
 
-The workflow masks each environment value before subsequent steps. Because workflow logs are public with the repository, do not use `--dry-run` in Actions: it prints the rendered email. Rotate secrets through repository settings or `gh secret set`; never commit the materialized files.
+```bash
+python -m pipeline.ops.model_release import-legacy
+footy-tipper status
+footy-tipper tips refresh
+```
+
+The importer creates a receipt and immutable release, dispatches the GitHub Actions production-image check, and activates the pointer only if that workflow succeeds. Do not rerun it as a normal update mechanism; later production training always uses `footy-tipper update-model`.
+
+## Read status first
+
+```bash
+footy-tipper status
+```
+
+Status should show, in plain language:
+
+- setup/credential readiness;
+- active release ID and validation metadata;
+- the next season/round, first kickoff, and 11:00 Sydney target;
+- delivery marker and SQLite ledger agreement;
+- whether `predict.yml` is enabled and its latest meaningful result;
+- the latest runtime-state timestamp;
+- any resumable `.footy-tipper/` update journal.
+
+Use `footy-tipper status --offline` only when remote checks are unavailable. Treat remote facts shown as unknown, not healthy. `--json` exists for monitoring and keeps logs separate from machine output.
+
+## Scheduled prediction
+
+[`predict.yml`](../.github/workflows/predict.yml) polls every 15 minutes. The gate derives the first fixture date in `Australia/Sydney` and returns:
+
+- `live`: at the first available gate on or after 11:00 Sydney on that date, through the existing post-kickoff grace period;
+- `refresh`: when published runtime state is stale;
+- `skip`: before the target, after an expired round, or when there is no actionable round.
+
+The ledger and delivery marker prevent duplicates. An expired unsent round progresses to the next actionable round. `zoneinfo` handles AEST/AEDT and UTC date boundaries. GitHub cron can be delayed; the 15-minute poll and grace window are recovery mechanisms, not an exact-time guarantee.
+
+Actions uses the machine-only `pipeline.ops.actions_runner` interface. Its prediction mode is an exact allowlist of `test`, `refresh`, and `live`; an unknown value fails. There is no wildcard branch that can become live. Every mode refuses auto-training.
+
+The other workflows do not own production training: `build-image.yml` builds the pinned runtime image after relevant runtime-file changes; `model-check.yml` is manually dispatched by `update-model` to load one exact immutable candidate in that image; and `smoke-checks.yml` compiles/tests Python plus parses the R entrypoint on pushes and pull requests.
+
+### Manual operator commands
+
+```bash
+footy-tipper tips test
+footy-tipper tips refresh
+footy-tipper tips live
+```
+
+These dispatch the workflow and wait for completion. `tips live` also requires `SEND ROUND N` before dispatch. Prefer these commands over hand-written `gh workflow run` calls because they resolve the run, label it clearly, and preserve the confirmation contract.
+
+All human production-live commands, including both advanced live aliases, route through this same serialized Actions workflow. No human-facing command sends production SMTP directly from the Mac.
+
+### Mode side effects
+
+| Mode | Email | Runtime push | Site publish | Send ledger / joker / delivery marker |
+| --- | --- | --- | --- | --- |
+| `test` | One test recipient | No | No | No mutation |
+| `refresh` | None | Yes, after successful prediction | Yes | No live transition |
+| `live` | Production list | Yes, after successful delivery/reconciliation | Yes | Claims/reconciles round and applies eligible live transitions |
+
+A false/failed email result is a non-zero workflow failure. Test success cannot be inferred merely because rendering succeeded.
+
+## Delivery idempotency
+
+SQLite `email_sends` remains the historical ledger. The Drive marker closes the failure window where SMTP succeeds but the runner fails before its DB push becomes durable.
+
+The live sequence is:
+
+1. Resolve the exact season/round and verify it is not already sent in either store.
+2. Render the message, validate the sender/password and service-account token, read and validate the Google Sheet, and freeze the deduplicated recipient envelope. A deterministic failure here creates no marker because SMTP has not been attempted.
+3. Under the serialized Actions workflow, claim a Drive marker with status `pending` immediately before SMTP.
+4. Send through SMTP using the frozen envelope.
+5. If every recipient is accepted, mark Drive `sent` immediately; this is the durable no-resend fact.
+6. Reconcile `email_sends` and eligible `joker_usage`, then publish the runtime DB. If that DB step fails, the next live gate copies the existing `sent` marker into the ledger without calling SMTP again.
+7. If SMTP is ambiguous, refuses any recipient, or the Drive marker cannot be finalized, leave it `pending` (therefore uncertain) and fail the run. A refusal can mean partial delivery, so it is never safe to resend automatically.
+
+`pending` blocks automatic resend because its SMTP outcome may be uncertain. Do not delete the marker or use a force option simply to make the workflow green. First establish whether recipients received the message, then reconcile the marker and DB ledger to the observed truth.
+
+Inference remains upsert-safe by `game_id`. Odds and lineup observations remain versioned/append-only evidence rather than duplicate operational sends.
+
+## Updating the model
+
+Use the one-command runbook:
+
+```bash
+conda activate footy-tipper
+footy-tipper update-model
+```
+
+Do not disable `predict.yml`. The existing release remains live throughout training; the new release does not become visible until final activation.
+
+### Stages and invariants
+
+1. **Preflight:** check tools, credentials, ignored workspace, disk, Git identity/SHA, Drive layout, active release, and update journal.
+2. **Training data:** preserve the local-authoritative database and create a dated local backup. Seed from a staged/validated Drive DB only when no valid local training DB exists.
+3. **Training:** write into a release staging directory, use 100 candidates by default, parallelize search candidates while each LightGBM fit uses one thread, keep macOS awake with `caffeinate`, and emit a heartbeat.
+4. **Receipt:** after all model artifacts exist, write `training-receipt.json` last with release ID, Git SHA, tuning count, training row/year range, model/runtime library versions, artifact sizes, and hashes.
+5. **Validation:** load the complete staged release and run a no-auto-train inference check against staged paths.
+6. **Upload:** create the archive and metadata under a new immutable release ID. Never overwrite another release.
+7. **Verify:** download the candidate to a fresh staging directory and verify receipt, members, sizes, hashes, and model loading.
+8. **Production check:** dispatch `model-check.yml` for that release ID and wait while the GitHub Actions production image runs `model-check --release <id>` against the exact candidate.
+9. **Activate:** update `model-current.json`, retaining previous release metadata for rollback.
+10. **Refresh:** dispatch and wait for a no-email refresh using the new active release.
+
+The journal, logs, and exclusive process lock live under ignored `.footy-tipper/`. A second update process is refused. Ctrl-C terminates and reaps the whole `caffeinate`/trainer process group before the journal records interruption. Completed stages are reused only after their staged receipt, immutable Drive release, hosted check, local install, and active pointer are revalidated as applicable. An incomplete training stage always restarts. If production was deliberately rolled back after activation, the old journal refuses to reactivate that candidate.
+
+### Failure behavior
+
+- Before activation: the prior pointer remains untouched and production continues on the old release.
+- After activation but before refresh success: the new model remains active, status reports the failed refresh, and the operator chooses retry or rollback based on the failure.
+- Failed or missing GitHub Actions model check: activation is forbidden.
+- Missing/malformed active pointer: production fails loudly; repair or roll back explicitly.
+- Upload collision: choose a new release ID; never mutate the existing object.
+
+## Rollback
+
+List and verify releases first:
+
+```bash
+footy-tipper advanced model list
+footy-tipper advanced model verify
+footy-tipper advanced model rollback
+footy-tipper tips refresh
+```
+
+Rollback first runs the previous release through the current hosted production-image check, then moves the pointer; it does not delete the failed/newer release. Confirm the resulting active ID with `footy-tipper status`, then run the no-email refresh. `advanced model activate` performs the same current hosted check. If it repairs a malformed pointer, the bad pointer is archived in Drive as evidence before replacement.
+
+## Recovery runbooks
+
+### Model update was interrupted
+
+Run `footy-tipper status`, then rerun `footy-tipper update-model`. Let the journal resume safe completed stages. Do not manually copy staged files into `models/` or move the Drive pointer.
+
+### Training or validation failed
+
+Fix the named source/configuration problem and rerun. The old release is still active. Do not upload partial output or edit `model-current.json`.
+
+### A live run failed during pre-SMTP preparation
+
+Credential, token, Google Sheet, and recipient validation happens before the marker claim. The failure message should confirm that no marker was created and no email was sent. After verifying the marker is absent and no DB ledger row exists, fix the named configuration issue and let the next eligible run retry.
+
+### SMTP may have succeeded
+
+Treat the message as sent until proven otherwise. The pending marker should block retries, including after a partial-recipient refusal. Check mailbox/provider evidence, then reconcile both Drive and SQLite before considering another live dispatch.
+
+### Runtime state is missing or corrupt
+
+Use `footy-tipper advanced cloud pull-runtime` to stage and validate what is published. Restore the last known-good runtime DB or backup without touching immutable model releases. Re-derive the schedule and run a refresh.
+
+### Active model pointer is broken
+
+Do not rely on `models-latest.tar.gz`. Verify the intended release metadata/archive, then use the explicit advanced activate/rollback path to repair the pointer and refresh.
+
+### Lineup coverage collapses
+
+Run the advanced recent refresh with strict diagnostics, inspect parse statuses, and use backfill only for historical repair:
+
+```bash
+footy-tipper advanced data lineups refresh --help
+footy-tipper advanced data lineups backfill --help
+```
 
 ## Optional integrations and failure behavior
 
 | Condition | Expected behavior |
 | --- | --- |
-| No pre-game rows | Inference writes an empty batch; send exits cleanly. |
-| Missing/sparse lineups | Log and fill safe defaults; strict mode alone fails hard. |
-| Missing lineup feature merge | Continue by default; `FOOTY_TIPPER_LINEUP_FEATURES_STRICT=true` makes it fatal. |
-| Missing performance data while enabled | Fail fast with a clear provider/configuration error. |
-| Missing Claude/Anthropic | Use deterministic email copy when generation cannot run. |
+| No pre-game rows | Clean no-op; do not invent fixtures or send old tips. |
+| Missing/sparse lineups | Fill safe defaults unless explicit strict diagnosis is requested. |
+| Missing performance data while enabled | Fail model preparation clearly. |
+| Missing Claude/Anthropic | Use deterministic copy when generation cannot run. |
 | Missing OpenAI/banner generation | Continue with the normal/static presentation. |
-| Missing Google dependencies or credentials | Skip Drive-dependent actions with a clear message where the command permits; cloud production should treat an unexpected skip as an alert. |
-| Missing required models locally | Standalone `infer`/`predict` auto-train unless `--skip-auto-train` is set. |
-| Missing required models in Actions | Fail clearly because every cloud prediction passes `--skip-auto-train`; publish a complete local model set. |
-
-Claude writes copy. OpenAI generates an optional banner. They are independent failure boundaries.
-
-## Local model publication runbook
-
-Run this from the repository root in the `footy-tipper` Conda environment:
-
-```bash
-conda activate footy-tipper
-
-# Prevent Drive-state races during the long local run.
-gh workflow disable predict.yml
-# Wait until both commands list no runs, then disable once more.
-gh run list --workflow predict.yml --status queued
-gh run list --workflow predict.yml --status in_progress
-gh workflow disable predict.yml
-gh api 'repos/{owner}/{repo}/actions/workflows/predict.yml' --jq .state
-
-footy-tipper state pull
-FOOTY_TIPPER_TUNE_ITER=100 footy-tipper train
-
-# Validate that the new artifacts load without allowing another train.
-footy-tipper infer \
-  --skip-prep \
-  --skip-lineups \
-  --skip-nrl-data \
-  --skip-auto-train
-
-footy-tipper state schedule
-footy-tipper state push
-
-gh workflow enable predict.yml
-gh workflow run predict.yml -f mode=refresh
-```
-
-After disabling the workflow, wait for both queued and in-progress runs to drain (`gh run watch <run-id>`), disable it again, and confirm the API reports `disabled_manually` before pulling. This second disable is especially important on the first cutover run because an older in-flight gate may have started before self-enabling was removed. The 100-candidate value is the normal local default and is shown explicitly so an old shell override cannot silently reduce the search. Bayesian candidates run in parallel across the machine; individual LightGBM fits use one thread. Inspect the validation inference and printed schedule before publication. The push must find loadable `home_model.pkl` and `away_model.pkl` artifacts plus a valid `model_manifest.json`; optional current artifacts should travel with them.
-
-If training or validation fails, do **not** run `state push`. Re-enable `predict.yml`; Drive keeps the previous good models. The manual `refresh` is for a successful publication only and updates cloud data/state without emailing anybody.
-
-The scheduled `predict` path performs only recent ingestion, inference, and distribution. It never enters a historical training bootstrap because `--skip-auto-train` is mandatory in Actions.
-
-## Recovery runbooks
-
-### A live run fails before email
-
-Fix the provider/configuration issue and rerun. No `email_sends` row or joker transition should have been written.
-
-### Email succeeded but a later step failed
-
-Check `email_sends` before doing anything. Rerun without `--force-resend`; the ledger should prevent a duplicate email while allowing diagnosis of remaining local/state tasks. Use explicit state/site commands where possible.
-
-### Local training or validation fails
-
-Do not publish partial output. Re-enable `predict.yml`; Drive retains the last successful artifact set. A later `state pull` restores those models because staged downloads do not replace them until archive validation passes.
-
-### State is missing on a new installation
-
-Create the local DB/models through prep/train, validate them, then seed once with `footy-tipper state push`. The command rejects missing required artifacts, but still verify the intended DB and optional model set before replacing a known-good remote.
-
-### Lineup coverage collapses
-
-Run recent ingestion with strict mode to expose the failure, inspect parse statuses, then backfill only if historical repair is needed. Do not make the entire prediction path strict as a permanent workaround.
+| Missing Drive credentials in production | Fail the stateful workflow; do not claim success with unpersisted state. |
+| Missing active model | Fail clearly; hosted training is forbidden. |
 
 ## Backups and Pages
 
-After a successful production send, a consistent gzipped DB snapshot can be uploaded under Drive `backups/`; the newest eight are retained. Set `FOOTY_TIPPER_DB_BACKUP=false` to disable it.
+Live runtime DB backups may be retained under Drive `backups/` according to configured retention. Model releases have their own immutable history and are not DB backups.
 
-`footy-tipper site` builds locally. `site --publish` commits and pushes generated `docs/site/`, so it changes external Git state. Configure Pages to deploy `main` `/docs`, and set `FOOTY_TIPPER_SITE_URL` for email links.
+```bash
+footy-tipper advanced site build
+footy-tipper advanced site publish
+```
 
-The expected endpoint is [the Footy Tipper GitHub Pages site](https://levonrush.github.io/footy-tipper/site/). As of the documentation review on 2026-07-13 it returned 404; describe it as expected/unpublished until a live fetch succeeds.
+`publish` changes external Git/Pages state. Configure Pages from `main` `/docs` and set `FOOTY_TIPPER_SITE_URL` for email links.
 
 ## Diagnostic checklist
 
-- Gate decision and reason in Actions logs
-- local training/validation result and Drive model publication timestamp
-- latest season/round chosen by `prediction_table.sql`
-- row counts in `inference_data` and `predictions_table`
-- lineup run status, zero-entry rate, and eligible as-of coverage
-- head-to-head and line-market coverage
-- required/optional artifact files and manifest predictor schema
-- `email_sends`, `joker_usage`, and `comp_strategy_decisions`
-- Drive state timestamps and backup presence
-- Pages configuration and `docs/site/` commit
+- `footy-tipper status` explanation and active release ID
+- latest Actions run mode, gate decision, and reason
+- model receipt, archive hashes, and GitHub Actions production-image check
+- next season/round selected by `prediction_table.sql`
+- delivery marker and `email_sends` agreement
+- lineup ingestion status and as-of coverage
+- current odds/line coverage
+- runtime DB and schedule timestamps
+- site publication result
 
 ## Security
 
-Never commit `secrets.env`, `service-account-token.json`, passwords, API keys, or rendered logs containing them. Preserve [`.gitignore`](../.gitignore), review public Actions output, and use the least credentials required for each workflow.
+Never commit `secrets.env`, `service-account-token.json`, passwords, API keys, model-update logs, or rendered email output containing private data. Preserve [`.gitignore`](../.gitignore), review public Actions logs, redact secrets in human/JSON errors, and use the least credentials required for each action.

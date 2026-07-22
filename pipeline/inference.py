@@ -18,12 +18,14 @@ from pipeline.common.lineups import features as lf
 from pipeline.common.model_training import calibration as calib
 from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
+from pipeline.runtime_paths import database_path, models_path, project_root as configured_project_root
 
 
-project_root = pathlib.Path().absolute()
-db_path = project_root / "data" / "footy-tipper-db.sqlite"
+project_root = configured_project_root()
+db_path = database_path(project_root)
+models_dir = models_path(project_root)
 
-manifest_path = project_root / "models" / "model_manifest.json"
+manifest_path = models_dir / "model_manifest.json"
 manifest = {}
 if manifest_path.exists():
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -46,15 +48,15 @@ if baseline_cfg_payload:
 else:
     baseline_cfg = tb.default_baseline_config_from_env()
 
-home_model = pf.load_models("home_model", project_root)
-away_model = pf.load_models("away_model", project_root)
+home_model = pf.load_models("home_model", project_root, models_dir=models_dir)
+away_model = pf.load_models("away_model", project_root, models_dir=models_dir)
 
 stacker = None
 calibrator = None
 binary_model = None
-stacker_path = project_root / "models" / "stacker.pkl"
-calibrator_path = project_root / "models" / "win_prob_calibrator.pkl"
-binary_model_path = project_root / "models" / "binary_model.pkl"
+stacker_path = models_dir / "stacker.pkl"
+calibrator_path = models_dir / "win_prob_calibrator.pkl"
+binary_model_path = models_dir / "binary_model.pkl"
 if stacker_path.exists():
     stacker = calib.load_artifact(stacker_path)
 if calibrator_path.exists():

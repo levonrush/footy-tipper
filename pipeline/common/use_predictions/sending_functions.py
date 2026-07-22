@@ -21,14 +21,18 @@ from pipeline.common.use_predictions.banner import (  # noqa: F401
     _resolve_banner_path,
 )
 from pipeline.common.use_predictions.distribution import (  # noqa: F401
+    EmailPreparationError,
+    PreparedEmailDelivery,
     _attach_inline_images,
     _build_mime_message,
     _ensure_email_sends_table,
     _ensure_predictions_table_columns,
+    _normalized_email_address,
     _sort_predictions_for_display,
     backup_db_to_drive,
     email_send_already_recorded,
     get_predictions,
+    prepare_email_delivery,
     record_email_send,
     send_emails,
     send_test_email,

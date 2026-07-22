@@ -1,205 +1,233 @@
 # CLI reference
 
-`footy-tipper` is the supported operator interface. It dispatches to [`pipeline/cli.py`](../pipeline/cli.py); removed wrapper scripts and the old `CLI.md` are history, not current entrypoints.
+`footy-tipper` 1.0 is the supported human interface. Its top level is intentionally small; pipeline-shaped commands live under `advanced`, and GitHub Actions uses a separate machine-only runner.
 
 ```bash
 footy-tipper --help
-# Equivalent when the environment has not installed the console wrapper:
-python -m pipeline.cli --help
+footy-tipper --version
+footy-tipper
 ```
 
-## Command map
+![Footy Tipper operator command hierarchy](diagrams/operator-cli.svg)
 
-| Command | Purpose | Default composition |
+[Editable Mermaid source](diagrams/operator-cli.mmd)
+
+## Top-level command map
+
+| Command | Purpose | Remote side effects |
 | --- | --- | --- |
-| `prep` | Refresh inputs and write prepared SQLite tables | full requested-season refresh + lineups |
-| `train` | Train production artifacts | lineup bootstrap/refresh + smart prep + training |
-| `infer` | Predict pre-game rows | lineup refresh + narrow prep + auto-train if needed |
-| `send` | Render/distribute existing predictions | Drive upload + Claude copy + idempotent live send |
-| `predict` | Run the weekly prediction workflow | infer composition + send |
-| `lineups` | Run lineup ingestion only | recent team-list refresh |
-| `nrl-data` | Manage nrl.com match-data ingestion | refresh, backfill, or validate Python-owned caches |
-| `odds` | Manage market ingestion | Betfair live snapshot or historical workbook backfill |
-| `site` | Build the static site | write `docs/site/` locally |
-| `evaluate` | Run nested season-out evaluation | prepare, then hold out three recent seasons |
-| `state` | Manage Drive-backed runtime state | explicit `push`, `pull`, `gate`, or `schedule` action |
+| `footy-tipper` | Open the guided menu in a TTY | Only after choosing and confirming an action |
+| `status [--offline\|--json]` | Explain readiness, active release, next gate, delivery state, workflow state, and resumable update | Read-only |
+| `setup` | Guide and validate local configuration | Only explicit credential/auth setup steps |
+| `tips show` | Display currently published tips from a temporary runtime DB | Read-only |
+| `tips test` | Dispatch and wait for the exact Actions test mode | Test email only; no runtime/site/ledger/joker mutation |
+| `tips refresh` | Dispatch and wait for exact no-email refresh mode | Updates mutable runtime state/site as the workflow defines |
+| `tips live` | Confirm a round, dispatch, and wait for exact live mode | Production email and runtime state |
+| `update-model` | Train, validate, publish, activate, and refresh one immutable model release | Creates a release, moves the active pointer after validation, requests refresh |
+| `advanced ...` | Expose the technical toolbox | Depends on the selected leaf command |
 
-## Shared data flags
+Global `--debug` restores a full traceback for diagnosis. Normal human output stays concise. Commands that expose `--json` (`status`, `tips show`, `update-model`, and release listing) emit schema-versioned documents on standard output while logs remain on standard error.
 
-`prep`, `train`, `infer`, `predict`, `lineups`, and `evaluate` expose some or all of these flags:
+## Guided menu
 
-| Flag | Behavior |
+With no arguments and an interactive terminal, `footy-tipper` shows a status summary and numbered actions. It does not perform an action until one is selected. Destructive or live actions retain their own confirmation.
+
+With no interactive terminal, the same invocation prints help and exits without prompting. Scripts should select a command explicitly rather than trying to drive the menu.
+
+## `status`
+
+```bash
+footy-tipper status
+footy-tipper status --offline
+footy-tipper status --json
+```
+
+The human view answers six practical questions:
+
+1. Is setup complete enough for the intended action?
+2. Which immutable model release is active?
+3. Which round is next, and when does its 11:00 Sydney gate open?
+4. Is live delivery unsent, pending/uncertain, or sent?
+5. Is the GitHub prediction workflow enabled and what happened most recently?
+6. Is there a local model-update journal to resume?
+
+Online status reads GitHub and Drive. `--offline` avoids those calls and clearly marks remote facts as unknown; it never presents cached data as current.
+
+## `setup`
+
+```bash
+footy-tipper setup
+```
+
+This is the first-run and repair assistant. It checks the Conda/runtime tools, configuration files, credential presence, GitHub access, Drive access, and safe ignored paths. It names the next concrete fix instead of dumping a provider traceback. Re-running it is safe.
+
+It only checks existing saved access. It does not open a browser or launch an interactive GitHub/Google authentication flow. On a managed laptop, failed access therefore stops safely and tells the operator to use a permitted computer or ask for help.
+
+## `tips`
+
+### Show
+
+```bash
+footy-tipper tips show
+footy-tipper tips show --json
+```
+
+Downloads the published runtime database into a temporary directory, validates it, selects the current pre-game round, and prints tips. It does not replace the local database, update a ledger, refresh a site, or send email.
+
+### Test
+
+```bash
+footy-tipper tips test
+```
+
+Dispatches `predict.yml` with exact mode `test`, prints the run link, and waits for completion. Test mode sends only to `FOOTY_TIPPER_TEST_EMAIL` (or its documented fallback). It must not push runtime state, publish the site, mark a round sent, or consume a joker.
+
+### Refresh
+
+```bash
+footy-tipper tips refresh
+```
+
+Dispatches exact mode `refresh` and waits. It refreshes cloud inputs/predictions without email. It is the final stage of a successful model update and a safe manual recovery when the schedule or current inputs are stale.
+
+### Live
+
+```bash
+footy-tipper tips live
+```
+
+Displays the selected season/round and requires the exact phrase `SEND ROUND N`. A wrong phrase, EOF, or Ctrl-C cancels without dispatch. Human CLI live mode has no non-interactive confirmation bypass.
+
+This and every advanced human live alias dispatch the same serialized GitHub Actions workflow; none sends production SMTP directly from the Mac. The cloud run validates its sender credentials, token, Google Sheet access, and deduplicated recipient envelope before claiming a Drive-backed round marker. `pending` deliberately means the SMTP outcome may be uncertain and blocks another automatic send. A full success is reconciled into both the marker and SQLite ledger; a partial SMTP refusal leaves the marker pending for human reconciliation.
+
+## `update-model`
+
+```bash
+footy-tipper update-model
+```
+
+This is the production model golden path. It has no required flags and defaults to 100 Bayesian candidates. It performs preflight, local DB backup/seed, staged training under `caffeinate`, last-written receipt creation, validation, immutable upload, download/hash verification, a GitHub Actions production-image check of the exact release, active-pointer update, and no-email refresh. It does not require local Docker.
+
+The ignored `.footy-tipper/` directory contains the heartbeat log, resumable journal, and an exclusive update lock. A second terminal is refused while an update owns that lock. Ctrl-C terminates and reaps the trainer before the journal is marked interrupted. Re-running the command revalidates durable file, Drive, hosted-check, and active-pointer evidence before reusing a stage. An interrupted or incomplete training stage restarts rather than treating partial artifacts as valid. `training-receipt.json` is written only after the staged release is complete.
+
+The update does not disable Actions and never replaces the remote runtime DB with the local training DB. Prediction continues on the old active release until the pointer is atomically moved to the verified candidate.
+
+## Advanced command tree
+
+The hierarchy is exact:
+
+```text
+footy-tipper advanced
+├── data
+│   ├── prepare {all|training|tips}
+│   ├── lineups {refresh|backfill}
+│   ├── nrl {refresh|backfill|validate}
+│   └── odds {refresh|backfill}
+├── model {train|infer|evaluate|verify|list|activate|rollback}
+├── local-run {preview|test|live}
+├── delivery {preview|test|live}
+├── cloud {pull-runtime|push-runtime|schedule|gate}
+└── site {build|publish}
+```
+
+Run `--help` at any branch or leaf for technical flags:
+
+```bash
+footy-tipper advanced --help
+footy-tipper advanced data lineups backfill --help
+footy-tipper advanced model evaluate --help
+```
+
+### `advanced data`
+
+| Command | Contract |
 | --- | --- |
-| `--start-year YEAR` | Override `FOOTY_TIPPER_START_YEAR` (default `2010`). |
-| `--end-year YEAR` | Override `FOOTY_TIPPER_END_YEAR` (default current year). |
-| `--include-performance` / `--without-performance` | Force performance features on/off. Environment default is on. |
-| `--require-odds` / `--allow-missing-odds` | Drop rows without head-to-head odds or keep them. Missing odds are allowed by default. |
-| `--skip-nrl-data` | Skip the normal nrl.com and odds refresh before preparation. Available on prep/train/infer/predict. |
+| `prepare all` | Refresh the full requested source scope and rebuild prepared SQLite tables. |
+| `prepare training` | Smart-refresh training history and rebuild training-oriented prepared state. |
+| `prepare tips` | Refresh the narrow current inference window. |
+| `lineups refresh` | Fetch recent Team Lists/Late Mail snapshots. |
+| `lineups backfill` | Repair historical lineup coverage, including old zero-entry snapshots. |
+| `nrl refresh` | Refresh current nrl.com draw/match-centre caches. |
+| `nrl backfill` | Repair historical nrl.com coverage. |
+| `nrl validate` | Produce parity/coverage evidence without changing source state. |
+| `odds refresh` | Record available live Betfair markets. |
+| `odds backfill` | Import historical odds workbook observations. |
 
-The preparation modes are not cosmetic:
+### `advanced model`
 
-- `full` forces a fresh provider pull for all seasons in scope.
-- `train` smart-refreshes missing/current seasons, then rebuilds prepared tables.
-- `infer` narrows the season window and incrementally upserts prepared rows; it includes one prior context season by default.
-
-## `prep`
-
-```bash
-footy-tipper prep [--prep-mode full|train|infer]
-                  [--infer-context-years N]
-                  [shared data flags]
-                  [lineup flags]
-```
-
-Default mode: `full`. It writes `footy_tipping_data`, `training_data`, and `inference_data` in `data/footy-tipper-db.sqlite`.
-
-```bash
-footy-tipper prep
-footy-tipper prep --prep-mode infer --infer-context-years 1
-footy-tipper prep --prep-mode train --skip-lineups
-```
-
-## `train`
-
-```bash
-footy-tipper train [--prep-mode train|full] [--skip-prep]
-                   [shared data flags] [lineup flags]
-```
-
-Default mode: `train`. Unless skipped, it performs one-time historical nrl.com/odds and lineup bootstraps when coverage is absent, refreshes current inputs, prepares data, and trains. `--skip-prep` uses existing SQLite tables.
-
-The default tuning budget is `FOOTY_TIPPER_TUNE_ITER=100`. Bayesian search parallelizes candidate fits across available cores while each LightGBM fit uses one thread. Production artifacts are trained locally, validated, then published with `state push`; there is no hosted training workflow.
-
-```bash
-footy-tipper train
-footy-tipper train --start-year 2010 --end-year 2026
-footy-tipper train --skip-prep
-```
-
-## `infer`
-
-```bash
-footy-tipper infer [--prep-mode infer|full] [--infer-context-years N]
-                   [--skip-prep] [--skip-auto-train]
-                   [shared data flags] [lineup flags]
-```
-
-Default mode: `infer`. Required artifacts are checked before prediction; missing artifacts trigger `train` unless `--skip-auto-train` is present. Auto-training inherits data/lineup bootstrap behavior unless those inputs were skipped. Scheduled Actions always supplies `--skip-auto-train`, making missing published artifacts a hard operational failure.
-
-## `send`
-
-```bash
-footy-tipper send [--test] [--test-email ADDRESS]
-                  [--skip-drive] [--with-llm|--no-llm]
-                  [--dry-run] [--force-resend]
-```
-
-- `--test` addresses one recipient instead of the production list.
-- `--test-email` resolves from the flag, then `FOOTY_TIPPER_TEST_EMAIL`, then `levon_rush@hotmail.com`.
-- `--dry-run` prints rendered output without sending.
-- `--skip-drive` omits the prediction upload.
-- `--with-llm` is the default and asks Claude for prose. `--no-llm` uses deterministic copy.
-- `--force-resend` bypasses the production `(season, round)` email ledger.
-
-The hidden `--use-openai` and `--without-openai` aliases remain temporarily for muscle memory. They control the Claude copy path; OpenAI itself is optional banner generation.
-
-After a successful production send, the workflow records `email_sends`, applies an eligible joker transition, refreshes the site, and can upload a gzipped database backup. Missing optional provider dependencies degrade as described in [operations](operations-reliability.md).
-
-## `predict`
-
-```bash
-footy-tipper predict [infer flags] [--skip-send]
-                     [send flags]
-```
-
-This is the normal weekly composition: `prep -> infer -> send`. It exposes the inference, lineup, and delivery flags, including `--skip-prep`, `--skip-auto-train`, `--test`, `--dry-run`, and `--force-resend`.
-
-```bash
-footy-tipper predict
-footy-tipper predict --test --dry-run --skip-drive
-footy-tipper predict --skip-send
-```
-
-## `lineups`
-
-```bash
-footy-tipper lineups [shared data flags]
-                     [--lineups-mode recent|backfill]
-                     [--lineups-max-articles N]
-                     [--lineups-include-sitemap-in-recent]
-                     [--lineups-strict]
-```
-
-`recent` is the default. `backfill` also crawls sitemap archives and is the historical repair mode.
-
-```bash
-footy-tipper lineups --lineups-mode recent --lineups-max-articles 80
-footy-tipper lineups --lineups-mode backfill --start-year 2010 --end-year 2026 --lineups-max-articles 2000
-```
-
-Lineup ingestion fails soft unless strict mode is requested. The environment-only bootstrap ceiling defaults to `FOOTY_TIPPER_LINEUPS_BACKFILL_MAX_ARTICLES=2000`.
-
-## `nrl-data`
-
-```bash
-footy-tipper nrl-data refresh [--season YEAR] [--max-pages N] [--strict]
-footy-tipper nrl-data backfill [--start-year YEAR] [--end-year YEAR] [--max-pages N] [--strict]
-footy-tipper nrl-data validate [--start-year YEAR] [--end-year YEAR] [--report-path PATH]
-```
-
-`refresh` updates current nrl.com draw/match-centre data and derived cache rows. `backfill` repairs historical match-centre coverage from 2012 onward. `validate` writes parity evidence without changing source state. The default `FOOTY_TIPPER_FEED_SOURCE=python` path invokes refresh automatically before R preparation; `FOOTY_TIPPER_FEED_SOURCE=feed` bypasses it and uses the legacy XML rollback.
-
-## `odds`
-
-```bash
-footy-tipper odds live [--strict]
-footy-tipper odds backfill [--xlsx-path PATH] [--url URL] [--strict]
-```
-
-`live` records available Betfair Exchange match, line, and totals markets for upcoming fixtures. `backfill` imports the Australia Sports Betting historical workbook. Both update `odds_history` and compatible fixture-cache fields; normal orchestration runs them fail-soft unless strict mode is explicitly requested.
-
-## `site`
-
-```bash
-footy-tipper site [--publish]
-```
-
-The command builds current-round, archive, and season-result pages under `docs/site/`. `--publish` commits and pushes that generated directory, so use it only when publication is intended. The expected Pages URL remains an expected endpoint while it returns 404.
-
-## `evaluate`
-
-```bash
-footy-tipper evaluate [shared data flags] [--seasons N] [--skip-prep]
-```
-
-Default holdout count: `FOOTY_TIPPER_EVAL_SEASONS` or `3`. Each held-out season gets blend weights, stacker, and calibrator fitted only on earlier seasons. This is the evaluation result to use for performance claims; training-time meta metrics are less conservative.
-
-## `state`
-
-```bash
-footy-tipper state push
-footy-tipper state pull
-footy-tipper state gate
-footy-tipper state schedule
-```
-
-| Action | Contract |
+| Command | Contract |
 | --- | --- |
-| `push` | Validate the DB and required home/away/manifest artifacts, then upload SQLite, `models/`, and `schedule.json` to Drive state. |
-| `pull` | Stage and validate downloaded SQLite/model state before replacing the local last-known-good files. |
-| `gate` | Read the schedule and print the workflow decision: send, refresh, or skip. `send` opens at 11:00 Sydney on the first-game day. |
-| `schedule` | Print the locally derived next-match schedule without changing Drive state. |
+| `train` | Technical local training only. It may stage artifacts but does not activate a production release. |
+| `infer` | Load a selected/local artifact set and upsert predictions. Technical auto-training, where supported, must be an explicit flag here only. |
+| `evaluate` | Run nested season-out evaluation and write evidence under `reports/`. |
+| `verify` | Validate artifact completeness, loading, manifest/receipt metadata, sizes, and hashes. |
+| `list` | List immutable model releases and identify the active one. |
+| `activate` | Recheck a selected release locally and in the hosted production image, then point production at it. A malformed old pointer is archived before an explicitly confirmed repair. |
+| `rollback` | Recheck the previous release in the hosted production image, then activate it after explicit confirmation. |
 
-These actions have no nested flags; configuration comes from the environment and service-account file.
+`update-model`, not a hand-built chain of these commands, is the normal publication interface.
 
-For a production model publication, temporarily disable `predict.yml`, run `state pull`, train locally, validate with `infer --skip-prep --skip-lineups --skip-nrl-data --skip-auto-train`, inspect `state schedule`, and only then run `state push`. Re-enable prediction whether the train succeeds or fails.
+### `advanced local-run`
 
-## Lineup flags shared by prep/train/infer/predict
+Runs the data/inference/delivery composition with an explicit mode:
 
-- `--skip-lineups`
-- `--lineups-mode recent|backfill`
-- `--lineups-max-articles N`
-- `--lineups-include-sitemap-in-recent`
-- `--lineups-strict`
+- `preview`: render without SMTP or remote writes;
+- `test`: send to the configured test recipient only;
+- `live`: routes to the serialized GitHub Actions production workflow and requires the same exact-round confirmation.
 
-The standalone `lineups` command omits only `--skip-lineups`, because skipping the command would be performance art.
+These commands are for debugging the composition. Everyday `tips test|refresh|live` deliberately uses the production GitHub workflow.
+
+### `advanced delivery`
+
+Uses predictions already present in the selected local database:
+
+- `preview`: render only;
+- `test`: one test recipient;
+- `live`: routes to the serialized GitHub Actions production workflow with the same round safety contract.
+
+No human-facing command sends production SMTP directly from the Mac. This keeps scheduled and manual sends under one concurrency authority.
+
+### `advanced cloud`
+
+| Command | Contract |
+| --- | --- |
+| `pull-runtime` | Stage/validate the mutable runtime DB and schedule before replacing local runtime copies. Models are not part of this transfer. |
+| `push-runtime` | Publish the mutable runtime DB and derived schedule. It cannot upload or overwrite model releases. |
+| `schedule` | Derive and display the next actionable round schedule. |
+| `gate` | Print `live`, `refresh`, or `skip` for the current schedule/time. |
+
+### `advanced site`
+
+- `build` writes generated pages under `docs/site/`.
+- `publish` intentionally publishes that generated output and therefore changes external Git/Pages state.
+
+## Retired top-level commands
+
+The 1.0 interface is a clean break. Retired top-level names return exit code `2`, print the exact current replacement, and never forward. This prevents an old bare command from becoming a live delivery or surprise training run. The historical mapping is kept in the [changelog](../CHANGELOG.md), not mixed into the current operator reference.
+
+## Actions machine interface
+
+GitHub Actions does not invoke the human CLI. It uses `pipeline.ops.actions_runner` with an exact allowlist:
+
+```text
+gate
+runtime-pull
+predict --mode {test|refresh|live}
+runtime-push
+site-publish
+model-check --release RELEASE_ID
+```
+
+Unknown modes fail. There is no wildcard or default-to-live branch. Actions prediction never trains or auto-trains.
+
+## Output and exit contract
+
+Normal failures name the failed operation and the next useful action without exposing a raw traceback or secret value. Sensitive environment values are redacted.
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success or intentional no-op |
+| `1` | Operational failure |
+| `2` | Invalid invocation or configuration |
+| `3` | Safety refusal or cancelled confirmation |
+| `130` | User interrupt |

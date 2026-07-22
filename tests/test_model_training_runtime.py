@@ -1,4 +1,6 @@
 import os
+import inspect
+import re
 import unittest
 from unittest.mock import patch
 
@@ -39,6 +41,15 @@ class ModelTrainingRuntimeTests(unittest.TestCase):
             search = self._create_search()
 
         self.assertEqual(search.n_iter, 17)
+
+    def test_no_lightgbm_fit_uses_nested_internal_parallelism(self):
+        source = inspect.getsource(mf)
+        nested = re.findall(
+            r"LGBM(?:Regressor|Classifier)\([^)]*?n_jobs\s*=\s*-1",
+            source,
+            flags=re.DOTALL,
+        )
+        self.assertEqual(nested, [])
 
 
 if __name__ == "__main__":

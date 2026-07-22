@@ -69,13 +69,16 @@ Score simulation uses a bivariate Poisson shared component `lambda3`. When OOF r
 | `win_prob_calibrator.pkl` | beta calibrator |
 | `model_manifest.json` | predictor schema, blend weights, Tier-A config, `lambda3`, dispersion, uncertainty, margin metadata |
 | `joker_policy.json` | historical joker-policy backtest summary |
+| `training-receipt.json` | release ID, Git SHA, tuning count, training scope, runtime versions, artifact sizes, and hashes; written after every other staged artifact |
+
+`footy-tipper update-model` trains these artifacts into staging, validates them, publishes and re-downloads a create-only Drive release, then dispatches `model-check.yml` so the GitHub Actions production image loads that exact candidate. Only a successful check permits pointer activation. The default search remains 100 Bayesian candidates with outer candidate parallelism and single-threaded LightGBM fits. Actions consumes models but never trains them.
 
 ## Honest evaluation
 
 Use:
 
 ```bash
-footy-tipper evaluate --skip-prep --seasons 3
+footy-tipper advanced model evaluate --skip-prepare --seasons 3
 ```
 
 The evaluator holds out each recent season in turn and fits blend weights, stacker, and calibrator only on earlier seasons. It also reports calibration, tipping, market comparison, score/margin behavior, ROI simulations, and competition-policy evidence where coverage allows. Reports are written under `reports/`.

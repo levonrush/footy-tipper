@@ -90,6 +90,7 @@ env/
 .html
 
 # Local/generated runtime artifacts
+.footy-tipper/
 data/*.sqlite
 data/*.sqlite3
 data/*.db

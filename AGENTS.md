@@ -9,9 +9,12 @@ This file is for coding/automation agents working on `footy-tipper`.
 ## High-Level Architecture
 - CLI wrapper:
   - `footy-tipper` (root executable) -> `pipeline/cli.py`
-  - Preferred operator interface for day-to-day runs.
+  - Version 1.0 human interface: guided menu, `status`, `setup`, `tips`, `update-model`, and `advanced`.
 - Entrypoints:
-  - `footy-tipper train` / `footy-tipper predict` (or `python -m pipeline.cli ...`); legacy wrapper scripts were removed.
+  - Day-to-day: `footy-tipper`, `footy-tipper status`, and `footy-tipper tips show|test|refresh|live`.
+  - Production model publication: `footy-tipper update-model`.
+  - Technical tools are namespaced under `footy-tipper advanced`; retired top-level pipeline commands must fail with an exact replacement, not forward silently.
+  - GitHub Actions uses the separate `pipeline.ops.actions_runner` machine interface, never the prompt-oriented human CLI.
 - Lineup ingestion:
   - `pipeline/lineups.py` fetches Team Lists/Late Mail articles, parses structured lineups, and writes:
     - `lineup_article_snapshots`
@@ -31,11 +34,16 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `pipeline/train.py` builds Tier-A baseline features, trains Tier-B home/away Poisson models and the Tier-C binary classifier, blends expected scores, fits the regularized stacker + LOSO beta calibrator, estimates `lambda3`/dispersion, and saves artifacts in `models/`.
   - Key artifacts: `home_model.pkl`, `away_model.pkl`, `binary_model.pkl`, `stacker.pkl`, `win_prob_calibrator.pkl`, `model_manifest.json`, `joker_policy.json`.
   - Production training runs on the operator's local hardware. The default Bayesian search budget is `FOOTY_TIPPER_TUNE_ITER=100`; search fits parallelize externally while each LightGBM fit remains single-threaded.
-  - Google Drive `state/` is the publication channel for validated models. GitHub Actions must not train or auto-train.
+  - Google Drive create-only `state/model-releases/` is the publication channel; `state/model-current.json` selects the active release.
+  - `training-receipt.json` is written last and records release provenance, versions, training scope, sizes, and hashes.
+  - GitHub Actions must not train or auto-train.
 - Inference:
   - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, simulates outcomes with bivariate Poisson (`lambda3`), and upserts into `predictions_table`.
 - Distribution:
-  - `footy-tipper send` (pipeline/cli.py) reads the prediction view, computes EV-based value picks with Kelly-derived staking, and handles upload/email via `pipeline/common/use_predictions/` modules (joker, staking, scoreboard, email_copy, email_render, distribution, site).
+  - `footy-tipper tips test|live` dispatches the exact Actions mode; technical local delivery is under `advanced delivery`.
+  - The delivery implementation reads the prediction view, computes EV-based value picks with Kelly-derived staking, and handles upload/email via `pipeline/common/use_predictions/` modules (joker, staking, scoreboard, email_copy, email_render, distribution, site).
+  - Every human production-live path routes through the serialized GitHub Actions workflow. Before claiming a Drive-backed per-round marker, the run validates the sender, token, Google Sheet access, and frozen recipient envelope.
+  - `pending` deliberately means uncertain and blocks another automatic send. Full SMTP success reconciles the marker with the SQLite ledger; a partial refusal leaves the marker pending for human reconciliation.
 - Production feeds:
   - The default `FOOTY_TIPPER_FEED_SOURCE=python` path invokes `pipeline/common/nrl_data/` and odds ingestion before R preparation. R reads the resulting `feed_cache_*` tables.
   - `FOOTY_TIPPER_FEED_SOURCE=feed` restores the credentialled XML path as an explicit rollback.
@@ -100,9 +108,21 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Provider-safe execution:
   - Missing Google/Claude/OpenAI dependencies should degrade gracefully where documented (skip/deterministic copy/static banner), not crash the core prediction path.
 - Training ownership:
-  - GitHub Actions runs prediction/distribution only and passes `--skip-auto-train` in every mode.
-  - Missing required model artifacts in Actions must fail clearly.
-  - A local model publication must pull Drive state, train, validate with `--skip-auto-train`, then push; do not push after a failed train/validation.
+  - `footy-tipper update-model` is the production golden path: preflight, local DB backup/seed, staged training, validation, immutable publication, re-download/hash verification, GitHub Actions production-image model check, pointer activation, then no-email refresh.
+  - Actions stays enabled during training and continues using the previous active release until pointer activation.
+  - The local training DB is authoritative and must not be overwritten by or pushed over the mutable Actions runtime DB.
+  - GitHub Actions runs prediction/distribution only through `pipeline.ops.actions_runner`; missing/invalid active artifacts fail clearly.
+  - Beginner commands must never surprise-auto-train. Any technical auto-train path must be explicit and advanced-only.
+- Model release safety:
+  - Release archives/metadata are create-only and verified after re-download.
+  - A missing or malformed `model-current.json` is a hard failure; do not guess from `models-latest.tar.gz`.
+  - Runtime pull/push synchronizes DB/schedule only and cannot move or overwrite models.
+  - Incomplete training stages restart. Completed validated/uploaded stages can resume only when the ignored `.footy-tipper/` journal and validation agree.
+- Delivery safety:
+  - Test mode must not mutate runtime DB/site/send ledger/joker/delivery marker.
+  - Live human dispatch requires exact typed `SEND ROUND N`; no non-interactive bypass.
+  - False/failed email results return non-zero.
+  - A pending (therefore uncertain) Drive marker blocks duplicate delivery until reconciled with SMTP evidence and `email_sends`.
 - Lineup-safe execution:
   - Lineup ingestion should fail soft by default.
   - Train/infer must continue if lineup tables are unavailable or sparse.
@@ -116,43 +136,56 @@ This file is for coding/automation agents working on `footy-tipper`.
 - `predictions_table` is upserted by `pipeline/common/sql/insert_into_table.sql`.
 
 ## Common Commands
-- Preferred CLI:
-  - `footy-tipper lineups`
-  - `footy-tipper prep`
-  - `footy-tipper train`
-  - `footy-tipper infer`
-  - `footy-tipper send`
-  - `footy-tipper send --test --test-email levon_rush@hotmail.com`
-  - `footy-tipper predict`
-  - `footy-tipper nrl-data refresh|backfill|validate`
-  - `footy-tipper odds live|backfill`
-  - `footy-tipper evaluate`
-  - `footy-tipper site`
-  - `footy-tipper state pull|push|gate|schedule`
-- Simplicity defaults:
-  - `footy-tipper train` should bootstrap historical lineups when needed, then run lineup refresh + prep + training without extra flags.
-  - `footy-tipper predict` should run lineup refresh + inference + send workflow without extra flags.
-  - `infer`/`predict` should auto-train if required model artifacts are missing (unless explicitly disabled via `--skip-auto-train`), and that auto-train path should inherit lineup bootstrap behavior unless `--skip-lineups` is set.
-  - The standalone CLI keeps that convenience behavior, but Actions prediction always supplies `--skip-auto-train` so cloud hardware cannot become a training fallback.
-- Local production training:
-  - Temporarily disable `predict.yml` to prevent a Drive-state race.
-  - Run `state pull`, `FOOTY_TIPPER_TUNE_ITER=100 footy-tipper train`, a no-prep/no-ingestion `infer --skip-auto-train` validation, `state schedule`, then `state push`.
-  - Re-enable `predict.yml` even when training fails; request a manual `refresh` only after a successful push.
+- Human/operator CLI:
+  - `footy-tipper` (guided TTY menu)
+  - `footy-tipper status [--offline|--json]`
+  - `footy-tipper setup`
+  - `footy-tipper tips show|test|refresh|live`
+  - `footy-tipper update-model`
+- Exact advanced tree:
+  - `footy-tipper advanced data prepare all|training|tips`
+  - `footy-tipper advanced data lineups refresh|backfill`
+  - `footy-tipper advanced data nrl refresh|backfill|validate`
+  - `footy-tipper advanced data odds refresh|backfill`
+  - `footy-tipper advanced model train|infer|evaluate|verify|list|activate|rollback`
+  - `footy-tipper advanced local-run preview|test|live`
+  - `footy-tipper advanced delivery preview|test|live`
+  - `footy-tipper advanced cloud pull-runtime|push-runtime|schedule|gate`
+  - `footy-tipper advanced site build|publish`
+- Actions machine interface:
+  - `python -m pipeline.ops.actions_runner gate`
+  - `python -m pipeline.ops.actions_runner runtime-pull`
+  - `python -m pipeline.ops.actions_runner predict --mode test|refresh|live`
+  - `python -m pipeline.ops.actions_runner runtime-push`
+  - `python -m pipeline.ops.actions_runner site-publish`
+  - `python -m pipeline.ops.actions_runner model-check --release RELEASE_ID`
+- Interface contracts:
+  - Retired top-level `prep/train/infer/send/predict/lineups/nrl-data/odds/site/evaluate/state` commands exit `2` with an exact replacement and never forward.
+  - Bare interactive `footy-tipper` opens the menu; bare non-TTY invocation prints help and performs no action.
+  - `tips show` reads a staged temporary copy of published runtime state without mutation.
+  - `tips test|refresh|live` dispatch exact workflow modes and wait for completion.
+  - All human production-live paths route through the serialized GitHub Actions workflow; local advanced live aliases must not call SMTP directly.
+  - Gate vocabulary is `live`, `refresh`, or `skip`, never wildcard/default live.
+- Production model training:
+  - Run `footy-tipper update-model`; the default tuning count is 100 and macOS runs under `caffeinate`.
+  - A whole-transaction local lock prevents two model updates. Ctrl-C must terminate/reap the trainer before the journal records interruption.
+  - If interrupted, rerun the same command and follow its revalidated journal; never manually publish partial artifacts.
+  - Advanced activation and rollback require a fresh hosted production-image check before the pointer can move.
 - Honest evaluation:
-  - `footy-tipper evaluate --skip-prep` (nested season-out metrics)
+  - `footy-tipper advanced model evaluate` (nested season-out metrics)
 - Static site:
-  - `footy-tipper site` (writes docs/site/), `footy-tipper site --publish`
+  - `footy-tipper advanced site build|publish`
 - Data prep only:
   - `Rscript pipeline/data-prep.R`
 - Quick syntax checks:
   - `python -m compileall -q pipeline`
   - `Rscript -e "parse(file='pipeline/data-prep.R')"`
 - Lineup backfill:
-  - `footy-tipper lineups --lineups-mode backfill --start-year 2010 --end-year 2026 --lineups-max-articles 2000`
+  - `footy-tipper advanced data lineups backfill --start-year 2010 --end-year 2026 --max-articles 2000`
 
 ## Safety / Repo Hygiene
 - Never commit secrets (`secrets.env`, service-account token, passwords, API keys).
-- Never commit generated model artifacts; publish validated models through Drive state.
+- Never commit generated model artifacts; publish validated models as immutable Drive releases through `update-model`.
 - Keep `.gitignore` protections intact.
 - Prefer additive, testable changes; avoid broad refactors without smoke checks.
 - If changing feature columns, update both:

@@ -5,8 +5,8 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 ## I need to run it
 
 1. [Getting started](getting-started.md) — prerequisites, Conda setup, workflow-specific secrets, and the first safe run.
-2. [CLI reference](cli-reference.md) — all eleven commands, flags, defaults, and composition rules.
-3. [Operations and reliability](operations-reliability.md) — local model publication, Actions prediction, Drive state, schedules, idempotency, backups, Pages, and incident runbooks.
+2. [CLI reference](cli-reference.md) — the guided/everyday interface, exact advanced tree, safety confirmations, and machine boundary.
+3. [Operations and reliability](operations-reliability.md) — immutable model releases, Actions runtime state, delivery markers, schedules, backups, and incident runbooks.
 
 ## I need to understand it
 

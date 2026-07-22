@@ -1,6 +1,6 @@
 # Data-source migration: nrl.com production and XML rollback
 
-> **Status: CUT OVER on `main` (PR #34, merged 2026-07-15).** `footy-tipper prep`, `train`, `infer`, and `predict` invoke Python nrl.com and odds ingestion before R preparation. `FOOTY_TIPPER_FEED_SOURCE=python` is the default; `feed` is the legacy credentialled XML rollback.
+> **Status: CUT OVER on `main` (PR #34, merged 2026-07-15).** Model update, cloud prediction, and advanced preparation invoke Python nrl.com/odds ingestion before R preparation. `FOOTY_TIPPER_FEED_SOURCE=python` is the default; `feed` is the legacy credentialled XML rollback.
 
 ![Python nrl.com and odds production feeds with the legacy XML rollback](diagrams/feed-migration.svg)
 
@@ -17,7 +17,7 @@ The Python ingestion path owns source refresh while preserving the SQLite cache 
 | Australia Sports Betting workbook | Historical opening/closing head-to-head, line, and totals markets | `odds_history`; fill missing fixture-cache odds only |
 | Betfair Exchange | Live pre-game head-to-head, line, and totals snapshots when configured | `odds_history` and current fixture-cache odds |
 
-The CLI runs `nrl-data refresh` and `odds live` before normal R preparation. A training run also performs one-time historical nrl.com and odds backfills when their completion markers are absent. Individual network/parse failures fail soft by default and preserve usable cache state; the downstream performance-data requirement still fails clearly when enabled coverage is insufficient.
+Normal orchestration refreshes nrl.com and live odds before R preparation. A model update also performs one-time historical nrl.com and odds backfills when completion markers are absent. Individual network/parse failures fail soft by default and preserve usable cache state; the downstream performance-data requirement still fails clearly when enabled coverage is insufficient.
 
 [`pipeline/data-prep.R`](../pipeline/data-prep.R) does not refetch the production sources. It reads `feed_cache_fixtures`, `feed_cache_ladders`, and `feed_cache_performance`, then builds the prepared training/inference tables. This compatibility boundary kept the feature pipeline stable through cutover.
 
@@ -43,7 +43,7 @@ The rollback writes the same `feed_cache_*` contracts. It is a recovery option, 
 
 The migration gates were completed before the default changed:
 
-- Supported CLI commands invoke Python ingestion, with `--skip-nrl-data` for an intentional cache-only run.
+- Supported model/cloud compositions invoke Python ingestion; the advanced toolbox exposes intentional cache-only diagnostics.
 - Fixture, ladder, and performance rows satisfy the R-facing schemas and incremental refresh rules.
 - [`nrl_data_parity_modern.csv`](../reports/nrl_data_parity_modern.csv) records 100% modern fixture parity, 100% ladder-core parity, and aligned 2019–2025 performance rows.
 - [`evaluate-feed-migration-20260714.json`](../reports/evaluate-feed-migration-20260714.json) records the nested evaluation used for the model-path comparison.
@@ -52,14 +52,14 @@ The migration gates were completed before the default changed:
 ## Operator commands
 
 ```bash
-footy-tipper nrl-data refresh
-footy-tipper nrl-data backfill --start-year 2012
-footy-tipper nrl-data validate --report-path reports/nrl-data-check.csv
-footy-tipper odds live
-footy-tipper odds backfill
+footy-tipper advanced data nrl refresh
+footy-tipper advanced data nrl backfill --start-year 2012
+footy-tipper advanced data nrl validate --report-path reports/nrl-data-check.csv
+footy-tipper advanced data odds refresh
+footy-tipper advanced data odds backfill
 
 # Explicit legacy recovery only:
-FOOTY_TIPPER_FEED_SOURCE=feed footy-tipper prep
+FOOTY_TIPPER_FEED_SOURCE=feed footy-tipper advanced data prepare all
 ```
 
 Backfill is an intentional historical repair operation; normal prediction uses the narrow current refresh. `validate` is read-only evidence generation. Use `--strict` while diagnosing ingestion itself, not as a permanent default for the weekly prediction path.

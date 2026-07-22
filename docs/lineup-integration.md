@@ -15,7 +15,7 @@ A team list is not a fact that appears once. It is a sequence: Tuesday squad, re
 
 The parser supports modern `.match-header`/`.team-list` pages and older 2012–2018 text-style team lists inside `.s-cms-content`. NRLW and non-NRL competitions are filtered out.
 
-Required parser dependencies are `beautifulsoup4` and `lxml`. Missing packages or fetch/parse failures log and continue by default. `--lineups-strict` is the only CLI mode that turns ingestion errors into command failure.
+Required parser dependencies are `beautifulsoup4` and `lxml`. Missing packages or fetch/parse failures log and continue by default. Explicit strict diagnosis in the advanced command is the only mode that turns ingestion errors into command failure.
 
 ## Storage contract
 
@@ -63,21 +63,15 @@ The random stream is derived from `game_id`, so the same inputs reproduce the sa
 
 ## CLI behavior
 
-Lineup refresh runs before `prep`, `train`, `infer`, and `predict` unless `--skip-lineups` is set. `train` additionally checks historical coverage and, by default, performs a one-time backfill before the normal recent refresh. Auto-training from `infer`/`predict` inherits that bootstrap unless lineups were skipped.
+Current-lineup refresh is part of normal cloud prediction and staged model training. `update-model` also checks historical coverage and can perform the one-time backfill required by the configured training window. Missing model artifacts in an everyday tips command never trigger training.
 
 ```bash
-footy-tipper lineups
-footy-tipper lineups --lineups-mode recent --lineups-max-articles 80
-footy-tipper lineups --lineups-mode backfill --start-year 2010 --end-year 2026 --lineups-max-articles 2000
+footy-tipper advanced data lineups refresh
+footy-tipper advanced data lineups refresh --max-articles 80
+footy-tipper advanced data lineups backfill --start-year 2010 --end-year 2026 --max-articles 2000
 ```
 
-Shared flags:
-
-- `--skip-lineups`
-- `--lineups-mode recent|backfill`
-- `--lineups-max-articles N`
-- `--lineups-include-sitemap-in-recent`
-- `--lineups-strict`
+Use leaf `--help` for the technical limits, sitemap, and strict flags. Those controls are deliberately kept out of the beginner interface.
 
 ## Configuration
 

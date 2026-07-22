@@ -6,10 +6,11 @@ This directory is the canonical home for editable Mermaid architecture sources a
 
 | Diagram | Mermaid | SVG |
 | --- | --- | --- |
+| Operator CLI hierarchy | [source](operator-cli.mmd) | [preview](operator-cli.svg) |
 | Current production architecture | [source](current-production.mmd) | [preview](current-production.svg) |
 | Model, market, calibration, margin, and simulation | [source](model-stack.mmd) | [preview](model-stack.svg) |
 | Versioned lineup ingestion and as-of selection | [source](lineup-as-of.mmd) | [preview](lineup-as-of.svg) |
-| Local model publication, Actions prediction, Drive state, send, backup, and Pages | [source](operations-state.mmd) | [preview](operations-state.svg) |
+| Immutable model publication, Actions runtime state, and delivery safety | [source](operations-state.mmd) | [preview](operations-state.svg) |
 | Python production feeds and legacy XML rollback | [source](feed-migration.mmd) | [preview](feed-migration.svg) |
 | Odds integration before and after | [source](odds-before-after.mmd) | [preview](odds-before-after.svg) |
 
