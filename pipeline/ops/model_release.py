@@ -32,6 +32,7 @@ JOURNAL_FILE = "model-update.json"
 HEARTBEAT_SECONDS = 30
 LOCAL_BACKUPS_TO_KEEP = 4
 LOCAL_UPDATES_TO_KEEP = 3
+REQUIRED_PROBABILITY_STACK_VERSION = 3
 REDACT_KEYS = ("PASSWORD", "TOKEN", "SECRET", "KEY", "AUTH")
 STAGE_ORDER = (
     "preflight",
@@ -39,6 +40,7 @@ STAGE_ORDER = (
     "data_prepared",
     "trained",
     "validated",
+    "evaluated",
     "published",
     "container_checked",
     "pointer_activated",
@@ -188,6 +190,32 @@ def _hosted_check_succeeded(root, run_id) -> bool:
     return body.get("status") == "completed" and body.get("conclusion") == "success"
 
 
+def _require_probability_stack_v3(models_dir) -> None:
+    """Require the current probability contract for newly trained releases."""
+    manifest_path = pathlib.Path(models_dir) / "model_manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("model_manifest.json is not valid JSON") from exc
+    probability_stack = (
+        manifest.get("probability_stack") if isinstance(manifest, dict) else None
+    )
+    version = (
+        probability_stack.get("schema_version")
+        if isinstance(probability_stack, dict)
+        else None
+    )
+    if (
+        not isinstance(version, int)
+        or isinstance(version, bool)
+        or version != REQUIRED_PROBABILITY_STACK_VERSION
+    ):
+        raise ValueError(
+            "new model releases require probability-stack schema v3 "
+            "with separate market and no-market artifacts"
+        )
+
+
 def _revalidate_resume_evidence(root, journal, models_dir) -> None:
     """Make journal resumption prove files, Drive objects, checks, and pointer state."""
     release_id = journal["release_id"]
@@ -204,6 +232,45 @@ def _revalidate_resume_evidence(root, journal, models_dir) -> None:
                     "trained",
                     "the staged model receipt/files are missing or invalid",
                 )
+        if _stage_done(journal, "trained"):
+            try:
+                _require_probability_stack_v3(models_dir)
+            except (OSError, RuntimeError, ValueError) as exc:
+                if _stage_done(journal, "published"):
+                    raise RuntimeError(
+                        "The published candidate uses a legacy probability stack "
+                        "and cannot be activated by update-model."
+                    ) from exc
+                _rewind_from(
+                    root,
+                    journal,
+                    "trained",
+                    "new releases require probability-stack schema v3",
+                )
+
+    if _stage_done(journal, "evaluated"):
+        evaluation_stage = journal["stages"]["evaluated"]
+        report_path = pathlib.Path(evaluation_stage.get("report_path", ""))
+        try:
+            if not report_path.is_file():
+                raise ValueError("evaluation report is missing")
+            if evaluation_stage.get("report_sha256") != _sha256(report_path):
+                raise ValueError("evaluation report hash changed")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            if (report.get("pooled") or {}).get("acceptance", {}).get("passed") is not True:
+                raise ValueError("evaluation acceptance is not passing")
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+            if _stage_done(journal, "published"):
+                raise RuntimeError(
+                    "The candidate was published but its required evaluation "
+                    "evidence is missing or invalid; do not activate it."
+                )
+            _rewind_from(
+                root,
+                journal,
+                "evaluated",
+                "the honest evaluation report is missing or invalid",
+            )
 
     if _stage_done(journal, "published"):
         try:
@@ -691,6 +758,36 @@ def _validate_candidate(root, models_dir, db_path, env, log_path) -> None:
     candidate_db.unlink(missing_ok=True)
 
 
+def _evaluate_candidate(root, models_dir, db_path, env, log_path, report_path) -> dict:
+    """Run the honest acceptance gate against the staged candidate artifacts."""
+    state_sync._validate_release_directory(models_dir)
+    report_path = pathlib.Path(report_path)
+    report_path.unlink(missing_ok=True)
+    evaluation_env = dict(env)
+    evaluation_env["FOOTY_TIPPER_MODELS_DIR"] = str(models_dir)
+    evaluation_env["FOOTY_TIPPER_DB_PATH"] = str(db_path)
+    evaluation_env["FOOTY_TIPPER_EVAL_REPORT_PATH"] = str(report_path)
+    _run_logged(
+        [sys.executable, root / "pipeline" / "evaluate.py"],
+        root=root,
+        env=evaluation_env,
+        log_path=log_path,
+        label="Evaluating candidate probability stack",
+    )
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("candidate evaluation did not write a valid report") from exc
+    acceptance = (report.get("pooled") or {}).get("acceptance")
+    if not isinstance(acceptance, dict) or acceptance.get("passed") is not True:
+        raise RuntimeError("candidate failed the honest nested acceptance gate")
+    return {
+        "report_path": str(report_path),
+        "report_sha256": _sha256(report_path),
+        "acceptance": acceptance,
+    }
+
+
 def _container_check(root, release_id, env, log_path) -> int:
     """Dispatch and wait for validation in the actual production image."""
     before = subprocess.run(
@@ -951,6 +1048,7 @@ def update_model(root, *, json_output=False, debug=False) -> int:
                 git_sha=journal["git_sha"],
                 tuning_candidates=tuning_candidates,
             )
+            _require_probability_stack_v3(models_dir)
             receipt = _build_receipt(
                 models_dir,
                 db_path,
@@ -966,6 +1064,28 @@ def update_model(root, *, json_output=False, debug=False) -> int:
             _log("Validating the staged models against a throwaway DB copy.", json_output=json_output)
             _validate_candidate(root, models_dir, db_path, env, log_path)
             _set_stage(root, journal, "validated")
+
+        if _stage_done(journal, "published") and not _stage_done(
+            journal, "evaluated"
+        ):
+            raise ProductionCodeChanged(
+                "This resumable candidate was published before honest evaluation "
+                "became mandatory. It will not be activated; start a fresh model update."
+            )
+        if not _stage_done(journal, "evaluated"):
+            _log(
+                "Running nested season-out acceptance against the staged candidate.",
+                json_output=json_output,
+            )
+            evaluation = _evaluate_candidate(
+                root,
+                models_dir,
+                db_path,
+                env,
+                log_path,
+                update_dir / "evaluation.json",
+            )
+            _set_stage(root, journal, "evaluated", **evaluation)
 
         if not _stage_done(journal, "published"):
             metadata = state_sync.publish_model_release(

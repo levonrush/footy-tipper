@@ -26,7 +26,10 @@ If the binary artifact is absent in an older compatible model bundle, inference 
 
 ## Markets stay separate
 
-Head-to-head prices are de-vigged to a conditional market probability. Line inputs add the implied spread, line overround, cover signal, and model-versus-market disagreement. These signals enter the meta-layer; they are not buried inside Tier-B score predictors.
+Head-to-head prices are de-vigged to a conditional market probability and enter
+the market-covered probability pool. Complete fresh spread and totals families
+act separately on expected score means before simulation. None of those market
+signals are buried inside Tier-B score predictors.
 
 That separation makes the ensemble interpretable and avoids feeding the bookmaker into a score model, then counting the bookmaker again in the stacker. The full rationale and bibliography are in [Principled odds integration](principled-odds-integration.md).
 
@@ -34,28 +37,33 @@ That separation makes the ensemble interpretable and avoids feeding the bookmake
 
 [Editable Mermaid source](diagrams/odds-before-after.mmd)
 
-## Stacking and calibration
+## Probability pooling and calibration
 
-The regularized logistic stacker combines:
+Two constrained logit pools combine:
 
 - Tier-A conditional probability
 - OOF Tier-B conditional probability
 - OOF Tier-C probability
-- market conditional probability and an odds-missing indicator
-- Tier/market disagreement terms
-- line-market features
+- genuine market conditional probability in the market-covered pool only
 
-The regularization strength is selected by cross-validation from a defined grid. When enough season groups exist, the beta calibrator is fitted to leave-one-season-out (LOSO) stacker predictions, so it does not calibrate the same meta-model rows used to fit the deployed stacker. With fewer than three season groups it falls back to the explicitly logged in-sample stack output.
+Pool weights are nonnegative, sum to one, and have no intercept. The
+no-market pool is trained on counterfactually masked OOF rows and is retained
+only when it beats Tier B in season-out log loss. Positive-temperature,
+no-intercept calibration is fitted to leave-one-season-out predictions, so
+50% stays neutral and calibration cannot reverse a tip.
 
-At inference, missing stacker or calibrator artifacts degrade to Tier B or uncalibrated stack output for compatibility. Current training writes both artifacts.
+At inference, genuinely missing H2H odds route to the no-market artifact or
+the manifest-declared Tier-B fallback. Compatibility guards prevent older
+artifacts from reversing unanimous Tier/market evidence.
 
 ## Margin and coherent scorelines
 
 Winner probability and expected margin are related but not identical decisions:
 
 - a small ridge blend uses OOF model margin, bookmaker spread, and Tier-A margin when enough honest line rows exist;
-- games without a usable line fall back to the simulated margin;
-- output margin and scoreline are reweighted to agree with the calibrated winner probability, and the margin sign is clamped to the selected tip.
+- complete spread/total markets adjust expected score means before simulation;
+- games without usable paired prices remain entirely model-based;
+- stored margin is always the displayed home score minus away score.
 
 Score simulation uses a bivariate Poisson shared component `lambda3`. When OOF residuals support valid overdispersion estimates, gamma-mixed Poisson draws supply a negative-binomial fallback per side; otherwise the ordinary Poisson path remains. Deterministic game-specific seeds prevent a rerun from flipping a tip through random-number drift.
 
@@ -65,13 +73,22 @@ Score simulation uses a bivariate Poisson shared component `lambda3`. When OOF r
 | --- | --- |
 | `home_model.pkl`, `away_model.pkl` | Tier-B score pipelines |
 | `binary_model.pkl` | Tier-C classifier |
-| `stacker.pkl` | version-aware logistic meta-model |
-| `win_prob_calibrator.pkl` | beta calibrator |
+| `stacker.pkl` | constrained market-covered logit pool |
+| `win_prob_calibrator.pkl` | positive-temperature market calibrator |
+| `stacker_no_market.pkl` | constrained Tier A/B/C no-market pool, when selected |
+| `win_prob_calibrator_no_market.pkl` | positive-temperature no-market calibrator |
 | `model_manifest.json` | predictor schema, blend weights, Tier-A config, `lambda3`, dispersion, uncertainty, margin metadata |
 | `joker_policy.json` | historical joker-policy backtest summary |
 | `training-receipt.json` | release ID, Git SHA, tuning count, training scope, runtime versions, artifact sizes, and hashes; written after every other staged artifact |
 
-`footy-tipper update-model` trains these artifacts into staging, validates them, publishes and re-downloads a create-only Drive release, then dispatches `model-check.yml` so the GitHub Actions production image loads that exact candidate. Only a successful check permits pointer activation. The default search remains 100 Bayesian candidates with outer candidate parallelism and single-threaded LightGBM fits. Actions consumes models but never trains them.
+`footy-tipper update-model` trains these artifacts into staging, validates them,
+runs the nested season-out acceptance gate against the staged models and
+database, publishes and re-downloads a create-only Drive release, then
+dispatches `model-check.yml` so the GitHub Actions production image loads that
+exact candidate. A failed evaluation cannot publish or activate. Only a
+successful hosted check permits pointer activation. The default search remains
+100 Bayesian candidates with outer candidate parallelism and single-threaded
+LightGBM fits. Actions consumes models but never trains them.
 
 ## Honest evaluation
 
@@ -81,7 +98,14 @@ Use:
 footy-tipper advanced model evaluate --skip-prepare --seasons 3
 ```
 
-The evaluator holds out each recent season in turn and fits blend weights, stacker, and calibrator only on earlier seasons. It also reports calibration, tipping, market comparison, score/margin behavior, ROI simulations, and competition-policy evidence where coverage allows. Reports are written under `reports/`.
+The evaluator holds out each recent season in turn and fits blend weights,
+pool, and calibrator only on earlier seasons. In addition to the operational
+market/no-market routing, every held-out non-draw row is counterfactually
+forced through the no-market path. The acceptance gate compares that path with
+Tier A/B/C so sparse current odds cannot hide a weak model-only fallback. It
+also reports calibration, tipping, market comparison, score/margin behavior,
+ROI simulations, and competition-policy evidence where coverage allows.
+Reports are written under `reports/`.
 
 The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the current 2024–2026 nested holdout summary: 552 pooled non-draw games, 63.4% tipping accuracy, 0.6413 log loss, and 61.2% market-favourite accuracy on covered games. The competition simulation reported about a 35.0% win probability in its configured field scenario. These are historical evaluation results, not a promise about the next round.
 
@@ -102,7 +126,8 @@ See [Competition strategy](comp-strategy.md) and [Joker strategy](joker-strategy
 ## Limitations
 
 - Historical odds and line coverage are incomplete and time-varying.
-- Pre-game market snapshots can be stale relative to kickoff.
+- H2H, spread, and totals freshness are tracked per market family; stale
+  families are masked rather than silently reused.
 - Player identities and old team-list layouts are noisier than match-level IDs.
 - A score model cannot fully represent rugby league's discrete scoring and tactical state; dispersion and shared components only soften the assumption.
 - `lambda3` may estimate near zero when the evidence does not support a shared component.

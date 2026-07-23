@@ -150,7 +150,7 @@ footy-tipper advanced model evaluate --help
 | `nrl refresh` | Refresh current nrl.com draw/match-centre caches. |
 | `nrl backfill` | Repair historical nrl.com coverage. |
 | `nrl validate` | Produce parity/coverage evidence without changing source state. |
-| `odds refresh` | Record available live Betfair markets. |
+| `odds refresh` | Record available live The Odds API markets, with the configured provider fallback. |
 | `odds backfill` | Import historical odds workbook observations. |
 
 ### `advanced model`

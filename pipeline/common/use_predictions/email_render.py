@@ -1,10 +1,12 @@
 """Plain-text and HTML rendering of the weekly tipping email."""
 
 import html
+import math
 import os
 
 import pandas as pd
 
+from pipeline.common.odds.validity import valid_decimal_odds
 from pipeline.common.use_predictions.joker import _round_label
 
 
@@ -26,6 +28,17 @@ def _format_price(value):
     if pd.isna(value):
         return "n/a"
     return f"${float(value):.2f}"
+
+
+def _format_market_price(value, fresh=True):
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    try:
+        is_fresh = False if pd.isna(fresh) else bool(fresh)
+    except (TypeError, ValueError):
+        is_fresh = False
+    if not is_fresh or not valid_decimal_odds(numeric):
+        return "n/a"
+    return f"${float(numeric):.2f}"
 
 
 def _format_percent(value):
@@ -53,6 +66,38 @@ def _prediction_winner(row):
     return row["team_home"] if row.get("home_team_result") == "Win" else row["team_away"]
 
 
+def _market_coverage_notice(predictions):
+    """Return reader-facing copy when one or more fixtures lack real H2H prices."""
+    if predictions.empty:
+        return None
+    required = {
+        "team_head_to_head_odds_home",
+        "team_head_to_head_odds_away",
+    }
+    if not required.issubset(predictions.columns):
+        missing = len(predictions)
+    else:
+        home = pd.to_numeric(
+            predictions["team_head_to_head_odds_home"], errors="coerce"
+        )
+        away = pd.to_numeric(
+            predictions["team_head_to_head_odds_away"], errors="coerce"
+        )
+        finite_home = home.map(lambda value: pd.notna(value) and math.isfinite(float(value)))
+        finite_away = away.map(lambda value: pd.notna(value) and math.isfinite(float(value)))
+        valid = finite_home & finite_away & (home > 1.0) & (away > 1.0)
+        if "market_odds_fresh" in predictions.columns:
+            valid &= predictions["market_odds_fresh"].fillna(False).astype(bool)
+        missing = int((~valid).sum())
+    if missing == 0:
+        return None
+    fixture_word = "fixture" if missing == 1 else "fixtures"
+    return (
+        f"Market odds are unavailable for {missing} {fixture_word}. "
+        "Those tips are model-only; no market edge or staking claim is being made."
+    )
+
+
 def _format_predicted_score_numbers(row):
     home_score = _coerce_int(row.get("predicted_home_score"))
     away_score = _coerce_int(row.get("predicted_away_score"))
@@ -69,6 +114,15 @@ def _format_predicted_scoreline(row):
 
 
 def _format_predicted_margin(row):
+    home_score = _coerce_int(row.get("predicted_home_score"))
+    away_score = _coerce_int(row.get("predicted_away_score"))
+    if home_score is not None and away_score is not None:
+        margin = home_score - away_score
+        if margin == 0:
+            return "Draw"
+        winner = row["team_home"] if margin > 0 else row["team_away"]
+        return f"{winner} by {abs(margin)}"
+
     margin = _coerce_int(row.get("predicted_margin"))
     if margin is None:
         return "n/a"
@@ -227,6 +281,7 @@ def _scoreboard_text_line(scoreboard):
 
 def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None, scoreboard=None):
     first_game = _first_game_callout(predictions)
+    market_notice = _market_coverage_notice(predictions)
     lines = [subject, ""]
     scoreboard_line = _scoreboard_text_line(scoreboard)
     if scoreboard_line:
@@ -234,6 +289,8 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
     if news_hit:
         lines.extend(["--- THIS WEEK IN LEAGUE ---", news_hit, "---------------------------", ""])
     lines.append(opening)
+    if market_notice:
+        lines.extend(["", f"MARKET DATA NOTICE: {market_notice}"])
     if first_game is not None:
         lines.extend(
             [
@@ -337,6 +394,7 @@ def _render_html_email(
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
     first_game = _first_game_callout(predictions)
+    market_notice = _market_coverage_notice(predictions)
 
     match_rows = []
     for i, (_, row) in enumerate(predictions.iterrows()):
@@ -371,7 +429,8 @@ def _render_html_email(
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#374151; "
             "font-family:Arial, sans-serif; font-size:13px; width:16%;\">"
-            f"H {_format_price(row['team_head_to_head_odds_home'])}<br>A {_format_price(row['team_head_to_head_odds_away'])}"
+            f"H {_format_market_price(row['team_head_to_head_odds_home'], row.get('market_odds_fresh', True))}"
+            f"<br>A {_format_market_price(row['team_head_to_head_odds_away'], row.get('market_odds_fresh', True))}"
             "</td>"
             "</tr>"
         )
@@ -453,6 +512,18 @@ def _render_html_email(
             "</p>"
             "</div>"
             "</td></tr>"
+        )
+
+    market_notice_section = ""
+    if market_notice:
+        market_notice_section = (
+            "<tr><td style=\"padding:8px 24px 6px;\">"
+            "<div style=\"padding:12px 14px; border-radius:8px; "
+            "background:#fff7ed; border:1px solid #fdba74;\">"
+            "<p style=\"margin:0; color:#9a3412; font-family:Arial, sans-serif; "
+            "font-size:13px; line-height:1.5;\">"
+            f"<strong>Market data notice:</strong> {html.escape(market_notice)}"
+            "</p></div></td></tr>"
         )
 
     joker_lines = _joker_reader_lines(joker_recommendation)
@@ -565,6 +636,7 @@ def _render_html_email(
         "<tr><td style=\"padding:6px 24px 6px;\">"
         f"{_to_html_paragraphs(opening)}"
         "</td></tr>"
+        f"{market_notice_section}"
         f"{first_game_section}"
         "<tr><td style=\"padding:10px 24px 8px;\">"
         "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid #0f766e; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Predicted winners</h3>"

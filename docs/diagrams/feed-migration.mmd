@@ -5,7 +5,8 @@ flowchart TB
     DRAW[/nrl.com draw JSON/]
     MATCH[/nrl.com match centres/]
     HIST[/Australia Sports Betting<br/>historical workbook/]
-    LIVE[/Betfair Exchange<br/>live markets/]
+    LIVE[/The Odds API<br/>CI-safe live markets/]
+    BETFAIR[/Betfair Exchange<br/>operator fallback/]
     PY([Python nrl-data refresh<br/>and historical backfill])
     DERIVE([Derive ladder and<br/>performance aggregates])
     ODDS([Python odds live<br/>and historical backfill])
@@ -21,6 +22,7 @@ flowchart TB
     DERIVE --> CACHE
     HIST --> ODDS
     LIVE --> ODDS
+    BETFAIR -.-> ODDS
     ODDS --> HISTORY
     ODDS --> CACHE
     CACHE --> RPREP
@@ -40,12 +42,10 @@ flowchart TB
   subgraph FUTURE[Independent future extensions]
     direction LR
     PLAYER([Identity-linked<br/>player ratings])
-    TOTALS([Totals-based<br/>score offsets])
     CONTEXT([Weather · referee<br/>travel · rest])
   end
 
   MATCH -.->|evaluate| PLAYER
-  HISTORY -.->|coverage and temporal gates| TOTALS
   TABLES -.->|train/infer symmetry| CONTEXT
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
@@ -54,11 +54,11 @@ flowchart TB
   classDef rollback fill:#FFF7ED,stroke:#DC2626,color:#0F172A,stroke-width:2px,stroke-dasharray:6 4;
   classDef future fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px,stroke-dasharray:6 4;
 
-  class DRAW,MATCH,HIST,LIVE source;
+  class DRAW,MATCH,HIST,LIVE,BETFAIR source;
   class PY,DERIVE,ODDS,RPREP process;
   class CACHE,HISTORY,TABLES data;
   class XML,RXML rollback;
-  class PLAYER,TOTALS,CONTEXT future;
+  class PLAYER,CONTEXT future;
 
   style PROD fill:#F8FAFC,stroke:#0F766E,stroke-width:2px
   style ROLLBACK fill:#FFF7ED,stroke:#DC2626,stroke-width:2px,stroke-dasharray:6 4

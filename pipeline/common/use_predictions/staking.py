@@ -1,8 +1,11 @@
 """Value-pick selection and Kelly staking."""
 
+import math
 import os
 
 import pandas as pd
+
+from pipeline.common.odds.validity import valid_decimal_odds
 
 
 # The 'get_tipper_picks' function calculates the odds thresholds and returns a DataFrame of tipper picks.
@@ -70,7 +73,13 @@ def get_tipper_picks(predictions, prod_run=False):
             if side == "away" and predicted_result != "Loss":
                 continue
 
-            if pd.isna(prob) or pd.isna(odds) or odds <= 1 or prob <= 0 or prob >= 1:
+            if (
+                pd.isna(prob)
+                or not math.isfinite(float(prob))
+                or not valid_decimal_odds(odds)
+                or prob <= 0
+                or prob >= 1
+            ):
                 continue
 
             fair_odds = 1 / prob

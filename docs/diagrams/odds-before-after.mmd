@@ -14,14 +14,15 @@ flowchart TB
   end
 
   subgraph AFTER[Current — separated experts]
-    O2[/H2H and line odds/]
+    O2[/Fresh H2H · spread · totals/]
     F2([Football and as-of<br/>lineup features])
     A2[[Tier A baseline]]
     B2[[Tier B score models<br/>no market predictors]]
     C2[[Tier C binary model]]
-    M2[[Market expert<br/>Shin · line · disagreement]]
-    S2[[Regularized stacker<br/>OOF tier signals]]
-    CAL2[[LOSO beta calibrator]]
+    M2[[Genuine H2H<br/>market expert]]
+    S2[[Market/no-market simplex pools<br/>nonnegative · no intercept]]
+    CAL2[[Positive-temperature calibrators]]
+    SCORE2[[Spread/total score-mean blend]]
     P2[(Calibrated probability<br/>and explicit edge)]
     F2 --> A2
     F2 --> B2
@@ -33,6 +34,7 @@ flowchart TB
     M2 --> S2
     S2 --> CAL2
     CAL2 --> P2
+    O2 --> SCORE2
   end
 
   P1 -.->|separate market from football models| O2
@@ -46,7 +48,7 @@ flowchart TB
   class O2 source;
   class F2 process;
   class P2 data;
-  class A2,B2,C2,M2,S2,CAL2 model;
+  class A2,B2,C2,M2,S2,CAL2,SCORE2 model;
   class O1,F1,B1,S1,P1 old;
 
   style BEFORE fill:#FEF2F2,stroke:#DC2626,stroke-width:2px

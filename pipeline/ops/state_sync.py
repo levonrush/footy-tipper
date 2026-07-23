@@ -17,6 +17,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+import math
 import os
 import pathlib
 import shutil
@@ -46,6 +47,13 @@ MODEL_POINTER_FILE = "model-current.json"
 MODEL_RELEASES_FOLDER = "model-releases"
 TRAINING_RECEIPT_FILE = "training-receipt.json"
 REQUIRED_MODEL_FILES = ("home_model.pkl", "away_model.pkl", "model_manifest.json")
+PROBABILITY_STACK_V3_FILES = (
+    "binary_model.pkl",
+    "stacker.pkl",
+    "win_prob_calibrator.pkl",
+    "stacker_no_market.pkl",
+    "win_prob_calibrator_no_market.pkl",
+)
 
 SYDNEY_TIMEZONE = ZoneInfo("Australia/Sydney")
 SEND_HOUR_LOCAL = 11
@@ -217,6 +225,42 @@ def _validate_model_artifacts(models_dir) -> None:
             "model_manifest.json must contain a non-empty string predictor list"
         )
 
+    probability_stack = manifest.get("probability_stack")
+    probability_stack_version = 0
+    if isinstance(probability_stack, dict):
+        probability_stack_version = int(
+            probability_stack.get("schema_version", 0) or 0
+        )
+    if probability_stack_version >= 3:
+        missing_probability_files = [
+            name
+            for name in PROBABILITY_STACK_V3_FILES
+            if not (models_dir / name).is_file()
+        ]
+        if missing_probability_files:
+            raise ValueError(
+                "probability-stack v3 is missing required artifacts: "
+                + ", ".join(missing_probability_files)
+            )
+        market_config = probability_stack.get("market")
+        no_market_config = probability_stack.get("no_market")
+        if (
+            not isinstance(market_config, dict)
+            or market_config.get("strategy") != "simplex"
+            or market_config.get("stacker_file") != "stacker.pkl"
+            or market_config.get("calibrator_file") != "win_prob_calibrator.pkl"
+            or market_config.get("experts")
+            != ["tier_a", "tier_b", "tier_c", "market"]
+            or not isinstance(no_market_config, dict)
+            or no_market_config.get("stacker_file") != "stacker_no_market.pkl"
+            or no_market_config.get("calibrator_file")
+            != "win_prob_calibrator_no_market.pkl"
+            or no_market_config.get("strategy") not in {"simplex", "tier_b"}
+            or no_market_config.get("experts")
+            != ["tier_a", "tier_b", "tier_c"]
+        ):
+            raise ValueError("probability-stack v3 manifest contract is invalid")
+
     try:
         import dill as model_pickle
     except ImportError as exc:
@@ -233,6 +277,86 @@ def _validate_model_artifacts(models_dir) -> None:
     for name in ("home_model.pkl", "away_model.pkl"):
         if not callable(getattr(loaded.get(name), "predict", None)):
             raise ValueError(f"{name} does not expose a predict method")
+    if probability_stack_version >= 3:
+        def validate_simplex(name, expected_experts, include_market, config):
+            artifact = loaded.get(name)
+            if (
+                artifact.__class__.__name__ != "SimplexLogitPool"
+                or artifact.__class__.__module__
+                != "pipeline.common.model_training.calibration"
+                or not callable(getattr(artifact, "predict", None))
+                or getattr(artifact, "_is_fitted", False) is not True
+                or bool(getattr(artifact, "include_market", None))
+                is not include_market
+                or tuple(getattr(artifact, "expert_names_", ()))
+                != tuple(expected_experts)
+            ):
+                raise ValueError(f"{name} does not satisfy the fitted simplex contract")
+            try:
+                weights = [float(value) for value in artifact.weights_]
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{name} simplex weights are invalid") from exc
+            if (
+                len(weights) != len(expected_experts)
+                or not all(math.isfinite(value) and value >= 0.0 for value in weights)
+                or not math.isclose(sum(weights), 1.0, rel_tol=0.0, abs_tol=1e-8)
+            ):
+                raise ValueError(f"{name} simplex weights are invalid")
+            manifest_weights = config.get("weights")
+            if not isinstance(manifest_weights, dict) or any(
+                expert not in manifest_weights
+                or not math.isclose(
+                    float(manifest_weights[expert]),
+                    weights[index],
+                    rel_tol=0.0,
+                    abs_tol=1e-8,
+                )
+                for index, expert in enumerate(expected_experts)
+            ):
+                raise ValueError(f"{name} weights do not match model_manifest.json")
+
+        def validate_temperature(name, config):
+            artifact = loaded.get(name)
+            try:
+                temperature = float(artifact.temperature_)
+                manifest_temperature = float(config.get("temperature"))
+            except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{name} temperature is invalid") from exc
+            if (
+                artifact.__class__.__name__ != "TemperatureCalibrator"
+                or artifact.__class__.__module__
+                != "pipeline.common.model_training.calibration"
+                or not callable(getattr(artifact, "predict", None))
+                or getattr(artifact, "_is_fitted", False) is not True
+                or not math.isfinite(temperature)
+                or temperature <= 0.0
+                or not math.isclose(
+                    manifest_temperature,
+                    temperature,
+                    rel_tol=0.0,
+                    abs_tol=1e-8,
+                )
+            ):
+                raise ValueError(f"{name} temperature is invalid")
+
+        validate_simplex(
+            "stacker.pkl",
+            ("tier_a", "tier_b", "tier_c", "market"),
+            True,
+            market_config,
+        )
+        validate_temperature("win_prob_calibrator.pkl", market_config)
+        validate_simplex(
+            "stacker_no_market.pkl",
+            ("tier_a", "tier_b", "tier_c"),
+            False,
+            no_market_config,
+        )
+        validate_temperature(
+            "win_prob_calibrator_no_market.pkl", no_market_config
+        )
+        if not callable(getattr(loaded.get("binary_model.pkl"), "predict_proba", None)):
+            raise ValueError("binary_model.pkl does not expose a predict_proba method")
 
     for json_path in sorted(models_dir.glob("*.json")):
         if json_path == manifest_path:

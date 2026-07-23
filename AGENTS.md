@@ -31,8 +31,8 @@ This file is for coding/automation agents working on `footy-tipper`.
     - `training_data`
     - `inference_data`
 - Training:
-  - `pipeline/train.py` builds Tier-A baseline features, trains Tier-B home/away Poisson models and the Tier-C binary classifier, blends expected scores, fits the regularized stacker + LOSO beta calibrator, estimates `lambda3`/dispersion, and saves artifacts in `models/`.
-  - Key artifacts: `home_model.pkl`, `away_model.pkl`, `binary_model.pkl`, `stacker.pkl`, `win_prob_calibrator.pkl`, `model_manifest.json`, `joker_policy.json`.
+  - `pipeline/train.py` builds Tier-A baseline features, trains Tier-B home/away Poisson models and the Tier-C binary classifier, blends expected scores, fits separate constrained market/no-market logit pools with direction-preserving LOSO calibration, estimates `lambda3`/dispersion, and saves artifacts in `models/`.
+  - Key artifacts: `home_model.pkl`, `away_model.pkl`, `binary_model.pkl`, `stacker.pkl`, `win_prob_calibrator.pkl`, `stacker_no_market.pkl`, `win_prob_calibrator_no_market.pkl`, `model_manifest.json`, `joker_policy.json`.
   - Production training runs on the operator's local hardware. The default Bayesian search budget is `FOOTY_TIPPER_TUNE_ITER=100`; search fits parallelize externally while each LightGBM fit remains single-threaded.
   - Google Drive create-only `state/model-releases/` is the publication channel; `state/model-current.json` selects the active release.
   - `training-receipt.json` is written last and records release provenance, versions, training scope, sizes, and hashes.
@@ -79,7 +79,10 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `NRL_ROUND_LADDER_EXTENTION`
   - `NRL_PERFORMANCE_EXTENTION`
 - Odds values:
-  - `BETFAIR_APP_KEY`, `BETFAIR_USERNAME`, `BETFAIR_PASSWORD` (live pre-game odds; optional/fail-soft)
+  - `ODDS_API_KEY` (primary live pre-game odds for production/GitHub Actions)
+  - `FOOTY_TIPPER_LIVE_ODDS_PROVIDER` (`the_odds_api` default; `betfair` operator fallback)
+  - `BETFAIR_APP_KEY`, `BETFAIR_USERNAME`, `BETFAIR_PASSWORD` (fallback; optional/fail-soft)
+  - `BETFAIR_IDENTITY_URL` (optional jurisdiction endpoint override)
   - `FOOTY_TIPPER_ODDS_HIST_URL` (optional historical workbook override)
 - Send/integration values:
   - `FOLDER_ID`, `FOLDER_URL`

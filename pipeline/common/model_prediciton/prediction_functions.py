@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import poisson, skellam
 
+from pipeline.common.odds.validity import valid_decimal_odds
+
 # Fixed base so every run over the same fixtures produces the same tips.
 GAME_SEED_BASE = 20100308
 
@@ -116,11 +118,12 @@ def marginalized_conditional_home_win_prob(
 
 
 def derive_market_home_probability(df: pd.DataFrame) -> np.ndarray:
-    """Get market-implied home win probability with robust fallbacks.
+    """Get market-implied home win probability without fabricating missing rows.
 
     Preference order: Shin-adjusted → power-normalised → basic-normalised → raw odds ratio.
     Shin (1993) adjustment is most principled as it corrects for insider-trading bias
-    in the bookmaker overround.
+    in the bookmaker overround. Raw paired prices remain the availability
+    contract; unavailable rows return NaN, never a neutral-looking 50%.
     """
     p = pd.Series(np.nan, index=df.index)
 
@@ -133,15 +136,39 @@ def derive_market_home_probability(df: pd.DataFrame) -> np.ndarray:
     if "home_market_prob_basic" in df.columns:
         p = p.fillna(pd.to_numeric(df["home_market_prob_basic"], errors="coerce"))
 
-    if "team_head_to_head_odds_home" in df.columns and "team_head_to_head_odds_away" in df.columns:
-        home_odds = pd.to_numeric(df["team_head_to_head_odds_home"], errors="coerce")
-        away_odds = pd.to_numeric(df["team_head_to_head_odds_away"], errors="coerce")
+    if (
+        "team_head_to_head_odds_home" not in df.columns
+        or "team_head_to_head_odds_away" not in df.columns
+    ):
+        return np.full(len(df), np.nan, dtype=float)
+
+    home_odds = pd.to_numeric(
+        df["team_head_to_head_odds_home"], errors="coerce"
+    )
+    away_odds = pd.to_numeric(
+        df["team_head_to_head_odds_away"], errors="coerce"
+    )
+    valid = np.fromiter(
+        (
+            valid_decimal_odds(home_price)
+            and valid_decimal_odds(away_price)
+            for home_price, away_price in zip(home_odds, away_odds)
+        ),
+        dtype=bool,
+        count=len(df),
+    )
+    if valid.any():
         qh = 1.0 / home_odds
         qa = 1.0 / away_odds
         p_basic = qh / (qh + qa)
         p = p.fillna(p_basic)
+    p = p.where(valid, np.nan)
 
-    return np.clip(pd.to_numeric(p, errors="coerce").fillna(0.5).to_numpy(dtype=float), 1e-6, 1 - 1e-6)
+    values = pd.to_numeric(p, errors="coerce").to_numpy(dtype=float, copy=True)
+    finite = np.isfinite(values)
+    values[finite] = np.clip(values[finite], 1e-6, 1 - 1e-6)
+    values[~finite] = np.nan
+    return values
 
 
 def simulate_game(
@@ -276,7 +303,6 @@ def predict_match_outcome_and_scoreline_with_bayes(
     mu_away=None,
     lambda3=0.0,
     calibrated_home_win_conditional=None,
-    margin_override=None,
     dispersion_home=None,
     dispersion_away=None,
 ):
@@ -288,9 +314,8 @@ def predict_match_outcome_and_scoreline_with_bayes(
 
     Enhanced mode:
     - pass inference_data with precomputed mu_home/mu_away arrays and optional
-      calibrated_home_win_conditional. `margin_override` (per-game floats,
-      NaN = no override) replaces the simulated margin — used by the
-      market-line margin blend — and is still sign-clamped to the tip.
+      calibrated_home_win_conditional. Market line and totals information must
+      be applied to those score means before calling this function.
     """
     if inference_data is None:
         raise ValueError("inference_data is required.")
@@ -327,10 +352,6 @@ def predict_match_outcome_and_scoreline_with_bayes(
         calibrated_home_win_conditional = np.full(len(working), np.nan)
     calibrated_home_win_conditional = np.asarray(calibrated_home_win_conditional, dtype=float)
 
-    if margin_override is None:
-        margin_override = np.full(len(working), np.nan)
-    margin_override = np.asarray(margin_override, dtype=float)
-
     results = []
     for idx, row in working.iterrows():
         calibrated_cond = calibrated_home_win_conditional[idx]
@@ -360,18 +381,12 @@ def predict_match_outcome_and_scoreline_with_bayes(
         bayes_factor = calculate_bayes_factor(probabilities)
         evidence_strength = map_bayes_factor_to_evidence(bayes_factor)
 
-        # The tipped winner must be in front on margin: a reweighted median can
-        # still land on the wrong side of zero for near-coin-flip games.
-        if np.isfinite(margin_override[idx]):
-            predicted_margin = int(round(float(margin_override[idx])))
-        else:
-            predicted_margin = probabilities.get(
-                "median_margin", predicted_scoreline[0] - predicted_scoreline[1]
-            )
-        if home_team_result == "Win" and predicted_margin <= 0:
-            predicted_margin = 1
-        elif home_team_result == "Loss" and predicted_margin >= 0:
-            predicted_margin = -1
+        # Scoreline and margin are one public prediction.  A separate median or
+        # post-simulation line override can otherwise render contradictions
+        # such as "17-14" alongside "by 1".  Market margin information should
+        # influence the score means before simulation; persistence is always
+        # the displayed score difference.
+        predicted_margin = int(predicted_scoreline[0] - predicted_scoreline[1])
 
         results.append(
             {

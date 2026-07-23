@@ -342,8 +342,21 @@ def apply_comp_strategy_to_predictions(predictions, recommendation):
             if pd.notna(hs) and pd.notna(as_):
                 winner_ahead = hs > as_ if new_result == "Win" else as_ > hs
                 if not winner_ahead:
-                    adjusted.loc[idx, "predicted_home_score"] = as_
-                    adjusted.loc[idx, "predicted_away_score"] = hs
+                    if hs == as_:
+                        adjusted.loc[idx, "predicted_home_score"] = (
+                            hs + 1 if new_result == "Win" else hs
+                        )
+                        adjusted.loc[idx, "predicted_away_score"] = (
+                            as_ + 1 if new_result == "Loss" else as_
+                        )
+                    else:
+                        adjusted.loc[idx, "predicted_home_score"] = as_
+                        adjusted.loc[idx, "predicted_away_score"] = hs
+                if "predicted_margin" in adjusted.columns:
+                    adjusted.loc[idx, "predicted_margin"] = int(
+                        adjusted.loc[idx, "predicted_home_score"]
+                        - adjusted.loc[idx, "predicted_away_score"]
+                    )
     return adjusted
 
 

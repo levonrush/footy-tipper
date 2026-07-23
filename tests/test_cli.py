@@ -14,6 +14,18 @@ from pipeline.common.use_predictions import sending_functions as sf
 
 
 class CLISmokeTests(unittest.TestCase):
+    def setUp(self):
+        coverage = mock.Mock(complete=True)
+        coverage.message.return_value = "Fresh H2H odds coverage: 8/8."
+        self._odds_coverage_patch = mock.patch(
+            "pipeline.ops.odds_gate.current_round_odds_coverage",
+            return_value=coverage,
+        )
+        self._odds_coverage_patch.start()
+
+    def tearDown(self):
+        self._odds_coverage_patch.stop()
+
     def test_run_command_respects_cwd(self):
         env = {"A": "1"}
         proc = mock.Mock()
@@ -384,6 +396,57 @@ class CLISmokeTests(unittest.TestCase):
         ledger.assert_not_called()
         marker_read.assert_not_called()
         marker_claim.assert_not_called()
+        send.assert_not_called()
+
+    def test_final_stale_odds_check_blocks_all_production_mutations(self):
+        predictions = pd.DataFrame(
+            [{"competition_year": 2026, "round_id": 21, "game_id": 1}]
+        )
+        stale = mock.Mock(complete=False)
+        stale.message.return_value = (
+            "Fresh H2H odds coverage for Round 21 2026: 7/8."
+        )
+        with mock.patch(
+            "pipeline.cli._project_root", return_value=pathlib.Path("/repo")
+        ), mock.patch("pipeline.cli.load_dotenv"), mock.patch(
+            "pipeline.cli._log"
+        ) as log, mock.patch(
+            "pipeline.common.use_predictions.sending_functions.get_predictions",
+            return_value=predictions,
+        ), mock.patch(
+            "pipeline.ops.odds_gate.current_round_odds_coverage",
+            return_value=stale,
+        ), mock.patch(
+            "pipeline.common.use_predictions.sending_functions.email_send_already_recorded"
+        ) as ledger, mock.patch(
+            "pipeline.ops.delivery_state.get_delivery"
+        ) as marker_read, mock.patch(
+            "pipeline.ops.delivery_state.begin_delivery"
+        ) as marker_claim, mock.patch(
+            "pipeline.common.use_predictions.sending_functions.persist_comp_strategy_decision"
+        ) as persist_comp, mock.patch(
+            "pipeline.common.use_predictions.sending_functions.upload_df_to_drive"
+        ) as upload, mock.patch(
+            "pipeline.common.use_predictions.sending_functions.prepare_email_delivery"
+        ) as prepare, mock.patch(
+            "pipeline.common.use_predictions.sending_functions.send_emails"
+        ) as send:
+            result = cli._send_predictions(
+                test_mode=False,
+                test_email=None,
+                skip_drive=False,
+                use_llm=False,
+                dry_run=False,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertIn("final odds check", log.call_args.args[0])
+        ledger.assert_not_called()
+        marker_read.assert_not_called()
+        marker_claim.assert_not_called()
+        persist_comp.assert_not_called()
+        upload.assert_not_called()
+        prepare.assert_not_called()
         send.assert_not_called()
 
     def test_invalid_confirmed_live_round_refuses_before_delivery_checks(self):

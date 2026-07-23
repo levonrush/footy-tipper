@@ -16,18 +16,21 @@ from __future__ import annotations
 import datetime as dt
 import os
 import re
-import sqlite3
 from pathlib import Path
 
 import requests
 
-from ..nrl_data.cache_writer import update_fixture_odds
-from . import store
-from .team_names import canonical_team
+from .live import persist_live_snapshots
+from .team_names import canonical_betfair_team
+from .validity import valid_decimal_odds
 
+# The operator account is Australian. Betfair assigns login endpoints by
+# account jurisdiction (not the laptop's current location), while the env
+# override keeps the fallback usable for a differently domiciled account.
 IDENTITY_URL_DEFAULT = "https://identitysso.betfair.com.au/api/login"
 BETTING_URL = "https://api.betfair.com/exchange/betting/json-rpc/v1"
 RUGBY_LEAGUE_EVENT_TYPE_ID = "1477"
+NRL_COMPETITION_ID = "10564377"
 
 _OVER_UNDER_RE = re.compile(r"^(over|under)\s+([\d.]+)", re.IGNORECASE)
 _HANDICAP_RE = re.compile(r"([+-]\d+(?:\.\d+)?)\s*$")
@@ -109,6 +112,7 @@ class BetfairClient:
         now = dt.datetime.now(dt.timezone.utc)
         market_filter = {
             "eventTypeIds": [RUGBY_LEAGUE_EVENT_TYPE_ID],
+            "competitionIds": [NRL_COMPETITION_ID],
             "marketStartTime": {
                 "from": now.isoformat().replace("+00:00", "Z"),
                 "to": (now + dt.timedelta(days=days_ahead))
@@ -123,6 +127,7 @@ class BetfairClient:
                 "maxResults": 200,
                 "marketProjection": [
                     "EVENT",
+                    "COMPETITION",
                     "MARKET_START_TIME",
                     "RUNNER_DESCRIPTION",
                 ],
@@ -160,11 +165,11 @@ def _mid_price(runner_book: dict) -> float | None:
         return None
     best_back = backs[0].get("price")
     best_lay = lays[0].get("price")
-    if not best_back or not best_lay or best_back <= 1.0:
+    if not valid_decimal_odds(best_back) or not valid_decimal_odds(best_lay):
         return None
-    if best_lay / best_back > MAX_BACK_LAY_SPREAD_RATIO:
+    if float(best_lay) / float(best_back) > MAX_BACK_LAY_SPREAD_RATIO:
         return None
-    return round((best_back + best_lay) / 2, 3)
+    return round((float(best_back) + float(best_lay)) / 2, 3)
 
 
 def _classify_market(market_name: str) -> str | None:
@@ -184,21 +189,18 @@ def _pick_balanced_line(lines: dict[float, tuple[float, float]]) -> float | None
     `lines` maps line -> (mid_a, mid_b). The main line is where both sides
     are priced near even money; unpriced/one-sided lines never get here.
     """
-    best_line = None
-    best_gap = None
+    candidates = []
     for line, (mid_a, mid_b) in lines.items():
         low, high = BALANCED_ODDS_RANGE
         if not (low <= mid_a <= high and low <= mid_b <= high):
             continue
         gap = abs(mid_a - mid_b)
-        if best_gap is None or gap < best_gap:
-            best_gap = gap
-            best_line = line
-    return best_line
+        candidates.append((gap, abs(float(line)), float(line)))
+    return min(candidates)[2] if candidates else None
 
 
 def collect_snapshots(client: BetfairClient) -> dict[tuple, dict]:
-    """(home, away, kickoff_date) -> odds values from current NRL markets."""
+    """(home, away, kickoff ISO time) -> odds values from current NRL markets."""
     catalogue = client.list_nrl_markets()
     if not catalogue:
         return {}
@@ -208,13 +210,16 @@ def collect_snapshots(client: BetfairClient) -> dict[tuple, dict]:
         market_kind = _classify_market(market.get("marketName", ""))
         event = market.get("event") or {}
         event_name = event.get("name") or ""
+        competition = market.get("competition") or {}
+        if competition.get("id") and str(competition["id"]) != NRL_COMPETITION_ID:
+            continue
         if market_kind is None:
             continue
         parts = re.split(r"\s+v(?:s)?\s+", event_name, maxsplit=1, flags=re.IGNORECASE)
         if len(parts) != 2:
             continue
-        home = canonical_team(parts[0])
-        away = canonical_team(parts[1])
+        home = canonical_betfair_team(parts[0])
+        away = canonical_betfair_team(parts[1])
         if not home or not away:
             continue
         markets_by_id[market["marketId"]] = {
@@ -238,15 +243,17 @@ def collect_snapshots(client: BetfairClient) -> dict[tuple, dict]:
         if meta is None:
             continue
         open_date = meta.get("open_date") or ""
-        kickoff_date = str(open_date)[:10]
-        key = (meta["home"], meta["away"], kickoff_date)
+        key = (meta["home"], meta["away"], str(open_date))
         values = snapshots.setdefault(key, {})
 
         if meta["kind"] == "h2h":
             mids: dict[str, float] = {}
             for runner_book in book.get("runners", []):
                 runner_meta = meta["runners"].get(runner_book.get("selectionId"), {})
-                team = canonical_team(runner_meta.get("runnerName", ""))
+                team = canonical_betfair_team(
+                    runner_meta.get("runnerName", ""),
+                    (meta["home"], meta["away"]),
+                )
                 price = _mid_price(runner_book)
                 if team and price:
                     mids[team] = price
@@ -271,7 +278,10 @@ def collect_snapshots(client: BetfairClient) -> dict[tuple, dict]:
                 continue
             handicap = float(handicap)
             if meta["kind"] == "line":
-                team = canonical_team(_HANDICAP_RE.sub("", runner_name).strip())
+                team = canonical_betfair_team(
+                    _HANDICAP_RE.sub("", runner_name).strip(),
+                    (meta["home"], meta["away"]),
+                )
                 if team == meta["home"]:
                     per_line.setdefault(handicap, {})["home"] = price
                 elif team == meta["away"]:
@@ -314,97 +324,52 @@ def collect_snapshots(client: BetfairClient) -> dict[tuple, dict]:
     return {key: values for key, values in snapshots.items() if values}
 
 
-def _pre_game_fixtures(con: sqlite3.Connection) -> list[dict]:
-    rows = []
-    for row in con.execute(
-        "SELECT game_id, competition_year, round_id, team_home, team_away, "
-        "start_time_utc FROM feed_cache_fixtures "
-        "WHERE game_state_name = 'Pre Game'"
-    ):
-        rows.append(
-            {
-                "game_id": int(float(row[0])),
-                "competition_year": int(float(row[1])),
-                "round_id": int(float(row[2])),
-                "team_home": row[3],
-                "team_away": row[4],
-                "start_time_utc": row[5],
-            }
-        )
-    return rows
-
-
-def snapshot_live_odds(db_path: str | Path, client: BetfairClient | None = None) -> dict:
+def snapshot_live_odds(
+    db_path: str | Path,
+    client: BetfairClient | None = None,
+    exclude_game_ids: set[int] | None = None,
+) -> dict:
     """Snapshot Betfair prices for upcoming games and update the fixture cache."""
     client = client or BetfairClient()
     if not client.configured:
         print("[odds] Betfair credentials not configured; skipping live snapshot.")
-        return {"status": "skipped", "reason": "not_configured"}
+        return {
+            "status": "skipped",
+            "reason": "not_configured",
+            "provider": "betfair",
+        }
 
     try:
         client.login()
         snapshots = collect_snapshots(client)
     except Exception as exc:
         print(f"[odds] Betfair snapshot failed softly: {exc}")
-        return {"status": "failed", "reason": str(exc)}
+        return {"status": "failed", "reason": str(exc), "provider": "betfair"}
 
     if not snapshots:
         print("[odds] Betfair returned no NRL markets in the window.")
-        return {"status": "no_markets"}
+        return {"status": "no_markets", "provider": "betfair"}
 
-    con = sqlite3.connect(str(db_path))
-    try:
-        store.ensure_tables(con)
-        now_iso = store.utc_now_iso()
-        matched = 0
-        for fixture in _pre_game_fixtures(con):
-            kickoff = fixture.get("start_time_utc")
-            kickoff_dates = set()
-            if kickoff is not None:
-                base = dt.datetime.fromtimestamp(
-                    float(kickoff), tz=dt.timezone.utc
-                ).date()
-                kickoff_dates = {
-                    str(base + dt.timedelta(days=offset)) for offset in (-1, 0, 1)
-                }
-            values = None
-            for (home, away, date), snap in snapshots.items():
-                if home == fixture["team_home"] and away == fixture["team_away"]:
-                    if not kickoff_dates or date in kickoff_dates:
-                        values = snap
-                        break
-            if not values:
-                continue
-            matched += 1
-            store.insert_snapshot(
-                con,
-                fixture["game_id"],
-                fixture["competition_year"],
-                fixture["round_id"],
-                source="betfair",
-                snapshot_kind="live",
-                snapshot_time_utc=now_iso,
-                values=values,
-            )
-            odds_update = {
-                "team_head_to_head_odds_home": values.get("h2h_odds_home"),
-                "team_head_to_head_odds_away": values.get("h2h_odds_away"),
-                "team_line_odds_home": values.get("line_odds_home"),
-                "team_line_odds_away": values.get("line_odds_away"),
-                "team_line_amount_home": values.get("line_amount_home"),
-                "total_line": values.get("total_line"),
-                "total_over_odds": values.get("total_over_odds"),
-                "total_under_odds": values.get("total_under_odds"),
-            }
-            if values.get("line_amount_home") is not None:
-                odds_update["team_line_amount_away"] = -values["line_amount_home"]
-            odds_update = {
-                key: value for key, value in odds_update.items() if value is not None
-            }
-            if odds_update:
-                update_fixture_odds(con, fixture["game_id"], odds_update)
-        con.commit()
-        print(f"[odds] Betfair snapshot: {matched} upcoming games updated.")
-        return {"status": "completed", "games_updated": matched}
-    finally:
-        con.close()
+    provider_snapshots = [
+        {
+            "home": home,
+            "away": away,
+            "commence_time": commence_time,
+            "values": values,
+        }
+        for (home, away, commence_time), values in snapshots.items()
+    ]
+    summary = persist_live_snapshots(
+        db_path,
+        source="betfair",
+        snapshots=provider_snapshots,
+        exclude_game_ids=exclude_game_ids,
+    )
+    status = "completed" if summary["games_updated"] else "no_matches"
+    print(
+        "[odds] Betfair snapshot: "
+        f"{summary['games_updated']}/{summary['fixture_count']} upcoming games matched; "
+        f"H2H={summary['h2h_games']}, line={summary['line_games']}, "
+        f"totals={summary['totals_games']}."
+    )
+    return {"status": status, "provider": "betfair", **summary}

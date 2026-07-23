@@ -2,20 +2,21 @@
 flowchart TB
   DATA[(Final rows for training<br/>Pre Game rows for inference)]
   FOOTBALL([Match · ladder · performance<br/>and as-of lineup features])
-  ODDS[/H2H and line-market inputs/]
+  ODDS[/Fresh H2H · spread · totals/]
 
   A[[Tier A<br/>sequential baseline]]
   B[[Tier B<br/>home and away score models]]
   C[[Tier C<br/>binary winner model]]
-  MARKET[[Market expert<br/>Shin + line features]]
+  MARKET[[Genuine H2H<br/>market expert]]
   BLEND[[Learned score-mean blend<br/>Tier A + Tier B]]
   UNC([Lineup uncertainty<br/>marginalization])
-  STACK[[Regularized stacker<br/>OOF tier signals]]
-  CAL[[Beta calibrator<br/>LOSO stack predictions]]
+  STACK[[Market/no-market simplex pools<br/>nonnegative · no intercept]]
+  CAL[[Positive-temperature calibration<br/>neutral stays 50%]]
   MARGIN[[Margin ridge<br/>model + line + Tier A]]
   DISP{Valid dispersion<br/>estimate?}
   SIM([Bivariate score simulation<br/>shared lambda3])
-  COHERE([Probability · margin · scoreline<br/>coherence and sign clamp])
+  SCOREMEANS([Fresh spread/total blends<br/>adjust expected score means])
+  COHERE([Probability · scoreline · margin<br/>final consistency check])
   OUT[(predictions_table<br/>tip · probability · margin · scoreline)]
 
   DATA --> FOOTBALL
@@ -33,14 +34,16 @@ flowchart TB
   MARKET --> STACK
   STACK --> CAL
   BLEND --> MARGIN
-  MARKET --> MARGIN
+  ODDS --> MARGIN
   A --> MARGIN
-  BLEND --> SIM
+  BLEND --> SCOREMEANS
+  MARGIN --> SCOREMEANS
+  ODDS --> SCOREMEANS
+  SCOREMEANS --> SIM
   CAL --> SIM
   DISP -->|yes: gamma-mixed Poisson| SIM
   DISP -->|no: Poisson fallback| SIM
   SIM --> COHERE
-  MARGIN --> COHERE
   CAL --> COHERE
   COHERE --> OUT
 
@@ -51,7 +54,7 @@ flowchart TB
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
 
   class ODDS source;
-  class FOOTBALL,UNC,SIM,COHERE process;
+  class FOOTBALL,UNC,SCOREMEANS,SIM,COHERE process;
   class DATA,OUT data;
   class A,B,C,MARKET,BLEND,STACK,CAL,MARGIN model;
   class DISP decision;

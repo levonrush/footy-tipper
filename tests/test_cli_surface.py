@@ -340,6 +340,37 @@ class OperatorCLITests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertFalse(ensure.call_args.kwargs["auto_train"])
 
+    def test_legacy_feed_still_refreshes_independent_live_odds(self):
+        root = pathlib.Path("/repo")
+        with mock.patch("pipeline.cli._run_nrl_data") as nrl, mock.patch(
+            "pipeline.cli._run_odds"
+        ) as odds:
+            cli._refresh_nrl_data(
+                {"FOOTY_TIPPER_FEED_SOURCE": "feed"},
+                root,
+            )
+
+        nrl.assert_not_called()
+        odds.assert_called_once_with(
+            {"FOOTY_TIPPER_FEED_SOURCE": "feed"},
+            root,
+            "live",
+        )
+
+    def test_disabled_nrl_ingestion_still_refreshes_live_odds(self):
+        root = pathlib.Path("/repo")
+        env = {
+            "FOOTY_TIPPER_FEED_SOURCE": "python",
+            "FOOTY_TIPPER_NRL_DATA_ENABLED": "false",
+        }
+        with mock.patch("pipeline.cli._run_nrl_data") as nrl, mock.patch(
+            "pipeline.cli._run_odds"
+        ) as odds:
+            cli._refresh_nrl_data(env, root)
+
+        nrl.assert_not_called()
+        odds.assert_called_once_with(env, root, "live")
+
     def test_advanced_cloud_calls_machine_interface_not_legacy_state_push(self):
         with mock.patch("pipeline.ops.actions_runner.main", return_value=0) as runner:
             rc = operator_cli.run(

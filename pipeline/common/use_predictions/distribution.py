@@ -7,6 +7,8 @@ from email.utils import parseaddr
 
 import pandas as pd
 
+from pipeline.ops.odds_gate import current_round_odds_coverage
+
 # for google
 try:
     from google.oauth2 import service_account
@@ -81,6 +83,58 @@ def _sort_predictions_for_display(predictions):
     return ordered.drop(columns=helper_columns, errors="ignore").reset_index(drop=True)
 
 
+def _sanitize_market_freshness(predictions, db_path):
+    """Mask cached current-round prices that are missing or too old."""
+    sanitized = predictions.copy()
+    if sanitized.empty or "game_id" not in sanitized.columns:
+        sanitized["market_odds_fresh"] = pd.Series(dtype=bool)
+        return sanitized
+
+    coverage = current_round_odds_coverage(db_path)
+    fresh_ids = set(coverage.fresh_game_ids) if not coverage.error else set()
+    fresh_line_ids = (
+        set(coverage.fresh_line_game_ids) if not coverage.error else set()
+    )
+    fresh_total_ids = (
+        set(coverage.fresh_total_game_ids) if not coverage.error else set()
+    )
+    game_ids = pd.to_numeric(sanitized["game_id"], errors="coerce")
+    fresh = game_ids.map(lambda value: pd.notna(value) and int(value) in fresh_ids)
+    line_fresh = game_ids.map(
+        lambda value: pd.notna(value) and int(value) in fresh_line_ids
+    )
+    total_fresh = game_ids.map(
+        lambda value: pd.notna(value) and int(value) in fresh_total_ids
+    )
+    sanitized["market_odds_fresh"] = fresh.astype(bool)
+    sanitized["line_odds_fresh"] = line_fresh.astype(bool)
+    sanitized["total_odds_fresh"] = total_fresh.astype(bool)
+    market_columns = [
+        "team_head_to_head_odds_home",
+        "team_head_to_head_odds_away",
+    ]
+    line_columns = [
+        "team_line_odds_home",
+        "team_line_odds_away",
+        "team_line_amount_home",
+        "team_line_amount_away",
+    ]
+    total_columns = [
+        "total_line",
+        "total_over_odds",
+        "total_under_odds",
+    ]
+    for freshness_column, columns in (
+        ("market_odds_fresh", market_columns),
+        ("line_odds_fresh", line_columns),
+        ("total_odds_fresh", total_columns),
+    ):
+        existing = [column for column in columns if column in sanitized.columns]
+        if existing:
+            sanitized.loc[~sanitized[freshness_column], existing] = pd.NA
+    return sanitized
+
+
 # The 'get_predictions' function reads the predictions from the SQLite database and returns them as a pandas DataFrame.
 def get_predictions(db_path, project_root):
     con = sqlite3.connect(str(db_path))
@@ -92,6 +146,7 @@ def get_predictions(db_path, project_root):
         query = file.read()
     predictions = pd.read_sql_query(query, con)
     con.close()
+    predictions = _sanitize_market_freshness(predictions, db_path)
     return _sort_predictions_for_display(predictions)
 
 # The 'upload_df_to_drive' function uploads a pandas DataFrame as a CSV file to Google Drive.

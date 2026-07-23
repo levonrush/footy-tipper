@@ -15,7 +15,8 @@ The Python ingestion path owns source refresh while preserving the SQLite cache 
 | nrl.com draw JSON | Fixtures, game state, scores, venue, kickoff, byes, and match-centre identity | `feed_cache_fixtures` |
 | nrl.com match centres | Team/player match statistics | Source tables plus derived `feed_cache_ladders` and `feed_cache_performance` |
 | Australia Sports Betting workbook | Historical opening/closing head-to-head, line, and totals markets | `odds_history`; fill missing fixture-cache odds only |
-| Betfair Exchange | Live pre-game head-to-head, line, and totals snapshots when configured | `odds_history` and current fixture-cache odds |
+| The Odds API | Primary live pre-game head-to-head, line, and totals snapshots | `odds_history` and current fixture-cache odds |
+| Betfair Exchange | Jurisdiction-configurable operator fallback | `odds_history` and current fixture-cache odds |
 
 Normal orchestration refreshes nrl.com and live odds before R preparation. A model update also performs one-time historical nrl.com and odds backfills when completion markers are absent. Individual network/parse failures fail soft by default and preserve usable cache state; the downstream performance-data requirement still fails clearly when enabled coverage is insufficient.
 
@@ -23,9 +24,13 @@ Normal orchestration refreshes nrl.com and live odds before R preparation. A mod
 
 ## Temporal and odds safety
 
-Historical workbook rows include opening and closing observations. They are stored explicitly in `odds_history`; closing values fill only fixture-cache gaps for historical training. Live Betfair observations update upcoming fixtures and retain their observation time. Prediction-time odds must not be silently replaced with later closing prices.
+Historical workbook rows include opening and closing observations. They are stored explicitly in `odds_history`; closing values fill only fixture-cache gaps for historical training. Live provider observations update upcoming fixtures and retain their observation time. Prediction-time odds must not be silently replaced with later closing prices.
 
-Missing odds remain supported through the model's explicit missing-market path. Betfair authentication, network, or market-matching failure leaves existing values untouched unless strict odds ingestion is requested.
+Missing odds remain supported through the model's explicit no-market path.
+Provider authentication, network, or market-matching failure leaves existing
+values untouched unless strict odds ingestion is requested. Production live
+delivery additionally requires fresh paired H2H coverage for every game; test
+and refresh runs warn and label affected predictions as model-only.
 
 ## Legacy XML rollback
 

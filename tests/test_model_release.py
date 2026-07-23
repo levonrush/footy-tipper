@@ -45,6 +45,57 @@ def _make_models(path):
 
 
 class ModelReleaseTests(unittest.TestCase):
+    def test_new_release_requires_probability_stack_v3(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            models = Path(tmp)
+            manifest_path = models / "model_manifest.json"
+            manifest_path.write_text(
+                '{"predictors": ["round_id"]}', encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(
+                ValueError, "probability-stack schema v3"
+            ):
+                model_release._require_probability_stack_v3(models)
+
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "predictors": ["round_id"],
+                        "probability_stack": {"schema_version": 3},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            model_release._require_probability_stack_v3(models)
+
+    def test_resumed_legacy_candidate_is_rewound_before_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "candidate-models"
+            models.mkdir()
+            (models / "model_manifest.json").write_text(
+                '{"predictors": ["round_id"]}', encoding="utf-8"
+            )
+            journal = {
+                "schema_version": 1,
+                "release_id": "candidate-1",
+                "status": "running",
+                "stages": {"trained": {"completed": True}},
+            }
+
+            with mock.patch.object(
+                state_sync, "_validate_release_directory"
+            ):
+                model_release._revalidate_resume_evidence(
+                    root, journal, models
+                )
+
+            self.assertNotIn("trained", journal["stages"])
+            self.assertIn(
+                "probability-stack schema v3", journal["last_error"]
+            )
+
     def test_model_update_lock_rejects_a_second_local_process(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -123,6 +174,105 @@ class ModelReleaseTests(unittest.TestCase):
             (models / "home_model.pkl").write_bytes(b"tampered")
             with self.assertRaises(ValueError):
                 state_sync._validate_release_directory(models, "release-1")
+
+    def test_candidate_evaluation_uses_staged_paths_and_records_acceptance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models = root / "candidate-models"
+            models.mkdir()
+            db_path = root / "training.sqlite"
+            db_path.touch()
+            report_path = root / "evaluation.json"
+            captured = {}
+
+            def fake_run(_command, **kwargs):
+                captured["env"] = kwargs["env"]
+                Path(kwargs["env"]["FOOTY_TIPPER_EVAL_REPORT_PATH"]).write_text(
+                    json.dumps(
+                        {
+                            "pooled": {
+                                "acceptance": {
+                                    "passed": True,
+                                    "log_loss_pass": True,
+                                    "brier_pass": True,
+                                    "accuracy_pass": True,
+                                }
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            with mock.patch.object(
+                state_sync, "_validate_release_directory"
+            ), mock.patch.object(model_release, "_run_logged", side_effect=fake_run):
+                evidence = model_release._evaluate_candidate(
+                    root,
+                    models,
+                    db_path,
+                    {},
+                    root / "update.log",
+                    report_path,
+                )
+
+            self.assertEqual(
+                captured["env"]["FOOTY_TIPPER_MODELS_DIR"], str(models)
+            )
+            self.assertEqual(
+                captured["env"]["FOOTY_TIPPER_DB_PATH"], str(db_path)
+            )
+            self.assertTrue(evidence["acceptance"]["passed"])
+            self.assertEqual(len(evidence["report_sha256"]), 64)
+
+    def test_failed_evaluation_blocks_publication_and_pointer_activation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            journal = {
+                "schema_version": 1,
+                "release_id": "candidate-1",
+                "git_sha": "a" * 40,
+                "tuning_candidates": 1,
+                "status": "running",
+                "stages": {
+                    name: {"completed": True}
+                    for name in (
+                        "preflight",
+                        "backup",
+                        "data_prepared",
+                        "trained",
+                        "validated",
+                    )
+                },
+            }
+            publish = mock.Mock()
+            activate = mock.Mock()
+            with mock.patch.multiple(
+                model_release,
+                _acquire_update_lock=mock.Mock(return_value=object()),
+                _release_update_lock=mock.Mock(),
+                _new_or_resumable_journal=mock.Mock(
+                    return_value=(journal, True)
+                ),
+                _preflight=mock.Mock(return_value={"git_sha": "a" * 40}),
+                _seed_training_db_if_missing=mock.Mock(
+                    return_value=root / "training.sqlite"
+                ),
+                _revalidate_resume_evidence=mock.Mock(),
+                _verify_production_code=mock.Mock(),
+                _evaluate_candidate=mock.Mock(
+                    side_effect=RuntimeError("candidate failed acceptance")
+                ),
+            ), mock.patch.object(
+                state_sync, "publish_model_release", publish
+            ), mock.patch.object(
+                state_sync, "activate_model_release", activate
+            ):
+                result = model_release.update_model(root)
+
+            self.assertEqual(result, 1)
+            publish.assert_not_called()
+            activate.assert_not_called()
+            self.assertEqual(journal["status"], "failed")
 
     def test_interrupted_journal_is_resumed(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(

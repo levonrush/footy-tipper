@@ -1,8 +1,10 @@
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from pipeline.common.use_predictions import sending_functions as sf
+from pipeline.common.use_predictions.email_copy import _build_prompt_input
 
 
 def _predictions():
@@ -79,6 +81,60 @@ def _render_html(**overrides):
 
 
 class HtmlRenderTests(unittest.TestCase):
+    def test_margin_is_derived_from_displayed_scoreline(self):
+        predictions = _predictions()
+        predictions.loc[0, "team_home"] = "Parramatta Eels"
+        predictions.loc[0, "team_away"] = "Penrith Panthers"
+        predictions.loc[0, "home_team_result"] = "Win"
+        predictions.loc[0, "predicted_home_score"] = 17
+        predictions.loc[0, "predicted_away_score"] = 14
+        predictions.loc[0, "predicted_margin"] = 1
+
+        html_out = _render_html(predictions=predictions)
+
+        self.assertIn("Parramatta Eels by 3", html_out)
+        self.assertNotIn("Parramatta Eels by 1", html_out)
+
+    def test_missing_market_is_labelled_model_only(self):
+        predictions = _predictions()
+        predictions.loc[0, "team_head_to_head_odds_home"] = pd.NA
+        predictions.loc[0, "team_head_to_head_odds_away"] = pd.NA
+
+        html_out = _render_html(predictions=predictions)
+
+        self.assertIn("Market data notice", html_out)
+        self.assertIn("model-only", html_out)
+        self.assertIn("no market edge or staking claim", html_out)
+
+    def test_invalid_market_prices_render_as_unavailable(self):
+        predictions = _predictions()
+        predictions.loc[0, "team_head_to_head_odds_home"] = 0.0
+        predictions.loc[0, "team_head_to_head_odds_away"] = np.inf
+
+        html_out = _render_html(predictions=predictions)
+
+        self.assertIn("Market data notice", html_out)
+        self.assertIn("H n/a", html_out)
+        self.assertIn("A n/a", html_out)
+        self.assertNotIn("$0.00", html_out)
+        self.assertNotIn("$inf", html_out)
+
+    def test_stale_numeric_market_is_hidden_from_email_and_copy_prompt(self):
+        predictions = _predictions()
+        predictions["market_odds_fresh"] = False
+
+        html_out = _render_html(predictions=predictions)
+        fixture_lines, _, _ = _build_prompt_input(
+            predictions,
+            pd.DataFrame(),
+            joker_recommendation=_joker(),
+        )
+
+        self.assertIn("Market data notice", html_out)
+        self.assertIn("H n/a", html_out)
+        self.assertIn("A n/a", html_out)
+        self.assertIn("market Knights n/a, Storm n/a", fixture_lines)
+
     def test_badge_uses_tip_confidence_not_home_prob(self):
         html_out = _render_html()
         # Strong away favourite: green badge showing the tip probability.
