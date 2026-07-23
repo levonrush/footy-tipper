@@ -19,11 +19,13 @@ from pipeline.common.use_predictions.distribution import _sort_predictions_for_d
 from pipeline.common.use_predictions.email_render import (
     _default_subject,
     _format_percent,
+    _format_market_price,
     _format_predicted_margin,
     _format_predicted_score_numbers,
     _format_price,
     _format_probability,
     _joker_prompt_block,
+    _market_coverage_notice,
     _prediction_winner,
     _render_html_email,
     _render_plain_email,
@@ -110,8 +112,10 @@ def _build_prompt_input(predictions, tipper_picks, joker_recommendation=None):
             f"away win {_format_probability(row['home_team_lose_prob'])}, "
             f"score tip {_format_predicted_score_numbers(row)}, "
             f"margin {_format_predicted_margin(row)}, "
-            f"market {row['team_home']} {_format_price(row['team_head_to_head_odds_home'])}, "
-            f"{row['team_away']} {_format_price(row['team_head_to_head_odds_away'])})"
+            f"market {row['team_home']} "
+            f"{_format_market_price(row['team_head_to_head_odds_home'], row.get('market_odds_fresh', True))}, "
+            f"{row['team_away']} "
+            f"{_format_market_price(row['team_head_to_head_odds_away'], row.get('market_odds_fresh', True))})"
         )
 
     pick_lines = []
@@ -194,6 +198,7 @@ def _generate_claude_copy(predictions, tipper_picks, api_key, folder_url, temper
     competition_year = predictions['competition_year'].iloc[0]
     special_event_context = _special_event_context(round_name, competition_year)
     folder_line = folder_url if folder_url else "No public folder URL is configured this run."
+    market_notice = _market_coverage_notice(predictions)
     prompt = f"""
 Write Reg Reagan's weekly NRL tipping email. Reg is loud, passionate, and deeply invested — he doesn't hedge, he doesn't whisper, and he definitely doesn't forgive bad footy. Write like he's been awake since 5am thinking about this round.
 
@@ -207,6 +212,9 @@ Fixtures and model picks:
 
 Value picks:
 {picks_text}
+
+Market data status:
+{market_notice if market_notice else "Every fixture has valid paired H2H prices."}
 
 Joker recommendation:
 {joker_text}
@@ -234,6 +242,7 @@ Rules:
 - Reg absolutely despises England and Great Britain — any reference should be dismissive.
 - Include this disclaimer naturally: if people are in tipping comps at Seven Seas Hotel in Carrington or the Hunter Water work comp, they should not use these tips.
 - Include one explicit sentence that starts with "Joker call:" and states PLAY or HOLD for this round.
+- Never describe a market edge, price, or betting value for a fixture whose odds are unavailable.
 - Keep it punchy and readable — a touch of colour, not a wall of slang.
 - Output raw JSON only. No markdown fences, no preamble, no text before {{ or after }}.
 - Do not include markdown, HTML, or extra keys.

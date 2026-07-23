@@ -34,13 +34,25 @@ Use [`secrets.env.example`](../secrets.env.example) as the field-level reference
 | Job | Required configuration | Optional configuration |
 | --- | --- | --- |
 | Read status and published tips | GitHub/Drive access configured by `setup` | `--offline` uses local information only |
-| Model update | `FOLDER_ID`, `service-account-token.json`, local R/Python environment | Betfair, season, lineup, and tuning controls |
-| Live email | `MY_EMAIL`, `EMAIL_PASSWORD` | test recipient and staking controls |
+| Model update | `FOLDER_ID`, `service-account-token.json`, local R/Python environment | season, lineup, and tuning controls |
+| Live email | `MY_EMAIL`, `EMAIL_PASSWORD`, `ODDS_API_KEY` | test recipient, provider override, and staking controls |
 | Generated email prose | `ANTHROPIC_API_KEY` | `CLAUDE_MODEL`; deterministic copy is the fallback |
 | Generated banner | `OPENAI_KEY` | `OPENAI_MODEL`; banner failure does not block delivery |
 | Legacy XML rollback only | `PASSWORD`, `BASE_URL`, and the relevant `NRL_*_EXTENTION` values | `FOOTY_TIPPER_FEED_SOURCE=feed` selects it |
 
-The production feed is public nrl.com ingestion plus configured odds sources. XML credentials are not needed for the normal path.
+The production feed is public nrl.com ingestion plus
+[The Odds API v4](https://the-odds-api.com/liveapi/guides/v4/) for live
+prices. `FOOTY_TIPPER_LIVE_ODDS_PROVIDER=betfair` is an operator fallback;
+`BETFAIR_IDENTITY_URL` can select the endpoint assigned to the account's
+jurisdiction; Australian and New Zealand accounts default to `.com.au`.
+Changing physical location does not change the account jurisdiction.
+Scheduled Actions never depends on Betfair because
+[some runner IP regions are restricted](https://support.developer.betfair.com/hc/en-us/articles/28271961503516-Which-IP-regions-are-restricted-from-accessing-the-Betfair-API).
+XML credentials are not needed for the normal path. A live send
+requires fresh paired H2H prices for every fixture; test and refresh modes
+remain available with an explicit model-only warning when coverage is partial.
+Store the same `ODDS_API_KEY` value in local `secrets.env` and in the
+repository's dedicated GitHub Actions secret named `ODDS_API_KEY`.
 
 ## Your home screen
 

@@ -8,6 +8,7 @@ a live email send.  This module owns that exact three-mode contract.
 from types import SimpleNamespace
 
 from pipeline import cli as pipeline_cli
+from pipeline.ops.odds_gate import current_round_odds_coverage
 
 
 VALID_MODES = ("test", "refresh", "live")
@@ -39,7 +40,39 @@ def run(mode: str) -> int:
     env["FOOTY_TIPPER_ACTIONS_MODE"] = mode
 
     pipeline_cli._run_lineups(env, root)
-    pipeline_cli._refresh_nrl_data(env, root)
+    inference_env = env
+    if pipeline_cli._feed_source(env) == "feed":
+        # The legacy XML path refreshes fixtures inside R. Do that before
+        # fetching odds, then rebuild from the now-frozen cache so the gate and
+        # inference cannot silently refer to different rounds.
+        pipeline_cli._run_data_prep(env, root)
+        pipeline_cli._refresh_nrl_data(env, root)
+        inference_env = dict(env)
+        inference_env["FOOTY_TIPPER_FEED_SOURCE"] = "python"
+        pipeline_cli._run_data_prep(inference_env, root)
+    else:
+        pipeline_cli._refresh_nrl_data(env, root)
+        pipeline_cli._run_data_prep(env, root)
+
+    odds_coverage = current_round_odds_coverage(
+        root / "data" / "footy-tipper-db.sqlite"
+    )
+    if odds_coverage.complete:
+        pipeline_cli._log(odds_coverage.message())
+    else:
+        pipeline_cli._log(
+            "WARNING: "
+            + odds_coverage.message()
+            + " Tips without valid prices are model-only; market edges and "
+            "staking must remain disabled."
+        )
+        if mode == "live":
+            pipeline_cli._log(
+                "Live delivery blocked before inference because every current-round "
+                "fixture requires fresh paired H2H odds."
+            )
+            return 1
+
     if not pipeline_cli._ensure_models_for_prediction(
         env,
         root,
@@ -47,7 +80,7 @@ def run(mode: str) -> int:
         allow_lineup_bootstrap=False,
     ):
         return 1
-    pipeline_cli._run_inference(env, skip_prep=False, root=root)
+    pipeline_cli._run_inference(inference_env, skip_prep=True, root=root)
 
     if mode == "refresh":
         pipeline_cli._log("Refresh mode complete. Email send skipped.")
@@ -64,4 +97,3 @@ def run(mode: str) -> int:
         dry_run=False,
         force_resend=False,
     )
-

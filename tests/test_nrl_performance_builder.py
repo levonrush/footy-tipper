@@ -81,8 +81,14 @@ class SeasonPerformanceTests(unittest.TestCase):
         self.assertEqual(c1["tackle_made"], 0.0)
         self.assertEqual(c1["wins"], 0.0)
 
-        # finals rounds emit no leaderboard rows
-        self.assertNotIn((28, "A"), by_key)
+        # Finals are finalized matches too. Even with sparse match-centre
+        # stats, score/result fields advance the latest-prior team record.
+        a28 = by_key[(28, "A")]
+        b28 = by_key[(28, "B")]
+        self.assertEqual(a28["points"], 12.0)
+        self.assertEqual(a28["wins"], 1.0)
+        self.assertEqual(b28["points"], 4.0)
+        self.assertEqual(b28["losses"], 1.0)
 
 
 if __name__ == "__main__":

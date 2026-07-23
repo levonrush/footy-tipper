@@ -101,18 +101,91 @@ def insert_snapshot(
     return cursor.rowcount > 0
 
 
+def upsert_live_snapshot(
+    con: sqlite3.Connection,
+    game_id: int,
+    competition_year: int | None,
+    round_id: int | None,
+    source: str,
+    snapshot_time_utc: str | None,
+    values: dict,
+    raw_meta: dict | None = None,
+) -> tuple[int, bool]:
+    """Store the exact provider quote and return ``(row_id, created)``.
+
+    Provider quote timestamps are freshness evidence, not unique fetch
+    identities. A repeated timestamp can legitimately arrive with corrected
+    prices, so live ingestion updates that ledger row instead of changing only
+    the fixture cache and leaving the two stores inconsistent.
+    """
+    snapshot_time = snapshot_time_utc or ""
+    existing = con.execute(
+        """
+        SELECT id
+        FROM odds_history
+        WHERE game_id = ?
+          AND source = ?
+          AND snapshot_kind = 'live'
+          AND snapshot_time_utc = ?
+        """,
+        (int(game_id), source, snapshot_time),
+    ).fetchone()
+    row = [
+        int(game_id),
+        competition_year,
+        round_id,
+        source,
+        "live",
+        snapshot_time,
+    ]
+    row.extend(values.get(field) for field in _NUMERIC_FIELDS)
+    row.append(json.dumps(raw_meta) if raw_meta else None)
+    columns = (
+        "game_id, competition_year, round_id, source, snapshot_kind, "
+        "snapshot_time_utc, " + ", ".join(_NUMERIC_FIELDS) + ", raw_meta"
+    )
+    assignments = ", ".join(
+        [
+            "competition_year = excluded.competition_year",
+            "round_id = excluded.round_id",
+            *(
+                f"{field} = excluded.{field}"
+                for field in _NUMERIC_FIELDS
+            ),
+            "raw_meta = excluded.raw_meta",
+        ]
+    )
+    placeholders = ", ".join("?" for _ in row)
+    cursor = con.execute(
+        f"""
+        INSERT INTO odds_history ({columns})
+        VALUES ({placeholders})
+        ON CONFLICT (game_id, source, snapshot_kind, snapshot_time_utc)
+        DO UPDATE SET {assignments}
+        """,
+        row,
+    )
+    row_id = (
+        int(existing[0])
+        if existing is not None
+        else int(cursor.lastrowid)
+    )
+    return row_id, existing is None
+
+
 def latest_live_snapshots(con: sqlite3.Connection) -> dict[int, dict]:
-    """Most recent betfair live observation per game."""
+    """Most recent live-provider observation per game."""
     fields = ", ".join(_NUMERIC_FIELDS)
     result: dict[int, dict] = {}
     for row in con.execute(
         f"""
         SELECT game_id, {fields}
         FROM odds_history
-        WHERE source = 'betfair' AND snapshot_kind = 'live'
+        WHERE source IN ('the_odds_api', 'betfair') AND snapshot_kind = 'live'
           AND id IN (
               SELECT MAX(id) FROM odds_history
-              WHERE source = 'betfair' AND snapshot_kind = 'live'
+              WHERE source IN ('the_odds_api', 'betfair')
+                AND snapshot_kind = 'live'
               GROUP BY game_id
           )
         """

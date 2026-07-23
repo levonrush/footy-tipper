@@ -22,10 +22,13 @@ Tier B excludes market columns through the predictor configuration. Odds are tra
 
 - head-to-head odds -> fair conditional probability;
 - line prices/amounts -> line cover, overround, implied spread, and disagreement features;
-- missing odds -> explicit indicator and neutral fallback;
+- missing odds -> a separately trained no-market pool (or validated Tier-B fallback);
 - offered prices -> downstream expected-value and staking decisions.
 
-The stacker combines Tier A, Tier B, Tier C, and market signals. The market appears as a named expert rather than a hidden ingredient.
+The probability layer uses two explicit pools. The market pool combines Tier A,
+Tier B, Tier C, and a genuine H2H market probability. The no-market pool
+combines only Tier A/B/C, so a missing price is never represented as a
+fictitious 50% market opinion.
 
 ## Removing the overround
 
@@ -33,45 +36,52 @@ For decimal odds `o_i`, raw implied probabilities are `q_i = 1/o_i` and normally
 
 Shin's model treats some overround as protection against informed trading. It is useful here not because every NRL book is a textbook market, but because the ensemble needs a reproducible, de-vigged market input. See [Shin's original Economic Journal article](https://academic.oup.com/ej/article-abstract/103/420/1141/5157258).
 
-## Explicit disagreement
+## Constrained pooling
 
-Let `p_A`, `p_B`, and `p_M` be Tier-A, Tier-B, and market conditional home-win probabilities. The stacker receives logit differences such as:
+Let `p_A`, `p_B`, `p_C`, and `p_M` be the conditional home-win
+probabilities. Each pool combines their logits with nonnegative weights that
+sum to one and no intercept:
 
 ```text
-delta_A = logit(p_A) - logit(p_M)
-delta_B = logit(p_B) - logit(p_M)
+logit(p_pool) = w_A logit(p_A) + w_B logit(p_B)
+              + w_C logit(p_C) [+ w_M logit(p_M)]
 ```
 
-These features say how far the football models disagree with the market on a symmetric log-odds scale. The stacker can learn whether particular disagreement patterns historically contained signal rather than assuming every difference is an edge.
+This makes each expert monotone, preserves 50% when every expert is neutral,
+and prevents the pool from reversing a unanimous set of inputs. A
+positive-temperature, no-intercept calibrator preserves those same
+properties.
 
 ## Current stacker inputs
 
-The version-aware regularized logistic stacker can use:
+The market pool uses:
 
 - `logit(tier_a)`
 - `logit(tier_b)`
 - `logit(tier_c)`
 - `logit(market)`
-- `odds_missing`
-- Tier A/market and Tier B/market disagreement
-- line cover probability
-- line overround
-- model-versus-implied-spread disagreement
 
-The regularization value `C` is cross-validated over the implementation grid; it is no longer the fixed future-work item described by the older document. Tier inputs used to fit the stacker are OOF where coverage permits, and the beta calibrator is fitted to LOSO stacker predictions when enough seasons exist.
+The no-market pool uses the first three inputs and is trained
+counterfactually by masking market data on every OOF row. It is selected only
+when nested season-out log loss beats Tier B; otherwise the manifest declares
+Tier B as the no-market fallback. Both calibrators are fitted to LOSO pool
+predictions.
 
 This is close in spirit to the [Super Learner ensemble](https://doi.org/10.2202/1544-6115.1309): use honest base predictions and learn a constrained combination. It is not a formal claim that the implementation satisfies every Super Learner theorem.
 
 ## Line market and margin
 
-The handicap market is a separate margin forecast. The current system:
+The handicap and totals markets are separate score forecasts. The current
+system:
 
-- adds line-derived features to the win-probability stacker;
 - fits a small ridge margin blend from honest model margin, market spread, and Tier-A margin;
-- uses that blend only for games with a finite line;
-- falls back to the simulated margin without line coverage.
+- accepts a line or total only with a complete pair of valid decimal prices;
+- adjusts the expected home/away score means before simulation while
+  preserving the blended total;
+- persists the displayed margin as home score minus away score.
 
-Winner probability remains calibrated separately, and the displayed scoreline is made coherent with the chosen winner.
+Winner probability remains calibrated separately, and winner, scoreline, and
+margin are one coherent public prediction.
 
 ## Value and staking
 
@@ -87,18 +97,22 @@ No calibration method turns a positive estimated edge into guaranteed profit. Co
 
 ## What is not implemented
 
-The most coherent score-market extension needs both spread and total markets. If expected market total `T` and expected home margin `M` are available, market score means can be approximated by:
+A full residual score model with bookmaker means as learned Poisson offsets is
+not implemented. The current manifest blends are deliberately smaller:
 
 ```text
 lambda_home_market = (T + M) / 2
 lambda_away_market = (T - M) / 2
 ```
 
-Those means could become Poisson offsets, leaving Tier B to model residual score strength. Production ingestion now stores historical and available live totals observations, but coverage and prediction-time consistency have not yet been accepted as a modelling contract. Market-total score offsets therefore remain **not implemented**; the presence of a column is not permission to train against later closing information.
+They nudge prediction-time means only when complete live markets exist; they do
+not train Tier B against later closing information.
 
 ## Evaluation rules
 
 - Compare model and market on the same non-draw, odds-covered rows.
+- Counterfactually mask odds on every held-out row and gate the no-market path
+  against the strongest Tier A/B/C expert.
 - Prefer nested season-out metrics over training-time summaries.
 - Treat opening, prediction-time, and closing prices as different information sets.
 - Do not train a 24-hour-before-kickoff process against closing information without an explicit leakage analysis.

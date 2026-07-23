@@ -45,3 +45,10 @@ jobs:
       - name: Parse R sources
         run: |
           Rscript -e 'files <- list.files("pipeline", pattern = "[.]R$", recursive = TRUE, full.names = TRUE); for (f in files) { message("parsing ", f); parse(f) }'
+
+      - name: Install R integrity-test dependencies
+        run: |
+          Rscript -e 'install.packages(c("dplyr", "tibble", "tidyr", "stringr", "DBI", "RSQLite"), repos = "https://cloud.r-project.org")'
+
+      - name: Run R data integrity regressions
+        run: Rscript tests/r/test_data_prep_integrity.R

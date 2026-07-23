@@ -9,7 +9,7 @@ Write policy:
 - odds_history gets an 'open' and a 'close' snapshot per game (full detail);
 - feed_cache_fixtures H2H/line columns are filled ONLY where NULL, using
   CLOSING odds (the feed's own odds were last-refresh pre-kickoff values and
-  the live Betfair snapshot is taken inside the 6 h send gate, so closing is
+  the live provider snapshot is taken inside the 6 h send gate, so closing is
   the consistent training analogue);
 - the new totals columns (total_line/total_over_odds/total_under_odds) are
   NULL everywhere historically, so the COALESCE fill populates them from 2013+.
@@ -29,6 +29,7 @@ import requests
 from ..nrl_data.cache_writer import update_fixture_odds
 from . import store
 from .team_names import canonical_team
+from .validity import validated_market_values
 
 DEFAULT_XLSX_URL = "https://www.aussportsbetting.com/historical_data/nrl.xlsx"
 
@@ -169,11 +170,12 @@ def _snapshot_values(record: dict, kind: str) -> dict:
         "total_over_odds": record.get(f"total_over_{suffix}"),
         "total_under_odds": record.get(f"total_under_{suffix}"),
     }
-    return {
+    numeric_values = {
         key: float(value)
         for key, value in values.items()
         if isinstance(value, (int, float))
     }
+    return validated_market_values(numeric_values)
 
 
 def backfill(

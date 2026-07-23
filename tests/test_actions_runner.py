@@ -177,6 +177,8 @@ class ActionsRunnerTests(unittest.TestCase):
 class RuntimePredictionTests(unittest.TestCase):
     def _patched_pipeline(self, ensure_models=True, send_result=0):
         fake_root = Path("/tmp/footy-tipper-actions-test")
+        coverage = mock.Mock(complete=True)
+        coverage.message.return_value = "Fresh H2H odds coverage: 8/8."
         return (
             mock.patch.object(runtime_prediction.pipeline_cli, "_project_root", return_value=fake_root),
             mock.patch.object(runtime_prediction.pipeline_cli, "load_dotenv"),
@@ -200,11 +202,17 @@ class RuntimePredictionTests(unittest.TestCase):
                 "_send_predictions",
                 return_value=send_result,
             ),
+            mock.patch.object(
+                runtime_prediction,
+                "current_round_odds_coverage",
+                return_value=coverage,
+            ),
+            mock.patch.object(runtime_prediction.pipeline_cli, "_run_data_prep"),
         )
 
     def test_refresh_never_calls_send(self):
         patches = self._patched_pipeline()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[10], patches[11]:
             result = runtime_prediction.run("refresh")
 
         self.assertEqual(result, 0)
@@ -215,13 +223,14 @@ class RuntimePredictionTests(unittest.TestCase):
             allow_lineup_bootstrap=False,
         )
         infer.assert_called_once()
+        self.assertTrue(infer.call_args.kwargs["skip_prep"])
         send.assert_not_called()
 
     def test_every_actions_prediction_mode_disables_auto_train(self):
         for mode in runtime_prediction.VALID_MODES:
             with self.subTest(mode=mode):
                 patches = self._patched_pipeline()
-                with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6], patches[7], patches[8], patches[9]:
+                with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6], patches[7], patches[8], patches[9], patches[10], patches[11]:
                     result = runtime_prediction.run(mode)
 
                 self.assertEqual(result, 0)
@@ -234,7 +243,7 @@ class RuntimePredictionTests(unittest.TestCase):
 
     def test_missing_models_fail_without_hosted_training(self):
         patches = self._patched_pipeline(ensure_models=False)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[10], patches[11]:
             result = runtime_prediction.run("live")
 
         self.assertEqual(result, 1)
@@ -247,9 +256,57 @@ class RuntimePredictionTests(unittest.TestCase):
         infer.assert_not_called()
         send.assert_not_called()
 
+    def test_incomplete_odds_block_live_before_inference_or_send(self):
+        patches = self._patched_pipeline()
+        coverage = mock.Mock(complete=False)
+        coverage.message.return_value = "Fresh H2H odds coverage for Round 21: 7/8."
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[11], mock.patch.object(
+            runtime_prediction,
+            "current_round_odds_coverage",
+            return_value=coverage,
+        ):
+            result = runtime_prediction.run("live")
+
+        self.assertEqual(result, 1)
+        ensure.assert_not_called()
+        infer.assert_not_called()
+        send.assert_not_called()
+
+    def test_incomplete_odds_warn_but_refresh_remains_model_only(self):
+        patches = self._patched_pipeline()
+        coverage = mock.Mock(complete=False)
+        coverage.message.return_value = "Fresh H2H odds coverage for Round 21: 7/8."
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6] as infer, patches[7] as log, patches[8], patches[9] as send, patches[11], mock.patch.object(
+            runtime_prediction,
+            "current_round_odds_coverage",
+            return_value=coverage,
+        ):
+            result = runtime_prediction.run("refresh")
+
+        self.assertEqual(result, 0)
+        infer.assert_called_once()
+        send.assert_not_called()
+        self.assertTrue(any("model-only" in call.args[0] for call in log.call_args_list))
+
+    def test_incomplete_odds_warn_but_test_send_remains_available(self):
+        patches = self._patched_pipeline(send_result=0)
+        coverage = mock.Mock(complete=False)
+        coverage.message.return_value = "Fresh H2H odds coverage for Round 21: 7/8."
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6] as infer, patches[7] as log, patches[8], patches[9] as send, patches[11], mock.patch.object(
+            runtime_prediction,
+            "current_round_odds_coverage",
+            return_value=coverage,
+        ):
+            result = runtime_prediction.run("test")
+
+        self.assertEqual(result, 0)
+        infer.assert_called_once()
+        send.assert_called_once()
+        self.assertTrue(any("model-only" in call.args[0] for call in log.call_args_list))
+
     def test_test_send_cannot_upload_predictions_to_drive(self):
         patches = self._patched_pipeline(send_result=0)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9] as send:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9] as send, patches[10], patches[11]:
             result = runtime_prediction.run("test")
 
         self.assertEqual(result, 0)
@@ -264,7 +321,7 @@ class RuntimePredictionTests(unittest.TestCase):
 
     def test_live_send_is_explicit(self):
         patches = self._patched_pipeline(send_result=0)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9] as send:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9] as send, patches[10], patches[11]:
             result = runtime_prediction.run("live")
 
         self.assertEqual(result, 0)
@@ -276,6 +333,54 @@ class RuntimePredictionTests(unittest.TestCase):
             dry_run=False,
             force_resend=False,
         )
+
+    def test_legacy_feed_freezes_refreshed_fixture_set_before_gate_and_inference(self):
+        patches = self._patched_pipeline()
+        events = []
+
+        def prepare(prep_env, _root):
+            events.append(
+                "legacy-prep"
+                if prep_env.get("FOOTY_TIPPER_FEED_SOURCE") == "feed"
+                else "cache-prep"
+            )
+
+        def refresh(_env, _root):
+            events.append("odds-refresh")
+
+        def coverage(_db_path):
+            events.append("coverage")
+            result = mock.Mock(complete=True)
+            result.message.return_value = "Fresh H2H odds coverage: 8/8."
+            return result
+
+        with patches[0], patches[1], mock.patch.object(
+            runtime_prediction.pipeline_cli,
+            "_build_env",
+            return_value={"FOOTY_TIPPER_FEED_SOURCE": "feed"},
+        ), patches[3], mock.patch.object(
+            runtime_prediction.pipeline_cli,
+            "_refresh_nrl_data",
+            side_effect=refresh,
+        ), patches[5], patches[6] as infer, patches[7], patches[8], patches[9], mock.patch.object(
+            runtime_prediction,
+            "current_round_odds_coverage",
+            side_effect=coverage,
+        ), mock.patch.object(
+            runtime_prediction.pipeline_cli,
+            "_run_data_prep",
+            side_effect=prepare,
+        ):
+            result = runtime_prediction.run("refresh")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            events,
+            ["legacy-prep", "odds-refresh", "cache-prep", "coverage"],
+        )
+        inference_env = infer.call_args.args[0]
+        self.assertEqual(inference_env["FOOTY_TIPPER_FEED_SOURCE"], "python")
+        self.assertTrue(infer.call_args.kwargs["skip_prep"])
 
 
 if __name__ == "__main__":

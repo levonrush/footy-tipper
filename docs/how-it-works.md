@@ -37,7 +37,8 @@ The default `FOOTY_TIPPER_FEED_SOURCE=python` path uses:
 - nrl.com draw JSON for fixture identity, round/state, scores, venue, and kickoff;
 - nrl.com match centres for team/player statistics used to derive ladder and performance cache rows;
 - Australia Sports Betting for historical odds backfill;
-- Betfair Exchange for available live pre-game match, line, and totals snapshots;
+- The Odds API for production live pre-game match, line, and totals snapshots;
+- Betfair Exchange as a jurisdiction-configurable operator fallback;
 - official nrl.com Team Lists and Late Mail articles for versioned lineups.
 
 Python writes `feed_cache_fixtures`, `feed_cache_ladders`, and `feed_cache_performance` plus odds history/snapshots. Smart refresh preserves frozen seasons and last usable cache state. `FOOTY_TIPPER_FEED_SOURCE=feed` is the explicit credentialled XML rollback through the same R-facing cache boundary.
@@ -70,14 +71,18 @@ A complete current release contains:
 | `home_model.pkl`, `away_model.pkl` | Tier-B score models |
 | `model_manifest.json` | predictor layout, blend/Tier-A settings, dispersion, uncertainty, margin, and compatibility metadata |
 | `binary_model.pkl` | Tier-C direct winner classifier |
-| `stacker.pkl` | regularized signal combiner |
-| `win_prob_calibrator.pkl` | beta probability calibrator |
+| `stacker.pkl` | nonnegative, no-intercept Tier A/B/C/market logit pool |
+| `win_prob_calibrator.pkl` | positive-temperature market-pool calibrator |
+| `stacker_no_market.pkl` | counterfactual Tier A/B/C pool for model-only rows |
+| `win_prob_calibrator_no_market.pkl` | positive-temperature no-market calibrator |
 | `joker_policy.json` | backtested joker policy summary |
 | `training-receipt.json` | release provenance, versions, training scope, artifact sizes, and hashes; written last |
 
-Home, away, manifest, and a valid receipt are the minimum publication boundary for a 1.0 release. Compatibility logic may load older optional omissions only during explicit migration/verification.
+Version-3 releases require both probability pools and calibrators as well as
+the score and binary models, manifest, and valid receipt. Compatibility logic
+may load older omissions only during the temporary runtime migration.
 
-Training is local-authoritative with a default 100-candidate Bayesian search. Candidate fits parallelize across the operator's cores while each LightGBM fit stays single-threaded. Artifacts are staged outside the active local set, technically validated, uploaded under a create-only release ID, then downloaded and hash-checked. `update-model` dispatches `model-check.yml`; GitHub Actions loads the exact candidate using the production image. Only a successful workflow may move `model-current.json`. No local Docker runtime is required.
+Training is local-authoritative with a default 100-candidate Bayesian search. Candidate fits parallelize across the operator's cores while each LightGBM fit stays single-threaded. Artifacts are staged outside the active local set, technically validated, and must pass the nested season-out accuracy/log-loss/Brier acceptance gate before upload. They are then published under a create-only release ID, downloaded and hash-checked. `update-model` dispatches `model-check.yml`; GitHub Actions loads the exact candidate using the production image. Only a successful workflow may move `model-current.json`. No local Docker runtime is required.
 
 Actions resolves the pointer and exact release; it never trains. Its runtime push can update only the DB and schedule, so an in-flight old runner cannot overwrite models or reverse a new activation.
 

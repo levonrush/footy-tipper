@@ -111,21 +111,37 @@ rolling_mean_before <- function(observed_values, window) {
   out
 }
 
+market_numeric <- function(values) {
+  raw <- if (is.factor(values)) as.character(values) else values
+  suppressWarnings(as.numeric(raw))
+}
+
+valid_decimal_odds <- function(odds) {
+  values <- market_numeric(odds)
+  is.finite(values) & values > 1
+}
+
 safe_logit <- function(prob, eps = 1e-6) {
-  p <- pmin(pmax(as.numeric(prob), eps), 1 - eps)
-  log(p / (1 - p))
+  raw <- market_numeric(prob)
+  result <- rep(NA_real_, length(raw))
+  valid <- is.finite(raw)
+  if (any(valid)) {
+    p <- pmin(pmax(raw[valid], eps), 1 - eps)
+    result[valid] <- log(p / (1 - p))
+  }
+  result
 }
 
 compute_fair_probs_basic <- function(home_odds, away_odds) {
-  q_home <- suppressWarnings(1 / as.numeric(home_odds))
-  q_away <- suppressWarnings(1 / as.numeric(away_odds))
-
-  if (is.na(q_home) || is.na(q_away) || q_home <= 0 || q_away <= 0) {
+  prices <- c(market_numeric(home_odds)[1], market_numeric(away_odds)[1])
+  if (length(prices) != 2 || !all(valid_decimal_odds(prices))) {
     return(c(NA_real_, NA_real_, NA_real_))
   }
 
+  q_home <- 1 / prices[1]
+  q_away <- 1 / prices[2]
   overround <- q_home + q_away
-  if (overround <= 0) {
+  if (!is.finite(overround) || overround <= 0) {
     return(c(NA_real_, NA_real_, NA_real_))
   }
 
@@ -133,15 +149,15 @@ compute_fair_probs_basic <- function(home_odds, away_odds) {
 }
 
 compute_fair_probs_power <- function(home_odds, away_odds) {
-  q_home <- suppressWarnings(1 / as.numeric(home_odds))
-  q_away <- suppressWarnings(1 / as.numeric(away_odds))
-
-  if (is.na(q_home) || is.na(q_away) || q_home <= 0 || q_away <= 0) {
+  prices <- c(market_numeric(home_odds)[1], market_numeric(away_odds)[1])
+  if (length(prices) != 2 || !all(valid_decimal_odds(prices))) {
     return(c(NA_real_, NA_real_, NA_real_))
   }
 
+  q_home <- 1 / prices[1]
+  q_away <- 1 / prices[2]
   overround <- q_home + q_away
-  if (overround <= 0) {
+  if (!is.finite(overround) || overround <= 0) {
     return(c(NA_real_, NA_real_, NA_real_))
   }
 
@@ -152,7 +168,7 @@ compute_fair_probs_power <- function(home_odds, away_odds) {
   power_k <- 1
   f_lower <- f(0.01)
   f_upper <- f(10)
-  if (!is.na(f_lower) && !is.na(f_upper) && f_lower * f_upper <= 0) {
+  if (is.finite(f_lower) && is.finite(f_upper) && f_lower * f_upper <= 0) {
     power_k <- tryCatch(
       uniroot(f, lower = 0.01, upper = 10)$root,
       error = function(e) 1
@@ -162,7 +178,7 @@ compute_fair_probs_power <- function(home_odds, away_odds) {
   p_home_raw <- q_home ^ power_k
   p_away_raw <- q_away ^ power_k
   normalizer <- p_home_raw + p_away_raw
-  if (normalizer <= 0) {
+  if (!is.finite(normalizer) || normalizer <= 0) {
     return(c(NA_real_, NA_real_, overround))
   }
 
@@ -170,22 +186,25 @@ compute_fair_probs_power <- function(home_odds, away_odds) {
 }
 
 compute_fair_probs_shin <- function(home_odds, away_odds) {
-  q_home <- suppressWarnings(1 / as.numeric(home_odds))
-  q_away <- suppressWarnings(1 / as.numeric(away_odds))
-
-  if (is.na(q_home) || is.na(q_away) || q_home <= 0 || q_away <= 0) {
+  prices <- c(market_numeric(home_odds)[1], market_numeric(away_odds)[1])
+  if (length(prices) != 2 || !all(valid_decimal_odds(prices))) {
     return(c(NA_real_, NA_real_, NA_real_))
   }
 
+  q_home <- 1 / prices[1]
+  q_away <- 1 / prices[2]
   overround <- q_home + q_away
-  if (overround <= 0) {
+  if (!is.finite(overround) || overround <= 0) {
     return(c(NA_real_, NA_real_, NA_real_))
+  }
+  if (abs(overround - 1) < 1e-9) {
+    return(c(q_home / overround, q_away / overround, overround))
   }
 
   # Shin (1993): estimate insider-trading parameter z via closed-form discriminant.
   # z represents the fraction of bets from informed traders.
   disc <- overround^2 - 4 * (overround - 1) * (q_home^2 + q_away^2) / overround
-  if (is.na(disc) || disc < 0) {
+  if (!is.finite(disc) || disc < 0) {
     # Fallback to basic normalization
     return(c(q_home / overround, q_away / overround, overround))
   }
@@ -194,9 +213,15 @@ compute_fair_probs_shin <- function(home_odds, away_odds) {
     (overround - sqrt(disc)) / (2 * (overround - 1)),
     error = function(e) 0
   )
+  if (!is.finite(z)) {
+    z <- 0
+  }
   z <- max(0, min(z, 0.5))
 
   p_home <- (sqrt(z^2 + 4 * (1 - z) * (q_home / overround)^2) - z) / (2 * (1 - z))
+  if (!is.finite(p_home)) {
+    return(c(q_home / overround, q_away / overround, overround))
+  }
   p_home <- max(0, min(1, p_home))
   p_away <- 1 - p_home
 
@@ -443,6 +468,16 @@ market_features <- function(data) {
   # absent under the legacy feed, so read them tolerantly.
   total_over_raw <- col_or_na(data, "total_over_odds")
   total_under_raw <- col_or_na(data, "total_under_odds")
+  line_odds_valid <- valid_decimal_odds(data$team_line_odds_home) &
+    valid_decimal_odds(data$team_line_odds_away)
+  line_amount_home <- market_numeric(data$team_line_amount_home)
+  line_amount_away <- market_numeric(data$team_line_amount_away)
+  line_market_valid <- line_odds_valid &
+    is.finite(line_amount_home) &
+    is.finite(line_amount_away)
+  totals_odds_valid <- valid_decimal_odds(total_over_raw) &
+    valid_decimal_odds(total_under_raw)
+  total_line_raw <- col_or_na(data, "total_line")
   totals_basic <- t(mapply(
     compute_fair_probs_basic,
     total_over_raw,
@@ -486,11 +521,15 @@ market_features <- function(data) {
       away_line_cover_prob_shin = as.numeric(line_shin[, 2]),
       line_market_logit_home_basic = safe_logit(home_line_cover_prob_basic),
       line_market_logit_home_power = safe_logit(home_line_cover_prob_power),
-      implied_spread_home = suppressWarnings(as.numeric(team_line_amount_home)),
-      implied_spread_away = suppressWarnings(as.numeric(team_line_amount_away)),
+      implied_spread_home = ifelse(line_market_valid, line_amount_home, NA_real_),
+      implied_spread_away = ifelse(line_market_valid, line_amount_away, NA_real_),
       implied_spread_diff = implied_spread_home - implied_spread_away,
 
-      market_total_line = suppressWarnings(as.numeric(col_or_na(data, "total_line"))),
+      market_total_line = ifelse(
+        totals_odds_valid & is.finite(total_line_raw) & total_line_raw > 0,
+        total_line_raw,
+        NA_real_
+      ),
       total_over_prob_basic = as.numeric(totals_basic[, 1]),
       total_under_prob_basic = as.numeric(totals_basic[, 2]),
       totals_overround = as.numeric(totals_basic[, 3]),
@@ -558,13 +597,13 @@ market_movement_features <- function(data, db_path = NULL) {
   }
 
   fair_home_prob <- function(home_odds, away_odds) {
-    q_home <- suppressWarnings(1 / as.numeric(home_odds))
-    q_away <- suppressWarnings(1 / as.numeric(away_odds))
-    ifelse(
-      is.na(q_home) | is.na(q_away) | (q_home + q_away) <= 0,
-      NA_real_,
-      q_home / (q_home + q_away)
-    )
+    as.numeric(mapply(
+      function(home_price, away_price) {
+        compute_fair_probs_basic(home_price, away_price)[1]
+      },
+      home_odds,
+      away_odds
+    ))
   }
 
   movement <- movement %>%
@@ -610,9 +649,20 @@ missingness_flags <- function(data) {
 
   data %>%
     mutate(
-      odds_missing = as.integer(is.na(team_head_to_head_odds_home) | is.na(team_head_to_head_odds_away)),
-      line_odds_missing = as.integer(is.na(team_line_odds_home) | is.na(team_line_odds_away)),
-      totals_missing = as.integer(is.na(col_or_na(data, "total_over_odds")) | is.na(col_or_na(data, "total_under_odds"))),
+      odds_missing = as.integer(
+        !valid_decimal_odds(team_head_to_head_odds_home) |
+          !valid_decimal_odds(team_head_to_head_odds_away)
+      ),
+      line_odds_missing = as.integer(
+        !valid_decimal_odds(team_line_odds_home) |
+          !valid_decimal_odds(team_line_odds_away)
+      ),
+      totals_missing = as.integer(
+        !valid_decimal_odds(col_or_na(data, "total_over_odds")) |
+          !valid_decimal_odds(col_or_na(data, "total_under_odds")) |
+          !is.finite(market_numeric(col_or_na(data, "total_line"))) |
+          market_numeric(col_or_na(data, "total_line")) <= 0
+      ),
       market_features_missing = as.integer(is.na(home_market_prob_basic) | is.na(home_line_cover_prob_basic)),
       performance_home_missing = home_perf_missing,
       performance_away_missing = away_perf_missing,

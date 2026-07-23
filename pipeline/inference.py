@@ -14,10 +14,14 @@ parent_dir = os.path.dirname(script_dir)
 sys.path.insert(0, parent_dir)
 
 from pipeline.common.model_prediciton import prediction_functions as pf
+from pipeline.common.model_prediciton.market_score_blend import (
+    apply_market_score_mean_blends,
+)
 from pipeline.common.lineups import features as lf
 from pipeline.common.model_training import calibration as calib
 from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
+from pipeline.ops.odds_gate import current_round_odds_coverage
 from pipeline.runtime_paths import database_path, models_path, project_root as configured_project_root
 
 
@@ -53,14 +57,22 @@ away_model = pf.load_models("away_model", project_root, models_dir=models_dir)
 
 stacker = None
 calibrator = None
+stacker_no_market = None
+calibrator_no_market = None
 binary_model = None
 stacker_path = models_dir / "stacker.pkl"
 calibrator_path = models_dir / "win_prob_calibrator.pkl"
+stacker_no_market_path = models_dir / "stacker_no_market.pkl"
+calibrator_no_market_path = models_dir / "win_prob_calibrator_no_market.pkl"
 binary_model_path = models_dir / "binary_model.pkl"
 if stacker_path.exists():
     stacker = calib.load_artifact(stacker_path)
 if calibrator_path.exists():
     calibrator = calib.load_artifact(calibrator_path)
+if stacker_no_market_path.exists():
+    stacker_no_market = calib.load_artifact(stacker_no_market_path)
+if calibrator_no_market_path.exists():
+    calibrator_no_market = calib.load_artifact(calibrator_no_market_path)
 if binary_model_path.exists():
     binary_model = calib.load_artifact(binary_model_path)
 
@@ -176,10 +188,26 @@ tier_b_cond = np.array(
     dtype=float,
 )
 market_cond = pf.derive_market_home_probability(inference_data)
-if "odds_missing" in inference_data.columns:
-    odds_missing = pd.to_numeric(inference_data["odds_missing"], errors="coerce").fillna(0).to_numpy(dtype=float)
-else:
-    odds_missing = np.zeros(len(inference_data), dtype=float)
+odds_coverage = current_round_odds_coverage(db_path)
+fresh_game_ids = (
+    set(odds_coverage.fresh_game_ids) if not odds_coverage.error else set()
+)
+fresh_line_game_ids = (
+    set(odds_coverage.fresh_line_game_ids) if not odds_coverage.error else set()
+)
+fresh_total_game_ids = (
+    set(odds_coverage.fresh_total_game_ids) if not odds_coverage.error else set()
+)
+fresh_market = calib.fresh_game_mask(inference_data, fresh_game_ids)
+fresh_line_market = calib.fresh_game_mask(inference_data, fresh_line_game_ids)
+fresh_total_market = calib.fresh_game_mask(inference_data, fresh_total_game_ids)
+valid_market = calib.valid_fresh_h2h_mask(inference_data, fresh_game_ids)
+if int(valid_market.sum()) < len(inference_data):
+    print(
+        "WARNING: probability market regime is available for only "
+        f"{int(valid_market.sum())}/{len(inference_data)} game(s) with fresh "
+        "paired H2H snapshots; remaining games are model-only."
+    )
 
 tier_c_cond = None
 if binary_model is not None:
@@ -190,84 +218,107 @@ if binary_model is not None:
     except Exception as exc:
         print(f"Binary model prediction skipped ({exc}).")
 
-line_extra = calib.build_line_market_features(inference_data, blended_mu_home - blended_mu_away)
+probability_stack = manifest.get("probability_stack")
+if not isinstance(probability_stack, dict):
+    probability_stack = {}
+probability_stack_version = int(probability_stack.get("schema_version", 0) or 0)
+no_market_config = probability_stack.get("no_market")
+if not isinstance(no_market_config, dict):
+    no_market_config = {}
+no_market_strategy = str(no_market_config.get("strategy", "tier_b"))
 
-manifest_extra_version = manifest.get("market_extra_version")
-if manifest_extra_version is not None and int(manifest_extra_version) != calib.MARKET_EXTRA_VERSION:
+# The line-market feature layout is needed only by legacy logistic stackers.
+# New simplex pools consume genuine H2H probability as their sole market
+# expert and route missing rows to an independent model-only regime.
+line_extra = None
+if (
+    probability_stack_version < calib.PROBABILITY_STACK_VERSION
+    and valid_market.any()
+):
+    legacy_market_frame = inference_data.copy()
+    stale_line = ~fresh_line_market
+    stale_total = ~fresh_total_market
+    for column in (
+        "home_line_cover_prob_shin",
+        "home_line_cover_prob_power",
+        "home_line_cover_prob_basic",
+        "line_overround_basic",
+        "implied_spread_home",
+        "line_move_points",
+    ):
+        if column in legacy_market_frame.columns:
+            legacy_market_frame.loc[stale_line, column] = np.nan
+    if "line_odds_missing" in legacy_market_frame.columns:
+        legacy_market_frame.loc[stale_line, "line_odds_missing"] = 1.0
+    for column in ("market_total_line", "total_line"):
+        if column in legacy_market_frame.columns:
+            legacy_market_frame.loc[stale_total, column] = np.nan
+    if "totals_missing" in legacy_market_frame.columns:
+        legacy_market_frame.loc[stale_total, "totals_missing"] = 1.0
+    line_extra = calib.build_line_market_features(
+        legacy_market_frame, blended_mu_home - blended_mu_away
+    )
+    manifest_extra_version = manifest.get("market_extra_version")
+    if (
+        manifest_extra_version is not None
+        and int(manifest_extra_version) != calib.MARKET_EXTRA_VERSION
+    ):
+        print(
+            "WARNING: stacker market-extra layout mismatch "
+            f"(manifest v{manifest_extra_version} vs code v{calib.MARKET_EXTRA_VERSION}). "
+            "Retrain before trusting stacked probabilities."
+        )
+
+calibrated_cond, probability_routes = calib.predict_probability_regimes(
+    tier_a=tier_a_cond,
+    tier_b=tier_b_cond,
+    tier_c=tier_c_cond,
+    market=market_cond,
+    valid_market=valid_market,
+    market_stacker=stacker,
+    market_calibrator=calibrator,
+    no_market_stacker=stacker_no_market,
+    no_market_calibrator=calibrator_no_market,
+    no_market_strategy=no_market_strategy,
+    legacy_extra=line_extra,
+)
+print(
+    "Probability routes: "
+    f"market={probability_routes['market']}, "
+    f"no-market-pool={probability_routes['no_market_pool']}, "
+    f"Tier-B-fallback={probability_routes['tier_b']}."
+)
+if probability_routes["consensus_guarded"]:
     print(
-        "WARNING: stacker market-extra layout mismatch "
-        f"(manifest v{manifest_extra_version} vs code v{calib.MARKET_EXTRA_VERSION}). "
-        "Retrain before trusting stacked probabilities."
-    )
-if len(line_extra) > 0 and not np.any(line_extra):
-    print(
-        "WARNING: all stacker market extras are zero for this batch "
-        "(no line/totals/movement data reached inference)."
+        "WARNING: consensus guard replaced "
+        f"{probability_routes['consensus_guarded']} side-reversing ensemble "
+        "prediction(s) with Tier B."
     )
 
-if stacker is not None:
-    stacked_cond = stacker.predict(
-        tier_a_cond, tier_b_cond, market_cond, odds_missing, tier_c=tier_c_cond, extra=line_extra
-    )
-else:
-    stacked_cond = tier_b_cond
-
-if calibrator is not None:
-    calibrated_cond = calibrator.predict(stacked_cond)
-else:
-    calibrated_cond = stacked_cond
-
-# Margin blend from the manifest (model margin + line market + Tier A);
-# games without a line fall back to the simulated margin via NaN.
-margin_override = None
 margin_blend = manifest.get("margin_blend")
-if isinstance(margin_blend, dict):
-    try:
-        market_spread_arr = -pd.to_numeric(
-            inference_data.get("implied_spread_home", np.nan), errors="coerce"
-        ).to_numpy(dtype=float)
-        tier_a_margin = baseline_mu_home - baseline_mu_away
-        margin_override = (
-            float(margin_blend.get("intercept", 0.0))
-            + float(margin_blend.get("coef_model_margin", 0.0)) * (blended_mu_home - blended_mu_away)
-            + float(margin_blend.get("coef_market_spread", 0.0)) * market_spread_arr
-            + float(margin_blend.get("coef_tier_a_margin", 0.0)) * tier_a_margin
-        )
-        margin_override = np.where(np.isfinite(market_spread_arr), margin_override, np.nan)
-        n_blend = int(np.isfinite(margin_override).sum())
-        print(f"Margin blend applied to {n_blend}/{len(inference_data)} game(s) with line odds.")
-    except Exception as exc:
-        print(f"Margin blend skipped ({exc}).")
-        margin_override = None
-
-# Totals blend from the manifest: shrink the model's expected total toward
-# the totals market line, preserving the margin split, before simulation.
 total_blend = manifest.get("total_blend")
-if isinstance(total_blend, dict):
-    try:
-        market_total_arr = pd.to_numeric(
-            inference_data.get("market_total_line", np.nan), errors="coerce"
-        ).to_numpy(dtype=float)
-        model_total = blended_mu_home + blended_mu_away
-        blended_total = (
-            float(total_blend.get("intercept", 0.0))
-            + float(total_blend.get("coef_model_total", 0.0)) * model_total
-            + float(total_blend.get("coef_market_total", 0.0)) * market_total_arr
+try:
+    blended_mu_home, blended_mu_away, score_market_diagnostics = (
+        apply_market_score_mean_blends(
+            inference_data,
+            blended_mu_home,
+            blended_mu_away,
+            baseline_mu_home,
+            baseline_mu_away,
+            fresh_market=fresh_market,
+            fresh_line_market=fresh_line_market,
+            fresh_total_market=fresh_total_market,
+            margin_blend=margin_blend,
+            total_blend=total_blend,
         )
-        with np.errstate(divide="ignore", invalid="ignore"):
-            total_scale = np.where(
-                np.isfinite(blended_total) & (model_total > 1e-6),
-                blended_total / model_total,
-                1.0,
-            )
-        # sanity clamp: the totals market should nudge lambdas, not rewrite them
-        total_scale = np.clip(total_scale, 0.75, 1.35)
-        blended_mu_home = np.maximum(blended_mu_home * total_scale, 1e-6)
-        blended_mu_away = np.maximum(blended_mu_away * total_scale, 1e-6)
-        n_total = int(np.sum(np.abs(total_scale - 1.0) > 1e-9))
-        print(f"Total blend rescaled lambdas for {n_total}/{len(inference_data)} game(s) with totals lines.")
-    except Exception as exc:
-        print(f"Total blend skipped ({exc}).")
+    )
+    print(
+        "Score-mean market blends: "
+        f"line={score_market_diagnostics['line_count']}/{len(inference_data)}, "
+        f"total={score_market_diagnostics['total_count']}/{len(inference_data)}."
+    )
+except Exception as exc:
+    print(f"Score-mean market blends skipped ({exc}).")
 
 outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     inference_data=inference_data,
@@ -275,7 +326,6 @@ outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     mu_away=blended_mu_away,
     lambda3=lambda3,
     calibrated_home_win_conditional=calibrated_cond,
-    margin_override=margin_override,
     dispersion_home=dispersion_home,
     dispersion_away=dispersion_away,
 )
@@ -291,7 +341,9 @@ pf.save_predictions_to_db(
 # Log tips summary (primary) and edge summary (secondary).
 try:
     model_prob = calibrated_cond
-    edge = model_prob - market_cond
+    # Missing odds are a model-only prediction regime, not a synthetic 50%
+    # market. Never report a betting edge for those rows.
+    edge = np.where(valid_market, model_prob - market_cond, np.nan)
     edge_threshold = 0.05
 
     teams_home = inference_data["team_home"].to_numpy() if "team_home" in inference_data.columns else ["?"] * len(inference_data)
@@ -306,12 +358,19 @@ try:
         print(f"  TIP [{confidence}] {th} vs {ta}: {tip} ({tip_prob:.1%})")
 
     # ── SECONDARY: Betting edge vs market ────────────────────────────────────
-    value_home = (edge > edge_threshold).sum()
-    value_away = (edge < -edge_threshold).sum()
+    value_home = int(np.nansum(edge > edge_threshold))
+    value_away = int(np.nansum(edge < -edge_threshold))
     if value_home + value_away > 0:
         print(f"\n── Market edge (threshold ±{edge_threshold:.0%}) ────────────────────────────")
-        for th, ta, mp, mkp, e in zip(teams_home, teams_away, model_prob, market_cond, edge):
-            if abs(e) > edge_threshold:
+        for th, ta, mp, mkp, e, has_market in zip(
+            teams_home,
+            teams_away,
+            model_prob,
+            market_cond,
+            edge,
+            valid_market,
+        ):
+            if has_market and abs(e) > edge_threshold:
                 direction = "HOME" if e > 0 else "AWAY"
                 print(f"  [{direction}] {th} vs {ta}: model={mp:.1%}, market={mkp:.1%}, edge={e:+.1%}")
 except Exception:

@@ -8,7 +8,7 @@ This page is the curated bridge between formal reports, historical notebooks, pr
 
 ### Formal model and evaluation
 
-The central research direction was a tiered probabilistic system: a stable sequential team-strength prior, richer score regressors, a direct outcome classifier, market-aware stacking, calibration, and a coherent score distribution. Production now implements Tier A/B/C, learned score blends, a regularized stacker, beta calibration, bivariate-Poisson dependence, negative-binomial overdispersion when estimable, and nested season-out evaluation.
+The central research direction was a tiered probabilistic system: a stable sequential team-strength prior, richer score regressors, a direct outcome classifier, market-aware pooling, calibration, and a coherent score distribution. Production now implements Tier A/B/C, learned score blends, separate constrained market/no-market pools, direction-preserving calibration, bivariate-Poisson dependence, negative-binomial overdispersion when estimable, and nested season-out evaluation.
 
 The biggest deliberate non-implementation is a full dynamic hierarchical Bayesian attack/defence model. Tier A captures sequential state and carryover but does not claim that richer latent-state structure.
 
@@ -20,7 +20,11 @@ Player-performance ratings sourced from match-centre history remain incomplete. 
 
 ### Odds and market information
 
-The odds review rejected naïve market variables inside Tier B. Production treats the market as a separate expert: de-vigged head-to-head probabilities, line-market inputs, explicit model/market disagreement, cross-validated stacking, LOSO calibration, and a line-aware margin blend. A totals market and market-implied score offsets remain unimplemented.
+The odds review rejected naïve market variables inside Tier B. Production
+treats genuine H2H prices as a separate expert in a constrained market pool,
+uses a separately validated no-market path when prices are absent, applies
+direction-preserving LOSO calibration, and uses valid line/total markets only
+to nudge pre-simulation score means.
 
 ### Joker and competition strategy
 
@@ -40,9 +44,8 @@ The migration research identified nrl.com draw/match-centre replacements, a deri
 | Learned Tier A/B score blend | Shipped | manifest home/away weights |
 | Market isolated from Tier-B predictors | Shipped | predictor filter plus meta-layer market inputs |
 | Shin/fallback de-vigging | Shipped | fair-market probability path |
-| Model/market and line disagreement | Shipped | stacker meta-features |
-| Cross-validated regularized stacker | Shipped | version-aware `stacker.pkl` |
-| Beta calibration on LOSO stack predictions | Shipped | `win_prob_calibrator.pkl`; logged fallback for sparse season groups |
+| Constrained market/no-market pooling | Shipped | version-aware market and no-market stacker artifacts |
+| Direction-preserving LOSO calibration | Shipped | market and no-market calibrator artifacts |
 | Bivariate score dependence | Shipped | estimated `lambda3`, possibly near zero when unsupported |
 | Negative-binomial overdispersion | Shipped | manifest side dispersions with Poisson fallback |
 | Line-aware margin blend | Shipped | optional manifest ridge coefficients; simulation fallback without lines |
@@ -54,7 +57,7 @@ The migration research identified nrl.com draw/match-centre replacements, a deri
 | Joker opportunity, guardrails, and single-use ledger | Shipped | `joker_policy.json`, `joker_usage` |
 | Competition-win deviation search | Shipped | advisory default; audit table; model predictions unchanged |
 | Dynamic hierarchical Bayesian attack/defence | Exploratory | formal research only; current Tier A is simpler |
-| Market totals and Poisson score offsets | Not implemented | requires dependable prediction-time totals contract |
+| Full bookmaker-offset residual score model | Not implemented | current valid-market blends only nudge prediction-time means |
 | nrl.com draw/match-centre feed replacement | Shipped | Python ingestion runs before R prep; parity evidence checked in; XML retained as rollback |
 | Referee, weather, travel, and rest expansion | Exploratory | candidate sources/features; train/infer symmetry and evaluation still required |
 

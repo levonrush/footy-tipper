@@ -176,14 +176,17 @@ def _odds_backfill_bootstrapped(root: pathlib.Path) -> bool:
 def _refresh_nrl_data(env, root, include_bootstrap=False):
     """Run nrl.com + odds ingestion ahead of R data prep.
 
-    Skipped entirely in legacy feed mode (R fetches the XML feed itself).
-    Individual steps fail soft; prep proceeds on cached data.
+    The nrl.com fixture/stat refresh is skipped in legacy feed mode, where R
+    fetches XML instead. Live odds are independent and still refresh in every
+    feed mode. Individual steps fail soft; prep proceeds on cached data.
     """
     if _feed_source(env) == "feed":
         _log("Feed source is 'feed'; skipping nrl.com ingestion (legacy XML path).")
+        _run_odds(env, root, "live")
         return
     if not _nrl_data_enabled(env):
         _log("nrl.com ingestion disabled via FOOTY_TIPPER_NRL_DATA_ENABLED=false.")
+        _run_odds(env, root, "live")
         return
 
     if include_bootstrap and _to_bool(
@@ -436,6 +439,18 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
                 "No production state was changed and no email was sent."
             )
             return 3
+
+    if not test_mode and not dry_run:
+        from pipeline.ops.odds_gate import current_round_odds_coverage
+
+        final_odds_coverage = current_round_odds_coverage(db_path)
+        if not final_odds_coverage.complete:
+            _log(
+                "Live delivery blocked by the final odds check before any "
+                "production state change: "
+                + final_odds_coverage.message()
+            )
+            return 1
 
     def _existing_delivery_result(marker, reason):
         marker = marker or {}

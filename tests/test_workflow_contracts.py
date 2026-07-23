@@ -91,6 +91,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("pipeline.ops.state_sync pull", workflow_text)
         self.assertNotIn("pipeline.ops.state_sync push", workflow_text)
 
+    def test_predict_job_materialises_dedicated_odds_api_secret(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("ODDS_API_KEY_SECRET: ${{ secrets.ODDS_API_KEY }}", workflow_text)
+        self.assertIn(
+            "printf 'ODDS_API_KEY=%s\\n' \"$ODDS_API_KEY_SECRET\" >> secrets.env",
+            workflow_text,
+        )
+
     def test_test_mode_cannot_publish_runtime_or_site(self):
         workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
         guard = "if: success() && needs.gate.outputs.mode != 'test'"

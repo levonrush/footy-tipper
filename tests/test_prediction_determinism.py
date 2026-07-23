@@ -65,6 +65,10 @@ class CalibratedConsistencyTests(unittest.TestCase):
         self.assertEqual(row["home_team_result"], "Loss")
         self.assertLess(row["predicted_margin"], 0)
         self.assertLess(row["predicted_home_score"], row["predicted_away_score"])
+        self.assertEqual(
+            row["predicted_margin"],
+            row["predicted_home_score"] - row["predicted_away_score"],
+        )
 
     def test_calibrated_margin_moves_toward_calibration(self):
         # Same raw mus; a stronger calibrated home prob must not shrink the margin.

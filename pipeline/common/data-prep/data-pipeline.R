@@ -40,10 +40,13 @@ data_pipeline <- function(year_span, pipeline, form_period, carry_over, k_val, e
       print("Data Pipeline: Single season in scope. Skipping first-season drop.")
     }
 
-    # If use_odds is TRUE, then only rows where team_head_to_head_odds_away is not NA are filtered.
+    # If use_odds is TRUE, retain only complete, valid decimal H2H markets.
     if (use_odds == TRUE) {
       footy_tipping_data <- footy_tipping_data %>%
-        filter(!is.na(team_head_to_head_odds_away))
+        filter(
+          valid_decimal_odds(team_head_to_head_odds_home),
+          valid_decimal_odds(team_head_to_head_odds_away)
+        )
     }
 
     print("Data Pipeline: Splitting and assigning datasets...")

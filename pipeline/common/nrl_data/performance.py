@@ -2,8 +2,9 @@
 
 Semantics verified against the cached feed: each (competition_year, round_id,
 team) row holds that round's SINGLE-GAME stats (not season-to-date); bye
-rounds are all-zero rows. R lags the table by one round at read time, so the
-`_performance` features at round r are the team's round r-1 game stats.
+rounds are all-zero rows. R selects the same team's latest prior finalized
+match in the season, strictly before kickoff, so a bye never replaces the most
+recent played-game `_performance` features.
 
 Feed naming quirk: `<stat>` columns hold metres/values and `<stat>_occur`
 columns hold counts (e.g. `kicks` = kicking metres, `kicks_occur` = number of
@@ -182,11 +183,11 @@ def build_season_performance(
     """Raw feed_cache_performance rows for a season.
 
     `team_stats_by_game` / `player_sums_by_game`: game_id -> side -> stats.
-    Only regular-season rounds are emitted (the feed leaderboard covers the
-    premiership rounds; finals rounds have no leaderboard rows).
+    Every finalized match is eligible, including finals. Match-centre
+    statistics are used when available; fixture-derived score/result fields
+    still make a valid latest-prior observation when those statistics are
+    sparse.
     """
-    from .ladder import is_regular_round
-
     rows: list[dict] = []
     played_rounds: dict[int, set[str]] = defaultdict(set)
 
@@ -194,8 +195,6 @@ def build_season_performance(
         if fixture.get("game_state_name") != "Final":
             continue
         round_id = int(float(fixture["round_id"]))
-        if not is_regular_round(fixture.get("round_name"), round_id):
-            continue
         game_id = int(float(fixture["game_id"]))
         home_score = float(fixture.get("team_final_score_home") or 0)
         away_score = float(fixture.get("team_final_score_away") or 0)

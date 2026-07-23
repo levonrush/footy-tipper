@@ -104,8 +104,12 @@ jobs:
         env:
           SECRETS_ENV: ${{ secrets.SECRETS_ENV }}
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          ODDS_API_KEY_SECRET: ${{ secrets.ODDS_API_KEY }}
         run: |
           printf '%s\n' "$SECRETS_ENV" > secrets.env
+          if [ -n "$ODDS_API_KEY_SECRET" ]; then
+            printf 'ODDS_API_KEY=%s\n' "$ODDS_API_KEY_SECRET" >> secrets.env
+          fi
           printf '%s\n' "$SERVICE_ACCOUNT_JSON" > service-account-token.json
           while IFS= read -r line; do
             case "$line" in ''|\#*) continue ;; esac

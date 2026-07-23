@@ -15,9 +15,11 @@ from pipeline.common.use_predictions.distribution import get_predictions
 from pipeline.common.use_predictions.email_render import (
     _format_predicted_margin,
     _format_predicted_score_numbers,
+    _format_market_price,
     _format_price,
     _format_probability,
     _joker_reader_lines,
+    _market_coverage_notice,
     _prediction_winner,
 )
 from pipeline.common.use_predictions.joker import get_joker_round_recommendation
@@ -142,13 +144,23 @@ def _tips_card(predictions):
             f"<td><span class=\"badge {_badge_class(tip_prob)}\">{_format_probability(tip_prob)}</span></td>"
             f"<td>{html.escape(_format_predicted_score_numbers(row))}</td>"
             f"<td>{html.escape(_format_predicted_margin(row))}</td>"
-            f"<td>H {_format_price(row['team_head_to_head_odds_home'])} / A {_format_price(row['team_head_to_head_odds_away'])}</td>"
+            f"<td>H {_format_market_price(row['team_head_to_head_odds_home'], row.get('market_odds_fresh', True))}"
+            f" / A {_format_market_price(row['team_head_to_head_odds_away'], row.get('market_odds_fresh', True))}</td>"
             "</tr>"
         )
     round_name = predictions["round_name"].iloc[0]
     year = predictions["competition_year"].iloc[0]
+    market_notice = _market_coverage_notice(predictions)
+    market_notice_html = ""
+    if market_notice:
+        market_notice_html = (
+            '<p style="padding:10px 12px; border:1px solid #fdba74; '
+            'border-radius:8px; background:#fff7ed; color:#9a3412;">'
+            f"<strong>Market data notice:</strong> {html.escape(market_notice)}</p>"
+        )
     return (
         f'<div class="card"><h2>{html.escape(str(round_name))} {html.escape(str(year))} tips</h2>'
+        f"{market_notice_html}"
         "<table><thead><tr><th>Fixture</th><th>Tip</th><th>Confidence</th><th>Score tip</th>"
         "<th>Margin</th><th>H2H odds</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table></div>"

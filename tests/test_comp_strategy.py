@@ -6,6 +6,7 @@ from unittest import mock
 import pandas as pd
 
 from pipeline.common.use_predictions import comp_strategy as cs
+from pipeline.common.use_predictions.email_render import _format_predicted_margin
 
 
 def _predictions():
@@ -98,9 +99,55 @@ class CompStrategyTests(unittest.TestCase):
         self.assertEqual(row["home_team_result"], "Loss")
         self.assertLess(row["predicted_margin"], 0)
         self.assertLess(row["predicted_home_score"], row["predicted_away_score"])
+        self.assertEqual(
+            row["predicted_margin"],
+            row["predicted_home_score"] - row["predicted_away_score"],
+        )
         # Untouched games keep their tips.
         row2 = adjusted[adjusted["game_id"] == 2].iloc[0]
         self.assertEqual(row2["home_team_result"], "Win")
+
+    def test_score_margin_render_stays_consistent_after_flip(self):
+        predictions = _predictions().iloc[[0]].copy()
+        predictions.loc[:, "predicted_home_score"] = 17
+        predictions.loc[:, "predicted_away_score"] = 14
+        predictions.loc[:, "predicted_margin"] = 1
+        recommendation = {
+            "available": True,
+            "deviations": [{"game_id": 1}],
+        }
+
+        adjusted = cs.apply_comp_strategy_to_predictions(
+            predictions, recommendation
+        )
+        row = adjusted.iloc[0]
+
+        self.assertEqual(row["home_team_result"], "Loss")
+        self.assertEqual(row["predicted_home_score"], 14)
+        self.assertEqual(row["predicted_away_score"], 17)
+        self.assertEqual(row["predicted_margin"], -3)
+        self.assertEqual(_format_predicted_margin(row), "Bravo by 3")
+
+    def test_tied_score_is_made_consistent_with_flipped_tip(self):
+        predictions = _predictions().iloc[[0]].copy()
+        predictions.loc[:, "predicted_home_score"] = 14
+        predictions.loc[:, "predicted_away_score"] = 14
+        predictions.loc[:, "predicted_margin"] = 0
+        recommendation = {
+            "available": True,
+            "deviations": [{"game_id": 1}],
+        }
+
+        adjusted = cs.apply_comp_strategy_to_predictions(
+            predictions, recommendation
+        )
+        row = adjusted.iloc[0]
+
+        self.assertEqual(row["home_team_result"], "Loss")
+        self.assertEqual(row["predicted_home_score"], 14)
+        self.assertEqual(row["predicted_away_score"], 15)
+        self.assertEqual(row["predicted_margin"], -1)
+        self.assertEqual(_format_predicted_margin(row), "Bravo by 1")
 
     def test_no_flip_outside_band(self):
         # Game 2 (p=0.78) and 3 (p=0.25) are outside the flip band and must

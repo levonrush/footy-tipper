@@ -286,6 +286,155 @@ fetch_performance_year <- function(password, year){
     type_convert()
 }
 
+coerce_fixture_kickoff <- function(values) {
+  if (inherits(values, "POSIXt")) {
+    return(as.numeric(values))
+  }
+  if (inherits(values, "Date")) {
+    return(as.numeric(as.POSIXct(values, tz = "UTC")))
+  }
+
+  raw <- if (is.factor(values)) as.character(values) else values
+  numeric_values <- suppressWarnings(as.numeric(raw))
+  unresolved <- !is.finite(numeric_values)
+  if (any(unresolved)) {
+    parsed <- suppressWarnings(as.POSIXct(as.character(raw[unresolved]), tz = "UTC"))
+    numeric_values[unresolved] <- as.numeric(parsed)
+  }
+  numeric_values
+}
+
+fixture_kickoff <- function(fixtures) {
+  fallback <- if ("start_time" %in% names(fixtures)) {
+    coerce_fixture_kickoff(fixtures$start_time)
+  } else {
+    rep(NA_real_, nrow(fixtures))
+  }
+
+  if (!("start_time_utc" %in% names(fixtures))) {
+    return(fallback)
+  }
+
+  utc <- coerce_fixture_kickoff(fixtures$start_time_utc)
+  ifelse(is.finite(utc), utc, fallback)
+}
+
+build_performance_observations <- function(fixtures, performance) {
+  completed <- fixtures %>%
+    mutate(
+      competition_year = suppressWarnings(as.integer(competition_year)),
+      round_id = suppressWarnings(as.integer(round_id)),
+      .performance_observed_at = fixture_kickoff(fixtures),
+      .performance_game_id = suppressWarnings(as.numeric(game_id))
+    ) %>%
+    filter(
+      game_state_name == "Final",
+      is.finite(.performance_observed_at)
+    )
+
+  completed_team_games <- bind_rows(
+    completed %>%
+      transmute(
+        competition_year,
+        round_id,
+        team = as.character(team_home),
+        .performance_observed_at,
+        .performance_game_id
+      ),
+    completed %>%
+      transmute(
+        competition_year,
+        round_id,
+        team = as.character(team_away),
+        .performance_observed_at,
+        .performance_game_id
+      )
+  ) %>%
+    arrange(
+      competition_year,
+      team,
+      round_id,
+      .performance_observed_at,
+      .performance_game_id
+    ) %>%
+    distinct(competition_year, round_id, team, .keep_all = TRUE)
+
+  performance %>%
+    mutate(
+      competition_year = suppressWarnings(as.integer(competition_year)),
+      round_id = suppressWarnings(as.integer(round_id)),
+      team = as.character(team)
+    ) %>%
+    inner_join(
+      completed_team_games,
+      by = c("competition_year", "round_id", "team")
+    )
+}
+
+join_latest_prior_performance <- function(fixtures, observations, performance_columns, side) {
+  if (!(side %in% c("home", "away"))) {
+    stop("Performance merge side must be 'home' or 'away'.")
+  }
+
+  target_team <- if (side == "home") fixtures$team_home else fixtures$team_away
+  fixture_keys <- tibble(
+    .fixture_row_id = seq_len(nrow(fixtures)),
+    competition_year = suppressWarnings(as.integer(fixtures$competition_year)),
+    team = as.character(target_team),
+    .fixture_kickoff = fixture_kickoff(fixtures)
+  )
+
+  candidates <- suppressWarnings(
+    inner_join(
+      fixture_keys,
+      observations,
+      by = c("competition_year", "team")
+    )
+  ) %>%
+    filter(
+      is.finite(.fixture_kickoff),
+      is.finite(.performance_observed_at),
+      .performance_observed_at < .fixture_kickoff
+    ) %>%
+    arrange(
+      .fixture_row_id,
+      desc(.performance_observed_at),
+      desc(.performance_game_id)
+    ) %>%
+    group_by(.fixture_row_id) %>%
+    slice_head(n = 1) %>%
+    ungroup() %>%
+    select(.fixture_row_id, all_of(performance_columns))
+
+  names(candidates)[match(performance_columns, names(candidates))] <-
+    paste0(performance_columns, "_", side, "_performance")
+
+  fixtures %>%
+    mutate(.fixture_row_id = seq_len(n())) %>%
+    left_join(candidates, by = ".fixture_row_id") %>%
+    select(-.fixture_row_id)
+}
+
+merge_latest_prior_performance <- function(fixtures, performance) {
+  performance_columns <- setdiff(
+    names(performance),
+    c("team", "round_id", "competition_year")
+  )
+  observations <- build_performance_observations(fixtures, performance)
+
+  fixtures %>%
+    join_latest_prior_performance(
+      observations = observations,
+      performance_columns = performance_columns,
+      side = "home"
+    ) %>%
+    join_latest_prior_performance(
+      observations = observations,
+      performance_columns = performance_columns,
+      side = "away"
+    )
+}
+
 # The main function to extract all data
 get_data <- function(year_span, include_performance = TRUE, prep_mode = "full", db_path = NULL){
   
@@ -464,18 +613,11 @@ get_data <- function(year_span, include_performance = TRUE, prep_mode = "full", 
     numeric_cols <- names(performance_df)[sapply(performance_df, is.numeric)]
     performance_df[numeric_cols] <- lapply(performance_df[numeric_cols], as.numeric)
     
-    performance_df <- performance_df %>%
-      arrange(competition_year, round_id) %>%
-      group_by(team, competition_year) %>%
-      mutate_at(vars(-team, -round_id, -competition_year), lag) %>%
-      ungroup() %>%
-      mutate_at(vars(-team, -round_id, -competition_year), list(~ replace_na(., 0)))
-    
-    print("Get Data: Merging match and performance data...")
-    footy_tipper_df <- footy_tipper_df %>%
-      left_join(performance_df, by = c("competition_year", "round_id", "team_home" = "team")) %>%
-      left_join(performance_df, by = c("competition_year", "round_id", "team_away" = "team"), 
-                suffix = c("_home_performance", "_away_performance"))
+    print("Get Data: Merging latest prior finalized performance data...")
+    footy_tipper_df <- merge_latest_prior_performance(
+      footy_tipper_df,
+      performance_df
+    )
   } else {
     print("Get Data: Skipping performance data merge for this run.")
   }
