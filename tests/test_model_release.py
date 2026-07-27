@@ -147,32 +147,71 @@ class ModelReleaseTests(unittest.TestCase):
     def test_default_search_budget_is_one_hundred(self):
         self.assertEqual(model_release.DEFAULT_TUNING_CANDIDATES, 100)
 
-    def test_model_update_uses_active_conda_r_library(self):
-        with mock.patch.dict(
-            os.environ,
-            {
-                "CONDA_PREFIX": "/opt/conda/envs/footy-tipper",
+    def test_model_update_uses_conda_rscript_even_when_path_prefers_system_r(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp) / "footy-tipper"
+            rscript = prefix / "bin" / "Rscript"
+            rscript.parent.mkdir(parents=True)
+            rscript.touch(mode=0o755)
+            environment = {
+                "CONDA_PREFIX": str(prefix),
                 "CONDA_DEFAULT_ENV": "footy-tipper",
-            },
-            clear=True,
-        ):
-            env = model_release._base_environment("/repo", 100)
+                "PATH": "/usr/local/bin:/usr/bin",
+            }
 
-        self.assertEqual(
-            env["R_LIBS_USER"],
-            "/opt/conda/envs/footy-tipper/lib/R/library",
-        )
+            resolved = model_release._active_conda_rscript(environment)
+            with mock.patch.dict(os.environ, environment, clear=True):
+                env = model_release._base_environment("/repo", 100)
+
+        self.assertEqual(resolved, rscript.resolve())
+        self.assertNotIn("R_LIBS_USER", env)
+
+    def test_model_update_refuses_system_r_when_conda_rscript_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            environment = {
+                "CONDA_PREFIX": str(Path(tmp) / "footy-tipper"),
+                "PATH": "/usr/local/bin:/usr/bin",
+            }
+            with self.assertRaisesRegex(RuntimeError, "does not contain Rscript"):
+                model_release._active_conda_rscript(environment)
+
+    def test_training_data_prep_executes_conda_rscript_by_absolute_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prefix = root / "footy-tipper"
+            rscript = prefix / "bin" / "Rscript"
+            rscript.parent.mkdir(parents=True)
+            rscript.touch(mode=0o755)
+            environment = {
+                "CONDA_PREFIX": str(prefix),
+                "FOOTY_TIPPER_FEED_SOURCE": "feed",
+            }
+            with mock.patch(
+                "pipeline.cli._lineups_enabled", return_value=False
+            ), mock.patch.object(model_release, "_run_logged") as run_logged:
+                model_release._prepare_training_data(
+                    root, environment, root / "update.log"
+                )
+
+        command = run_logged.call_args.args[0]
+        self.assertEqual(command[0], rscript.resolve())
+        self.assertEqual(command[1], root / "pipeline" / "data-prep.R")
 
     def test_model_update_preserves_explicit_r_library(self):
-        with mock.patch.dict(
-            os.environ,
-            {
-                "CONDA_PREFIX": "/opt/conda/envs/footy-tipper",
-                "R_LIBS_USER": "/compatible/custom/library",
-            },
-            clear=True,
-        ):
-            env = model_release._base_environment("/repo", 100)
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp) / "footy-tipper"
+            rscript = prefix / "bin" / "Rscript"
+            rscript.parent.mkdir(parents=True)
+            rscript.touch(mode=0o755)
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "CONDA_PREFIX": str(prefix),
+                    "R_LIBS_USER": "/compatible/custom/library",
+                },
+                clear=True,
+            ):
+                env = model_release._base_environment("/repo", 100)
 
         self.assertEqual(env["R_LIBS_USER"], "/compatible/custom/library")
 
