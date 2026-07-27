@@ -438,7 +438,13 @@ def _base_environment(root, tuning_candidates) -> dict:
     env["PYTHONPATH"] = str(root) + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
     )
-    env.setdefault("R_LIBS_USER", os.path.expanduser("~/R/library"))
+    # Keep runtime installs inside the active Conda environment. A generic
+    # ~/R/library can contain binaries built for a different R version and
+    # make an otherwise complete project environment fail during data prep.
+    if not env.get("R_LIBS_USER") and env.get("CONDA_PREFIX"):
+        env["R_LIBS_USER"] = str(
+            pathlib.Path(env["CONDA_PREFIX"]) / "lib" / "R" / "library"
+        )
     env["FOOTY_TIPPER_TUNE_ITER"] = str(int(tuning_candidates))
     return env
 

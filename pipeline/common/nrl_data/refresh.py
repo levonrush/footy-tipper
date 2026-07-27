@@ -87,7 +87,10 @@ def _fetch_match_centres(
     max_pages: int | None = None,
 ) -> tuple[int, list[str], dict[str, int]]:
     """Returns (pages fetched, errors, match_centre_url -> authoritative matchId)."""
-    have_stats = store.games_with_team_stats(con) if only_missing else set()
+    # Upcoming pages already contain a small season-summary team-stat block.
+    # Do not mistake that for the detailed post-game payload once the fixture
+    # becomes Final: player rows are the reliable completion signal.
+    have_final_stats = store.games_with_player_stats(con) if only_missing else set()
     now_utc = dt.datetime.now(dt.timezone.utc).timestamp()
     upcoming_horizon = now_utc + UPCOMING_FETCH_WINDOW_DAYS * 86400
 
@@ -103,7 +106,7 @@ def _fetch_match_centres(
         state = fixture.get("game_state_name")
 
         if state == "Final":
-            if only_missing and game_id in have_stats:
+            if only_missing and game_id in have_final_stats:
                 continue
         elif include_upcoming and state == "Pre Game":
             kickoff = fixture.get("start_time_utc")

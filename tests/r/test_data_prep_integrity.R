@@ -75,6 +75,20 @@ assert_true(
   "All fair-probability paths must reject invalid decimal prices safely."
 )
 
+shin_example <- compute_fair_probs_shin(2.50, 1.53)
+shin_mirror <- compute_fair_probs_shin(1.53, 2.50)
+assert_true(
+  abs(shin_example[1] - 0.373202614379085) < 1e-12 &&
+    abs(sum(shin_example[1:2]) - 1) < 1e-12 &&
+    abs(shin_example[1] - shin_mirror[2]) < 1e-12 &&
+    abs(shin_example[2] - shin_mirror[1]) < 1e-12,
+  "Binary Shin probabilities must use the correct de-vig equation and preserve mirror symmetry."
+)
+assert_true(
+  all(abs(compute_fair_probs_shin(1.91, 1.91)[1:2] - 0.5) < 1e-12),
+  "A symmetric two-outcome market must remain neutral under Shin de-vigging."
+)
+
 movement_db <- tempfile(fileext = ".sqlite")
 movement_con <- dbConnect(SQLite(), movement_db)
 dbWriteTable(
