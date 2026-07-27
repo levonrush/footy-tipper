@@ -147,6 +147,35 @@ class ModelReleaseTests(unittest.TestCase):
     def test_default_search_budget_is_one_hundred(self):
         self.assertEqual(model_release.DEFAULT_TUNING_CANDIDATES, 100)
 
+    def test_model_update_uses_active_conda_r_library(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "CONDA_PREFIX": "/opt/conda/envs/footy-tipper",
+                "CONDA_DEFAULT_ENV": "footy-tipper",
+            },
+            clear=True,
+        ):
+            env = model_release._base_environment("/repo", 100)
+
+        self.assertEqual(
+            env["R_LIBS_USER"],
+            "/opt/conda/envs/footy-tipper/lib/R/library",
+        )
+
+    def test_model_update_preserves_explicit_r_library(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "CONDA_PREFIX": "/opt/conda/envs/footy-tipper",
+                "R_LIBS_USER": "/compatible/custom/library",
+            },
+            clear=True,
+        ):
+            env = model_release._base_environment("/repo", 100)
+
+        self.assertEqual(env["R_LIBS_USER"], "/compatible/custom/library")
+
     def test_receipt_is_complete_and_detects_artifact_tampering(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

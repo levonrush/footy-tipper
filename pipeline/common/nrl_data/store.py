@@ -347,6 +347,22 @@ def games_with_team_stats(con: sqlite3.Connection) -> set[int]:
     }
 
 
+def games_with_player_stats(con: sqlite3.Connection) -> set[int]:
+    """Games whose match centre has post-game player statistics for both teams.
+
+    Upcoming match-centre pages expose a small team-summary block but no
+    player-stat rows.  A team-stat row alone therefore does not prove that a
+    finalized game's detailed performance payload has been ingested.
+    """
+    return {
+        int(row[0])
+        for row in con.execute(
+            "SELECT game_id FROM match_player_stats "
+            "GROUP BY game_id HAVING COUNT(DISTINCT side) = 2"
+        )
+    }
+
+
 def record_ingest_run(
     con: sqlite3.Connection,
     mode: str,

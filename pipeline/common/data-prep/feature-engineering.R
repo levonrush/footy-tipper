@@ -197,33 +197,20 @@ compute_fair_probs_shin <- function(home_odds, away_odds) {
   if (!is.finite(overround) || overround <= 0) {
     return(c(NA_real_, NA_real_, NA_real_))
   }
-  if (abs(overround - 1) < 1e-9) {
+
+  # For a two-outcome market, Shin's solution is exactly the additive
+  # de-vig method: subtract half the overround from each raw implied
+  # probability. This closed form avoids an unnecessary numerical root solve.
+  # (The general Shin equation uses q_i^2 / overround, not
+  # (q_i / overround)^2.)
+  margin_per_outcome <- (overround - 1) / 2
+  p_home <- q_home - margin_per_outcome
+  p_away <- q_away - margin_per_outcome
+  if (!all(is.finite(c(p_home, p_away))) ||
+      any(c(p_home, p_away) < 0) ||
+      any(c(p_home, p_away) > 1)) {
     return(c(q_home / overround, q_away / overround, overround))
   }
-
-  # Shin (1993): estimate insider-trading parameter z via closed-form discriminant.
-  # z represents the fraction of bets from informed traders.
-  disc <- overround^2 - 4 * (overround - 1) * (q_home^2 + q_away^2) / overround
-  if (!is.finite(disc) || disc < 0) {
-    # Fallback to basic normalization
-    return(c(q_home / overround, q_away / overround, overround))
-  }
-
-  z <- tryCatch(
-    (overround - sqrt(disc)) / (2 * (overround - 1)),
-    error = function(e) 0
-  )
-  if (!is.finite(z)) {
-    z <- 0
-  }
-  z <- max(0, min(z, 0.5))
-
-  p_home <- (sqrt(z^2 + 4 * (1 - z) * (q_home / overround)^2) - z) / (2 * (1 - z))
-  if (!is.finite(p_home)) {
-    return(c(q_home / overround, q_away / overround, overround))
-  }
-  p_home <- max(0, min(1, p_home))
-  p_away <- 1 - p_home
 
   c(p_home, p_away, overround)
 }
