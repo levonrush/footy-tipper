@@ -438,15 +438,37 @@ def _base_environment(root, tuning_candidates) -> dict:
     env["PYTHONPATH"] = str(root) + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
     )
-    # Keep runtime installs inside the active Conda environment. A generic
-    # ~/R/library can contain binaries built for a different R version and
-    # make an otherwise complete project environment fail during data prep.
-    if not env.get("R_LIBS_USER") and env.get("CONDA_PREFIX"):
-        env["R_LIBS_USER"] = str(
-            pathlib.Path(env["CONDA_PREFIX"]) / "lib" / "R" / "library"
-        )
     env["FOOTY_TIPPER_TUNE_ITER"] = str(int(tuning_candidates))
     return env
+
+
+def _active_conda_rscript(env=None) -> pathlib.Path:
+    """Return Rscript from the active Conda environment, never from PATH."""
+    environment = os.environ if env is None else env
+    prefix_value = environment.get("CONDA_PREFIX")
+    if not prefix_value:
+        raise RuntimeError(
+            "The active Conda environment could not be located. Run "
+            "`conda activate footy-tipper`, then retry"
+        )
+
+    prefix = pathlib.Path(prefix_value).expanduser().resolve()
+    candidates = [
+        prefix / "bin" / "Rscript",
+        prefix / "bin" / "Rscript.exe",
+        prefix / "Scripts" / "Rscript.exe",
+        prefix / "Library" / "bin" / "Rscript.exe",
+    ]
+    for candidate in candidates:
+        if candidate.is_file() and (os.name == "nt" or os.access(candidate, os.X_OK)):
+            return candidate.resolve()
+
+    expected = ", ".join(str(path) for path in candidates)
+    raise RuntimeError(
+        "The active footy-tipper Conda environment does not contain Rscript. "
+        "Run `conda env update -f environment.yml --prune`, then retry. "
+        f"Checked: {expected}"
+    )
 
 
 def _require_command(name, explanation) -> None:
@@ -483,7 +505,7 @@ def _preflight(root, tuning_candidates) -> dict:
             raise RuntimeError(f"Missing {label}: {path}")
     state_sync._folder_id(root)
     _require_command("git", "to record model provenance")
-    _require_command("Rscript", "to prepare training data")
+    _active_conda_rscript()
     _require_command("gh", "to request the no-email production refresh")
     if sys.platform == "darwin":
         _require_command("caffeinate", "to keep the Mac awake during training")
@@ -666,7 +688,12 @@ def _prepare_training_data(root, env, log_path) -> None:
                  "Refreshing odds"),
             ]
         )
-    commands.append((["Rscript", root / "pipeline" / "data-prep.R"], "Preparing training data"))
+    commands.append(
+        (
+            [_active_conda_rscript(env), root / "pipeline" / "data-prep.R"],
+            "Preparing training data",
+        )
+    )
     for command, label in commands:
         _run_logged(command, root=root, env=env, log_path=log_path, label=label)
 
