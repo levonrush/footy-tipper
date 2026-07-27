@@ -47,14 +47,25 @@ Two constrained logit pools combine:
 - genuine market conditional probability in the market-covered pool only
 
 Pool weights are nonnegative, sum to one, and have no intercept. The
-no-market pool is trained on counterfactually masked OOF rows and is retained
-only when it beats Tier B in season-out log loss. Positive-temperature,
-no-intercept calibration is fitted to leave-one-season-out predictions, so
-50% stays neutral and calibration cannot reverse a tip.
+learned market pool is retained only when fully nested season-out predictions
+provide material log-loss improvement over the strongest individual
+comparator on the same covered rows, stay within the accuracy and Brier
+tolerances, and pass recent-season stability checks. The raw market participates
+in that comparison, but a rejected pool becomes a one-hot selection of the
+strongest Tier A/B/C model expert rather than a raw market-only winner
+forecast. Tier B is the safe default when nested evidence is unavailable.
+
+The no-market pool is trained on counterfactually masked OOF rows and is
+retained only when it beats Tier B in season-out log loss.
+Positive-temperature, no-intercept calibration is fitted to the selected
+leave-one-season-out path, so 50% stays neutral and calibration cannot reverse
+a tip.
 
 At inference, genuinely missing H2H odds route to the no-market artifact or
-the manifest-declared Tier-B fallback. Compatibility guards prevent older
-artifacts from reversing unanimous Tier/market evidence.
+the manifest-declared Tier-B fallback. Market-covered games use the
+manifest-recorded learned pool or its selected Tier A/B/C expert fallback.
+Compatibility guards prevent older artifacts from reversing unanimous
+Tier/market evidence.
 
 ## Margin and coherent scorelines
 
@@ -73,8 +84,8 @@ Score simulation uses a bivariate Poisson shared component `lambda3`. When OOF r
 | --- | --- |
 | `home_model.pkl`, `away_model.pkl` | Tier-B score pipelines |
 | `binary_model.pkl` | Tier-C classifier |
-| `stacker.pkl` | constrained market-covered logit pool |
-| `win_prob_calibrator.pkl` | positive-temperature market calibrator |
+| `stacker.pkl` | selected constrained market-covered logit pool: learned weights or a one-hot Tier A/B/C fallback |
+| `win_prob_calibrator.pkl` | positive-temperature calibrator for the selected market-covered path |
 | `stacker_no_market.pkl` | constrained Tier A/B/C no-market pool, when selected |
 | `win_prob_calibrator_no_market.pkl` | positive-temperature no-market calibrator |
 | `model_manifest.json` | predictor schema, blend weights, Tier-A config, `lambda3`, dispersion, uncertainty, margin metadata |
@@ -101,11 +112,14 @@ footy-tipper advanced model evaluate --skip-prepare --seasons 3
 The evaluator holds out each recent season in turn and fits blend weights,
 pool, and calibrator only on earlier seasons. In addition to the operational
 market/no-market routing, every held-out non-draw row is counterfactually
-forced through the no-market path. The acceptance gate compares that path with
-Tier A/B/C so sparse current odds cannot hide a weak model-only fallback. It
-also reports calibration, tipping, market comparison, score/margin behavior,
-ROI simulations, and competition-policy evidence where coverage allows.
-Reports are written under `reports/`.
+forced through the no-market path. On comparable market-covered rows, the
+learned market pool must prove robust incremental value over the strongest
+individual comparator; if it does not, the strongest Tier A/B/C expert is
+selected instead. The acceptance gate also compares the counterfactual
+no-market path with Tier A/B/C so sparse current odds cannot hide a weak
+model-only fallback. It reports calibration, tipping, market comparison,
+score/margin behavior, ROI simulations, and competition-policy evidence where
+coverage allows. Reports are written under `reports/`.
 
 The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the current 2024–2026 nested holdout summary: 552 pooled non-draw games, 63.4% tipping accuracy, 0.6413 log loss, and 61.2% market-favourite accuracy on covered games. The competition simulation reported about a 35.0% win probability in its configured field scenario. These are historical evaluation results, not a promise about the next round.
 

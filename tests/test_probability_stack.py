@@ -111,6 +111,62 @@ class SimplexLogitPoolTests(unittest.TestCase):
         self.assertTrue((selected_predictions[y == 0] < 0.5).all())
         self.assertTrue((selected_predictions[y == 1] > 0.5).all())
 
+    def test_rejected_market_pool_uses_strongest_non_market_fallback(self):
+        pool = calib.SimplexLogitPool(include_market=True)
+        pool.expert_names_ = ("tier_a", "tier_b", "tier_c", "market")
+        pool.weights_ = np.full(4, 0.25)
+        pool._is_fitted = True
+        y = np.array([0, 1] * 80)
+        experts = {
+            "tier_a": np.where(y == 1, 0.55, 0.45),
+            "tier_b": np.where(y == 1, 0.65, 0.35),
+            "tier_c": np.where(y == 1, 0.80, 0.20),
+            "market": np.where(y == 1, 0.90, 0.10),
+        }
+        regressing_pool = np.where(y == 1, 0.60, 0.40)
+
+        selection = calib.select_market_pool(
+            pool,
+            regressing_pool,
+            y,
+            experts,
+        )
+
+        self.assertEqual(selection["best_expert"]["name"], "market")
+        self.assertTrue(selection["fallback_applied"])
+        self.assertEqual(selection["fallback_expert"]["name"], "tier_c")
+        self.assertEqual(
+            selection["fallback_reason"],
+            "learned_pool_rejected_use_strongest_non_market_expert",
+        )
+        self.assertEqual(selection["selected"], "tier_c")
+        self.assertEqual(pool.weight_map["tier_c"], 1.0)
+        self.assertEqual(pool.weight_map["market"], 0.0)
+
+    def test_passing_learned_market_pool_is_not_replaced_by_fallback(self):
+        pool = calib.SimplexLogitPool(include_market=True)
+        pool.expert_names_ = ("tier_a", "tier_b", "tier_c", "market")
+        original_weights = np.array([0.05, 0.10, 0.15, 0.70])
+        pool.weights_ = original_weights.copy()
+        pool._is_fitted = True
+        y = np.array([0, 1] * 80)
+        experts = {
+            "tier_a": np.where(y == 1, 0.55, 0.45),
+            "tier_b": np.where(y == 1, 0.65, 0.35),
+            "tier_c": np.where(y == 1, 0.70, 0.30),
+            "market": np.where(y == 1, 0.80, 0.20),
+        }
+        robust_pool = np.where(y == 1, 0.95, 0.05)
+
+        selection = calib.select_market_pool(pool, robust_pool, y, experts)
+
+        self.assertEqual(selection["best_expert"]["name"], "market")
+        self.assertFalse(selection["fallback_applied"])
+        self.assertEqual(selection["fallback_expert"]["name"], "tier_c")
+        self.assertIsNone(selection["fallback_reason"])
+        self.assertEqual(selection["selected"], "learned")
+        np.testing.assert_allclose(pool.weights_, original_weights)
+
     def test_eligible_no_market_pool_can_select_one_hot_tier_c(self):
         pool = calib.SimplexLogitPool(include_market=False)
         pool.expert_names_ = ("tier_a", "tier_b", "tier_c")

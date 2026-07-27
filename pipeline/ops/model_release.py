@@ -991,15 +991,44 @@ def _request_refresh(root, env, log_path) -> int:
     return int(run_id)
 
 
+def _working_tree_is_clean(root) -> bool:
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return not result.stdout.strip()
+
+
 def _new_or_resumable_journal(root, tuning_candidates):
     existing = _load_journal(root)
-    if existing and existing.get("status") not in {"complete", "cancelled"}:
-        # A preflight-only failure may be fixed by committing/pulling, which
-        # changes the provenance SHA. No expensive work exists yet, so start a
-        # fresh transaction instead of resuming under the stale SHA.
-        if existing.get("stages") or existing.get("git_sha") == _git_sha(root):
-            return existing, True
     git_sha = _git_sha(root)
+    abandoned = None
+    if existing and existing.get("status") not in {"complete", "cancelled"}:
+        if existing.get("git_sha") == git_sha:
+            return existing, True
+        if existing.get("stages") and not _working_tree_is_clean(root):
+            return existing, True
+        if existing.get("stages"):
+            reason = (
+                "Repository HEAD changed after model-update stages completed "
+                f"({existing.get('git_sha')} -> {git_sha}); the unfinished candidate "
+                "was abandoned so the replacement keeps exact code provenance"
+            )
+            existing["status"] = "cancelled"
+            existing["current_stage"] = "cancelled"
+            existing["cancelled_at_utc"] = _utc_now()
+            existing["last_error"] = reason
+            _save_journal(root, existing)
+            abandoned = {
+                "release_id": existing.get("release_id"),
+                "git_sha": existing.get("git_sha"),
+                "status": existing["status"],
+                "cancelled_at_utc": existing["cancelled_at_utc"],
+                "reason": reason,
+            }
     release_id = _release_id(git_sha)
     journal = {
         "schema_version": SCHEMA_VERSION,
@@ -1011,6 +1040,8 @@ def _new_or_resumable_journal(root, tuning_candidates):
         "created_at_utc": _utc_now(),
         "stages": {},
     }
+    if abandoned is not None:
+        journal["abandoned_journal"] = abandoned
     _save_journal(root, journal)
     return journal, False
 

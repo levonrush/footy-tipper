@@ -788,8 +788,9 @@ def select_market_pool(
     """Keep learned market weights only when nested evidence is compelling.
 
     Otherwise the same simplex artifact becomes a one-hot weighting of the
-    strongest individual expert. This makes release acceptance deterministic
-    while preserving the nonnegative, sum-to-one contract.
+    strongest Tier A/B/C expert. The raw market remains an overall comparator,
+    but it is not a standalone production fallback when the learned
+    market-aware pool fails its robustness gate.
     """
     y = np.asarray(y, dtype=int)
     nested = (
@@ -803,26 +804,49 @@ def select_market_pool(
     }
     if not experts:
         raise ValueError("at least one expert is required for market selection")
+    fallback_names = [
+        name for name in ("tier_a", "tier_b", "tier_c") if name in experts
+    ]
+    if "market" in experts and not fallback_names:
+        raise ValueError(
+            "market selection requires at least one Tier A/B/C fallback expert"
+        )
 
     if nested is None:
-        pool.select_expert("tier_b" if "tier_b" in experts else next(iter(experts)))
+        fallback_name = (
+            "tier_b"
+            if "tier_b" in experts
+            else (fallback_names[0] if fallback_names else next(iter(experts)))
+        )
+        pool.select_expert(fallback_name)
         return {
-            "selected": pool.expert_names_[int(np.argmax(pool.weights_))],
+            "selected": fallback_name,
             "selection_rows": 0,
             "reason": "nested_loso_unavailable",
             "pool": None,
             "best_expert": None,
+            "fallback_applied": True,
+            "fallback_expert": {"name": fallback_name},
+            "fallback_reason": "nested_loso_unavailable",
         }
 
     selection_rows = _pool_selection_rows(nested, experts)
     if not selection_rows.any():
-        pool.select_expert("tier_b" if "tier_b" in experts else next(iter(experts)))
+        fallback_name = (
+            "tier_b"
+            if "tier_b" in experts
+            else (fallback_names[0] if fallback_names else next(iter(experts)))
+        )
+        pool.select_expert(fallback_name)
         return {
-            "selected": pool.expert_names_[int(np.argmax(pool.weights_))],
+            "selected": fallback_name,
             "selection_rows": 0,
             "reason": "nested_loso_unavailable",
             "pool": None,
             "best_expert": None,
+            "fallback_applied": True,
+            "fallback_expert": {"name": fallback_name},
+            "fallback_reason": "nested_loso_unavailable",
         }
 
     def metrics(probabilities, rows=selection_rows):
@@ -832,16 +856,22 @@ def select_market_pool(
     expert_metrics = {
         name: metrics(probabilities) for name, probabilities in experts.items()
     }
-    best_name = min(
-        expert_metrics,
-        key=lambda name: (
+    def expert_rank(name):
+        return (
             expert_metrics[name]["log_loss"],
             -expert_metrics[name]["accuracy"],
             expert_metrics[name]["brier"],
             name,
-        ),
+        )
+
+    best_name = min(
+        expert_metrics,
+        key=expert_rank,
     )
     best = expert_metrics[best_name]
+    fallback_candidates = fallback_names or list(expert_metrics)
+    fallback_name = min(fallback_candidates, key=expert_rank)
+    fallback = expert_metrics[fallback_name]
     recent_stability = []
     if groups is not None:
         groups = np.asarray(groups, dtype=float)
@@ -886,10 +916,18 @@ def select_market_pool(
         and all(item["passed"] for item in recent_stability)
     )
     if not keep_learned:
-        pool.select_expert(best_name)
+        pool.select_expert(fallback_name)
+
+    fallback_reason = None
+    if not keep_learned:
+        fallback_reason = (
+            "learned_pool_rejected_use_strongest_non_market_expert"
+            if "market" in experts
+            else "learned_pool_rejected_use_strongest_expert"
+        )
 
     return {
-        "selected": "learned" if keep_learned else best_name,
+        "selected": "learned" if keep_learned else fallback_name,
         "selection_rows": int(selection_rows.sum()),
         "reason": "nested_loso_gate",
         "pool": pool_metrics,
@@ -897,6 +935,12 @@ def select_market_pool(
             "name": best_name,
             **best,
         },
+        "fallback_applied": bool(not keep_learned),
+        "fallback_expert": {
+            "name": fallback_name,
+            **fallback,
+        },
+        "fallback_reason": fallback_reason,
         "expert_metrics": expert_metrics,
         "recent_group_stability": recent_stability,
         "min_log_loss_improvement": float(min_log_loss_improvement),

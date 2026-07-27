@@ -61,6 +61,16 @@ The market pool uses:
 - `logit(tier_c)`
 - `logit(market)`
 
+The learned market pool is retained only when fully nested season-out
+predictions show material log-loss improvement over the strongest individual
+comparator on the same market-covered rows, remain within the accuracy and
+Brier tolerances, and pass the recent-season stability checks. The raw market
+is included in that demanding comparison. If the gate rejects the learned
+weights, however, the production fallback is a one-hot selection of the
+strongest Tier A/B/C expert, with a matching direction-preserving calibrator.
+If nested evidence is unavailable, Tier B is the safe default. Neither case
+becomes a raw market-only winner tip.
+
 The no-market pool uses the first three inputs and is trained
 counterfactually by masking market data on every OOF row. It is selected only
 when nested season-out log loss beats Tier B; otherwise the manifest declares
@@ -111,6 +121,10 @@ not train Tier B against later closing information.
 ## Evaluation rules
 
 - Compare model and market on the same non-draw, odds-covered rows.
+- Retain a learned market pool only when nested season-out results prove
+  incremental value over the strongest individual comparator and remain
+  stable in recent held-out seasons; if rejected, select the strongest Tier
+  A/B/C model expert, never the raw market alone.
 - Counterfactually mask odds on every held-out row and gate the no-market path
   against the strongest Tier A/B/C expert.
 - Prefer nested season-out metrics over training-time summaries.
