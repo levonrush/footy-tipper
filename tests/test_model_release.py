@@ -342,11 +342,15 @@ class ModelReleaseTests(unittest.TestCase):
             activate.assert_not_called()
             self.assertEqual(journal["status"], "failed")
 
-    def test_interrupted_journal_is_resumed(self):
+    def test_same_sha_interrupted_journal_is_resumed(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             model_release, "_git_sha", return_value="b" * 40
         ), mock.patch.object(
             model_release, "_release_id", return_value="release-1"
+        ), mock.patch.object(
+            model_release,
+            "_working_tree_is_clean",
+            side_effect=AssertionError("same-SHA resume must not inspect cleanliness"),
         ):
             root = Path(tmp)
             journal, resumed = model_release._new_or_resumable_journal(root, 100)
@@ -360,6 +364,81 @@ class ModelReleaseTests(unittest.TestCase):
             self.assertTrue(resumed)
             self.assertEqual(loaded["release_id"], "release-1")
             self.assertEqual(loaded["tuning_candidates"], 100)
+
+    def test_clean_changed_head_abandons_staged_journal_and_starts_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_journal = {
+                "schema_version": 1,
+                "release_id": "release-old",
+                "git_sha": "a" * 40,
+                "tuning_candidates": 100,
+                "status": "failed",
+                "current_stage": "validated",
+                "stages": {
+                    "trained": {"completed": True},
+                    "validated": {"completed": True},
+                },
+            }
+            model_release._save_journal(root, old_journal)
+
+            with mock.patch.object(
+                model_release, "_git_sha", return_value="b" * 40
+            ), mock.patch.object(
+                model_release, "_working_tree_is_clean", return_value=True
+            ), mock.patch.object(
+                model_release, "_release_id", return_value="release-new"
+            ), mock.patch.object(
+                model_release,
+                "_save_journal",
+                wraps=model_release._save_journal,
+            ) as save_journal:
+                journal, resumed = model_release._new_or_resumable_journal(root, 25)
+
+            abandoned_journal = save_journal.call_args_list[0].args[1]
+
+            self.assertFalse(resumed)
+            self.assertEqual(journal["release_id"], "release-new")
+            self.assertEqual(journal["git_sha"], "b" * 40)
+            self.assertEqual(journal["tuning_candidates"], 25)
+            self.assertEqual(journal["stages"], {})
+            self.assertEqual(abandoned_journal["status"], "cancelled")
+            self.assertEqual(abandoned_journal["current_stage"], "cancelled")
+            self.assertIn("exact code provenance", abandoned_journal["last_error"])
+            self.assertEqual(
+                journal["abandoned_journal"]["release_id"], "release-old"
+            )
+            self.assertEqual(
+                journal["abandoned_journal"]["status"], "cancelled"
+            )
+            self.assertEqual(
+                model_release._load_journal(root)["release_id"], "release-new"
+            )
+
+    def test_dirty_changed_head_keeps_staged_journal_for_preflight_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_journal = {
+                "schema_version": 1,
+                "release_id": "release-old",
+                "git_sha": "a" * 40,
+                "tuning_candidates": 100,
+                "status": "failed",
+                "current_stage": "validated",
+                "stages": {"trained": {"completed": True}},
+            }
+            model_release._save_journal(root, old_journal)
+
+            with mock.patch.object(
+                model_release, "_git_sha", return_value="b" * 40
+            ), mock.patch.object(
+                model_release, "_working_tree_is_clean", return_value=False
+            ):
+                journal, resumed = model_release._new_or_resumable_journal(root, 25)
+
+            self.assertTrue(resumed)
+            self.assertEqual(journal["release_id"], "release-old")
+            self.assertEqual(journal["status"], "failed")
 
     def test_resume_refuses_to_undo_an_explicit_production_rollback(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
