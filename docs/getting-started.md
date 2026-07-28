@@ -142,7 +142,7 @@ If the update fails, do not manually move the pointer. The previous release rema
 
 ## Defaults that matter
 
-- `FOOTY_TIPPER_START_YEAR=2010`
+- `FOOTY_TIPPER_START_YEAR=2008`
 - `FOOTY_TIPPER_END_YEAR=<current year>`
 - `FOOTY_TIPPER_INCLUDE_PERFORMANCE=true`
 - `FOOTY_TIPPER_FEED_SOURCE=python`

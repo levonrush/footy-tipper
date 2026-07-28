@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     start_year = args.start_year
     end_year = args.end_year
     if start_year is None:
-        start_year = _default_year(os.getenv("FOOTY_TIPPER_START_YEAR"), 2010)
+        start_year = _default_year(os.getenv("FOOTY_TIPPER_START_YEAR"), 2008)
     if end_year is None:
         end_year_env = os.getenv("FOOTY_TIPPER_END_YEAR")
         end_year = _default_year(end_year_env, dt.datetime.now(dt.timezone.utc).year)

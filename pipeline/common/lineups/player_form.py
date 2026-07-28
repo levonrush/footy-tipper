@@ -10,7 +10,10 @@ stats, aggregated per game and side:
 
 Players are matched by nrl.com player id (match centre playerId equals the
 lineup player_external_id space) with normalized-name fallback. Spine = jersey
-numbers 1/6/7/9.
+numbers 1/6/7/9. Fantasy form is also aggregated into positional role groups
+(fullback / outside backs / halves / hooker / middles / edges / bench) as
+lineup_rating_<group>_home/away/delta, so positional strength survives instead
+of being averaged away across the whole roster.
 
 Output is keyed by game_id (float64) and merged next to the existing lineup
 features in train/inference/evaluate.
@@ -26,6 +29,20 @@ import pandas as pd
 
 FORM_HALFLIFE_APPEARANCES = 5.0
 SPINE_JERSEYS = {1, 6, 7, 9}
+
+# Positional role groups by jersey number. Fantasy form is aggregated within
+# each group so the model sees positional strength (e.g. a strong halves pairing
+# or middle rotation) that a single roster-wide mean washes out. The home-minus-
+# away delta per group frames it as a positional matchup.
+ROLE_GROUPS = {
+    "fullback": {1},
+    "outside_backs": {2, 3, 4, 5},
+    "halves": {6, 7},
+    "hooker": {9},
+    "middles": {8, 10, 13},
+    "edges": {11, 12},
+    "bench": {14, 15, 16, 17},
+}
 
 PLAYER_FORM_STATS = {
     "fantasy": "fantasy_points_total",
@@ -123,14 +140,18 @@ def _aggregate_side(roster: pd.DataFrame, form_cols: list[str]) -> dict:
             if len(roster)
             else np.nan
         )
-    spine = roster[
-        pd.to_numeric(roster.get("jersey_number"), errors="coerce").isin(SPINE_JERSEYS)
-    ]
+    jerseys = pd.to_numeric(roster.get("jersey_number"), errors="coerce")
+    fantasy_form = pd.to_numeric(roster.get("form_fantasy"), errors="coerce")
+
+    spine_mask = jerseys.isin(SPINE_JERSEYS)
     values["spine_fantasy"] = (
-        float(pd.to_numeric(spine["form_fantasy"], errors="coerce").mean())
-        if len(spine)
+        float(fantasy_form[spine_mask].mean())
+        if spine_mask.any()
         else np.nan
     )
+    for group, jersey_set in ROLE_GROUPS.items():
+        group_form = fantasy_form[jerseys.isin(jersey_set)].dropna()
+        values[f"rating_{group}"] = float(group_form.mean()) if len(group_form) else np.nan
     values["coverage"] = coverage
     return values
 
@@ -252,6 +273,8 @@ def compute_lineup_player_form_features(
                     name = col.removeprefix("form_")
                     record[f"{PLAYER_FORM_FEATURE_PREFIX}{name}_{side}"] = aggregated[name]
                 record[f"lineup_spine_form_fantasy_{side}"] = aggregated["spine_fantasy"]
+                for group in ROLE_GROUPS:
+                    record[f"lineup_rating_{group}_{side}"] = aggregated[f"rating_{group}"]
             records.append(record)
 
         if not records:
@@ -267,6 +290,12 @@ def compute_lineup_player_form_features(
         ):
             if home_col in out.columns and away_col in out.columns:
                 out[delta_col] = out[home_col] - out[away_col]
+
+        for group in ROLE_GROUPS:
+            home_col = f"lineup_rating_{group}_home"
+            away_col = f"lineup_rating_{group}_away"
+            if home_col in out.columns and away_col in out.columns:
+                out[f"lineup_rating_{group}_delta"] = out[home_col] - out[away_col]
 
         out = requested.merge(out, on="game_id_int", how="left").drop(
             columns=["game_id_int"]

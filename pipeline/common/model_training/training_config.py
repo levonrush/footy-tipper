@@ -55,10 +55,12 @@ predictors = [
     "avg_tries_for_away_ladder", "avg_tries_conceded_away_ladder", "avg_goals_for_away_ladder",
     "avg_goals_conceded_away_ladder", "close_game_rate_away_ladder",
 
-    # NOTE: streak/day-night ladder splits (current_streak_*, day_win_rate_*,
-    # night_win_rate_*) are parsed in R and available in the DB, but the
-    # honest eval showed no gain from adding them here (2026-07); re-test
-    # after the next full hyperparameter retune before enabling.
+    # Streak/day-night ladder splits: parsed in R (get-data.R) and joined per
+    # side. Enabled for re-test under a fresh hyperparameter retune; an earlier
+    # eval showed no gain before the corpus/feature set changed (2026-07).
+    "current_streak_home_ladder", "current_streak_away_ladder",
+    "day_win_rate_home_ladder", "day_win_rate_away_ladder",
+    "night_win_rate_home_ladder", "night_win_rate_away_ladder",
 
     # Engineered rolling/state features built from prior observed (Final) games.
     "position_diff", "corona_season", "start_hour", "game_day",
@@ -277,6 +279,7 @@ predictors += [
     "ref_games_officiated",
     "ref_penalty_rate_ewma",
     "ref_sin_bin_rate_ewma",
+    "ref_home_win_rate_ewma",
     "ref_missing",
 ]
 
@@ -295,9 +298,17 @@ predictors += [
     "travel_km_home",
     "travel_km_away",
     "travel_km_delta",
+    "travel_km_cum_home",
+    "travel_km_cum_away",
+    "travel_km_cum_delta",
     "tz_shift_home",
     "tz_shift_away",
     "travel_missing",
+]
+
+predictors += [
+    "venue_avg_crowd",
+    "crowd_features_missing",
 ]
 
 _player_form_stats = ["fantasy", "run_metres", "tackles", "errors", "involvements"]
@@ -315,6 +326,17 @@ predictors += [
     "lineup_spine_form_fantasy_away",
     "lineup_form_fantasy_delta",
     "lineup_spine_form_fantasy_delta",
+]
+
+# Positional role-group fantasy ratings (player_form.ROLE_GROUPS): per-side
+# strength plus the home-minus-away matchup delta for each group.
+_role_groups = [
+    "fullback", "outside_backs", "halves", "hooker", "middles", "edges", "bench",
+]
+predictors += [
+    f"lineup_rating_{group}_{side}"
+    for group in _role_groups
+    for side in ("home", "away", "delta")
 ]
 
 # Predictors that should be treated as categorical if missing from the source

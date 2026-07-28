@@ -1,5 +1,5 @@
 # data params
-start_year <- as.integer(Sys.getenv("FOOTY_TIPPER_START_YEAR", unset = "2010"))
+start_year <- as.integer(Sys.getenv("FOOTY_TIPPER_START_YEAR", unset = "2008"))
 end_year_env <- Sys.getenv("FOOTY_TIPPER_END_YEAR", unset = "")
 if (end_year_env == "") {
   end_year <- as.integer(format(Sys.Date(), "%Y"))

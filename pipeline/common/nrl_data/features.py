@@ -4,9 +4,12 @@ Families (each fails soft to missing flags so train/inference never break):
 - team form: leak-safe EWMA (halflife 5 matches, shifted one game) over
   per-match team stats -> form_<stat>_home/away/delta
 - referee: categorical referee_name + leak-safe rolling penalty/sin-bin rates
+  and the referee's rolling home-win rate (home-bias proxy)
 - weather: Open-Meteo observations + match centre labels -> wx_* numerics,
   wet flag, ground_condition categorical
 - travel: haversine from each team's home base to the venue + timezone shift
+  + cumulative season travel load per team (leak-safe)
+- crowd: trailing average attendance at the venue (leak-safe venue-size proxy)
 
 Everything is keyed by game_id (float64, matching the prepared tables) and
 assembled by build_match_context_features(), the single merge point used by
@@ -67,6 +70,10 @@ def _fixtures_frame(con: sqlite3.Connection) -> pd.DataFrame:
     fixtures = fixtures.dropna(subset=["game_id", "start_time_utc"])
     fixtures["game_id_int"] = fixtures["game_id"].astype("int64")
     return fixtures.sort_values("start_time_utc").reset_index(drop=True)
+
+
+def _fixture_columns(con: sqlite3.Connection) -> set[str]:
+    return {row[1] for row in con.execute("PRAGMA table_info(feed_cache_fixtures)")}
 
 
 # ── team form ─────────────────────────────────────────────────────────────────
@@ -159,10 +166,37 @@ def build_referee_features(con: sqlite3.Connection, fixtures: pd.DataFrame) -> p
         con,
     )
 
+    # Prior-game home result so a referee's historical home-win tendency can be
+    # tracked (a leak-safe proxy for any officiating "home bias"). Uses only
+    # finalized scores; the EWMA below is shifted so it never sees this game.
+    # Degrades to all-missing where the score columns are unavailable.
+    if {"team_final_score_home", "team_final_score_away"} <= _fixture_columns(con):
+        results = pd.read_sql_query(
+            """
+            SELECT game_id,
+                   CASE
+                     WHEN team_final_score_home > team_final_score_away THEN 1.0
+                     WHEN team_final_score_home < team_final_score_away THEN 0.0
+                     ELSE 0.5
+                   END AS home_win
+            FROM feed_cache_fixtures
+            WHERE team_final_score_home IS NOT NULL
+              AND team_final_score_away IS NOT NULL
+            """,
+            con,
+        )
+        results["game_id_int"] = pd.to_numeric(results["game_id"], errors="coerce")
+        results = results.dropna(subset=["game_id_int"])
+        results["game_id_int"] = results["game_id_int"].astype("int64")
+        results = results[["game_id_int", "home_win"]]
+    else:
+        results = pd.DataFrame({"game_id_int": pd.Series(dtype="int64"), "home_win": pd.Series(dtype="float64")})
+
     frame = fixtures[["game_id_int", "start_time_utc", "game_state_name"]].merge(
         refs, left_on="game_id_int", right_on="game_id", how="inner"
     )
     frame = frame.merge(per_game, left_on="game_id_int", right_on="game_id", how="left")
+    frame = frame.merge(results, on="game_id_int", how="left")
     frame = frame.sort_values("start_time_utc")
 
     grouped = frame.groupby("referee_name", sort=False)
@@ -170,6 +204,7 @@ def build_referee_features(con: sqlite3.Connection, fixtures: pd.DataFrame) -> p
     for source, target in (
         ("game_penalties", "ref_penalty_rate_ewma"),
         ("game_sin_bins", "ref_sin_bin_rate_ewma"),
+        ("home_win", "ref_home_win_rate_ewma"),
     ):
         shifted = grouped[source].shift(1)
         frame[target] = (
@@ -184,6 +219,7 @@ def build_referee_features(con: sqlite3.Connection, fixtures: pd.DataFrame) -> p
             "ref_games_officiated",
             "ref_penalty_rate_ewma",
             "ref_sin_bin_rate_ewma",
+            "ref_home_win_rate_ewma",
         ]
     ].copy()
     out["ref_missing"] = 0.0
@@ -328,6 +364,63 @@ def build_travel_features(
     out = pd.DataFrame.from_records(records)
     out["travel_km_delta"] = out["travel_km_away"] - out["travel_km_home"]
     out["travel_missing"] = out[["travel_km_home", "travel_km_away"]].isna().any(axis=1).astype(float)
+
+    # Cumulative season travel load per team, excluding the current match
+    # (leak-safe): how far each side has already flown this year going in.
+    meta = fixtures[["game_id_int", "competition_year", "start_time_utc", "team_home", "team_away"]]
+    long_parts = []
+    for side, team_col in (("home", "team_home"), ("away", "team_away")):
+        part = out[["game_id_int", f"travel_km_{side}"]].merge(meta, on="game_id_int", how="left")
+        part = part.rename(columns={f"travel_km_{side}": "travel_km", team_col: "team"})
+        part["side"] = side
+        long_parts.append(
+            part[["game_id_int", "side", "team", "competition_year", "start_time_utc", "travel_km"]]
+        )
+    long = pd.concat(long_parts, ignore_index=True).sort_values("start_time_utc")
+    long["_tk"] = long["travel_km"].fillna(0.0)
+    inclusive = long.groupby(["competition_year", "team"], sort=False)["_tk"].cumsum()
+    long["travel_km_cum"] = inclusive - long["_tk"]
+
+    for side in ("home", "away"):
+        side_cum = long[long["side"] == side][["game_id_int", "travel_km_cum"]].rename(
+            columns={"travel_km_cum": f"travel_km_cum_{side}"}
+        )
+        out = out.merge(side_cum, on="game_id_int", how="left")
+    out["travel_km_cum_delta"] = out["travel_km_cum_away"] - out["travel_km_cum_home"]
+    return out
+
+
+# ── crowd ─────────────────────────────────────────────────────────────────────
+
+
+def build_crowd_features(con: sqlite3.Connection, fixtures: pd.DataFrame) -> pd.DataFrame:
+    """Trailing average crowd at the venue (leak-safe venue-size proxy).
+
+    The actual attendance for a future game is unknown at prediction time, so
+    this uses only the venue's prior games. It is a stable stand-in for venue
+    capacity / drawing power that is available for both training and inference.
+    """
+    if "crowd" not in _fixture_columns(con):
+        return pd.DataFrame(columns=["game_id"])
+    crowd = pd.read_sql_query(
+        "SELECT game_id, crowd FROM feed_cache_fixtures WHERE crowd IS NOT NULL AND crowd > 0",
+        con,
+    )
+    if crowd.empty:
+        return pd.DataFrame(columns=["game_id"])
+    crowd["game_id"] = pd.to_numeric(crowd["game_id"], errors="coerce")
+
+    frame = fixtures[["game_id_int", "venue_name", "start_time_utc"]].merge(
+        crowd, left_on="game_id_int", right_on="game_id", how="left"
+    )
+    frame = frame.sort_values("start_time_utc")
+    frame["venue_avg_crowd"] = (
+        frame.groupby("venue_name", sort=False)["crowd"]
+        .transform(lambda s: s.shift(1).expanding(min_periods=1).mean())
+    )
+
+    out = frame[["game_id_int", "venue_avg_crowd"]].copy()
+    out["crowd_features_missing"] = out["venue_avg_crowd"].isna().astype(float)
     return out
 
 
@@ -359,6 +452,7 @@ def build_match_context_features(
                 build_travel_features,
                 {"team_bases_csv": team_bases_csv or DEFAULT_TEAM_BASES_CSV},
             ),
+            ("crowd", build_crowd_features, {}),
         ]
         for name, builder, kwargs in family_builders:
             try:
