@@ -21,11 +21,33 @@ from sklearn.exceptions import ConvergenceWarning
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
 
+from pipeline.common import console
 from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.model_training.cv import InSeasonSplit
 
 # Suppress convergence warnings
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
+
+
+def _make_tuning_callback(total, outcome_var):
+    """Emit a live 'candidate N/total · best cv' line as the search progresses.
+
+    skopt minimises the negative CV score, so the best score seen so far is
+    ``-min(func_vals)``. Reported through the marker channel so the parent CLI
+    can turn it into an in-place progress line.
+    """
+
+    def _callback(result):
+        try:
+            done = len(result.x_iters)
+            best = -float(np.min(result.func_vals))
+            console.emit_progress(
+                f"tuning {outcome_var}: candidate {done}/{total} · best cv {best:.4f}"
+            )
+        except Exception:
+            pass
+
+    return _callback
 
 
 def select_blend_weights_by_log_loss(y, baseline_mu_home, baseline_mu_away, model_mu_home, model_mu_away):
@@ -154,7 +176,18 @@ def train_model_pipeline(data, predictors, outcome_var,
     cv = InSeasonSplit(n_splits=num_folds)
     pipeline = create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols)
 
-    pipeline.fit(X, y, hyperparamtuning__groups=groups)
+    total_candidates = int(os.getenv("FOOTY_TIPPER_TUNE_ITER", "100"))
+    tuning_callback = _make_tuning_callback(total_candidates, outcome_var)
+    console.emit_progress(f"tuning {outcome_var}: starting {total_candidates} candidates")
+    try:
+        pipeline.fit(
+            X, y,
+            hyperparamtuning__groups=groups,
+            hyperparamtuning__callback=tuning_callback,
+        )
+    except TypeError:
+        # Older skopt routing that does not accept a fit-time callback.
+        pipeline.fit(X, y, hyperparamtuning__groups=groups)
 
     if use_rfe:
         print(f"Selected features: {pipeline.named_steps['rfe'].n_features_}")

@@ -55,3 +55,5 @@ dependencies:
       - -e .
       - anthropic>=0.40.0,<1.0.0
       - openai>=1.0.0,<2.0.0
+      # Console UI (progress + panels); import-guarded, degrades to plain text.
+      - rich==13.9.4

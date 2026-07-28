@@ -7,6 +7,8 @@ import sys
 
 from dotenv import load_dotenv
 
+from pipeline.common import console
+
 
 def _log(message: str) -> None:
     print(message, flush=True)
@@ -173,6 +175,19 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         _log("Fail-soft mode enabled. Continuing without odds update.")
         return 0
+
+    if args.action != "backfill":
+        try:
+            from pipeline.ops.odds_gate import current_round_odds_coverage
+
+            coverage = current_round_odds_coverage(db_path)
+            if coverage.error:
+                detail = f"unavailable ({coverage.error})"
+            else:
+                detail = f"{coverage.covered_games}/{coverage.total_games} current-round games priced"
+            console.emit_result("freshness", source="odds", detail=detail)
+        except Exception:
+            pass
 
     if args.strict and result.get("status") in {"failed"}:
         return 1

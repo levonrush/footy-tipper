@@ -24,6 +24,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.insert(0, parent_dir)
 
+from pipeline.common import console
 from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.lineups import features as lf
 from pipeline.common.model_training import calibration as calib
@@ -701,6 +702,7 @@ def main():
         > data["team_final_score_away"].to_numpy(dtype=float)
     ).astype(int)
 
+    console.emit_progress("generating expanding-window out-of-fold predictions (slow)")
     print("Generating expanding-window OOF predictions (this is the slow part)...")
     home_mu_oof, home_mask = mf.generate_oof_score_predictions(
         data, selected, home_model, "team_final_score_home", return_mask=True
@@ -751,6 +753,7 @@ def main():
 
     results = []
     for test_year in eval_years:
+        console.emit_progress(f"scoring held-out season {test_year}")
         res = _evaluate_season(
             test_year,
             year_col,

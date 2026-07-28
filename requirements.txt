@@ -23,6 +23,9 @@ openpyxl==3.1.5
 # Config
 python-dotenv==1.2.2
 
+# Console UI (progress + panels; import-guarded, degrades to plain text)
+rich==13.9.4
+
 # Google Drive / Sheets (send + state sync)
 google-api-python-client==2.192.0
 google-auth==2.49.0

@@ -17,6 +17,7 @@ import datetime as dt
 import sqlite3
 from pathlib import Path
 
+from pipeline.common import console
 from . import store
 from .cache_writer import replace_cache_year
 from .draw import (
@@ -287,6 +288,11 @@ def refresh_season(
         _print(
             f"Refresh complete: {len(fixture_rows)} fixtures, "
             f"{pages} match centre pages, {len(errors)} errors."
+        )
+        console.emit_result(
+            "freshness",
+            source="fixtures",
+            detail=f"{len(fixture_rows)} fixtures · {pages} match pages · {len(errors)} errors",
         )
         return {
             "status": status,

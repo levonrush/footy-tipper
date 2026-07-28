@@ -107,9 +107,18 @@ class ModelReleaseTests(unittest.TestCase):
                 model_release._release_update_lock(first)
 
     def test_interrupted_logged_command_terminates_and_reaps_process_group(self):
+        class _InterruptingStream:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                # Simulate an operator Ctrl-C while the child is streaming output.
+                raise KeyboardInterrupt
+
         class FakeProcess:
             pid = 4321
             returncode = None
+            stdout = _InterruptingStream()
 
             def poll(self):
                 return self.returncode
@@ -127,9 +136,7 @@ class ModelReleaseTests(unittest.TestCase):
         fake = FakeProcess()
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             model_release.subprocess, "Popen", return_value=fake
-        ) as popen, mock.patch.object(
-            model_release.time, "sleep", side_effect=KeyboardInterrupt
-        ), mock.patch.object(model_release.os, "killpg") as killpg:
+        ) as popen, mock.patch.object(model_release.os, "killpg") as killpg:
             root = Path(tmp)
             with self.assertRaises(KeyboardInterrupt):
                 model_release._run_logged(

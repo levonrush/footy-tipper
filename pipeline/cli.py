@@ -12,6 +12,8 @@ except Exception:
     def load_dotenv(*args, **kwargs):
         return False
 
+from pipeline.common import console
+
 
 DEFAULT_TEST_EMAIL = "levon_rush@hotmail.com"
 REQUIRED_MODEL_FILES = ("home_model.pkl", "away_model.pkl", "model_manifest.json")
@@ -32,33 +34,99 @@ def _format_elapsed(seconds: float) -> str:
 
 
 def _log(message: str, start_time: float = None) -> None:
-    base = CLI_START if start_time is None else start_time
-    elapsed = _format_elapsed(time.monotonic() - base)
-    print(f"[+{elapsed}] {message}", flush=True)
+    # Historically prefixed every line with an elapsed timer; now a single
+    # consistent voice through the shared reporter. start_time is accepted for
+    # backward compatibility but no longer needed.
+    console.note(message)
 
 
-def _run_command(cmd, env, cwd=None):
-    cmd_text = " ".join(cmd)
-    cmd_start = time.monotonic()
-    _log(f"Running: {cmd_text}", start_time=cmd_start)
-    proc = subprocess.Popen(
-        cmd,
-        env=env,
-        cwd=str(cwd) if cwd else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
+_STEP_LABELS = (
+    ("data-prep.R", "Preparing data (R)"),
+    ("lineups.py", "Fetching team lists"),
+    ("train.py", "Training models"),
+    ("inference.py", "Running inference"),
+    ("evaluate.py", "Evaluating model"),
+)
 
-    if proc.stdout is not None:
-        for raw_line in proc.stdout:
-            _log(raw_line.rstrip("\n"), start_time=cmd_start)
 
-    rc = proc.wait()
-    if rc != 0:
-        raise subprocess.CalledProcessError(rc, cmd)
-    _log(f"Completed: {cmd_text}", start_time=cmd_start)
+def _derive_label(cmd) -> str:
+    joined = " ".join(str(part) for part in cmd)
+    for needle, label in _STEP_LABELS:
+        if needle in joined:
+            return label
+    if "nrl_data.py" in joined:
+        return "Backfilling NRL history" if "backfill" in joined else "Refreshing NRL data"
+    if "odds.py" in joined:
+        return "Backfilling odds history" if "backfill" in joined else "Refreshing odds"
+    return pathlib.Path(str(cmd[-1])).name
+
+
+def _cli_log_path() -> pathlib.Path:
+    log_dir = _project_root() / ".footy-tipper" / "runs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "cli.log"
+
+
+def _read_tail(path, count=30, start_offset=0) -> list:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            if start_offset:
+                fh.seek(start_offset)
+            lines = fh.read().splitlines()
+    except OSError:
+        return []
+    lines = [
+        line
+        for line in lines
+        if not line.lstrip().startswith((console.PROGRESS_MARKER, console.RESULT_MARKER))
+    ]
+    return lines[-count:]
+
+
+def _run_command(cmd, env, cwd=None, label=None):
+    """Run a child script with one live status line instead of a raw log dump.
+
+    The full transcript is teed to ``.footy-tipper/runs/cli.log`` so nothing is
+    lost, while the console shows a spinner, any progress the child reports, and
+    (on failure) the log tail plus a plain-language hint. Returns the child's
+    structured result records for the caller to render.
+    """
+    cmd = [str(part) for part in cmd]
+    label = label or _derive_label(cmd)
+    reporter = console.get_reporter()
+    log_path = _cli_log_path()
+    results = []
+    with open(log_path, "a", encoding="utf-8") as log:
+        log.write(f"\n[{time.strftime('%Y-%m-%dT%H:%M:%S')}] {label}: {' '.join(cmd)}\n")
+        log.flush()
+        start_offset = log.tell()
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            cwd=str(cwd) if cwd else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        step = reporter.start_step(label)
+        try:
+            console.pump_process(proc.stdout, log, reporter, results=results)
+            rc = proc.wait()
+        except BaseException:
+            proc.kill()
+            step.done(ok=False)
+            raise
+        if rc != 0:
+            step.done(ok=False)
+            reporter.fail(
+                f"{label} failed (exit code {rc})",
+                tail=_read_tail(log_path, start_offset=start_offset),
+                log_path=log_path,
+            )
+            raise subprocess.CalledProcessError(rc, cmd)
+        step.done(ok=True)
+    return results
 
 
 def _build_env(args):
@@ -95,25 +163,61 @@ def _build_env(args):
 
 
 def _run_data_prep(env, root):
-    _run_command(["Rscript", str(root / "pipeline" / "data-prep.R")], env, cwd=root)
+    return _run_command(["Rscript", str(root / "pipeline" / "data-prep.R")], env, cwd=root)
 
 
 def _run_lineups(env, root):
-    _run_command([sys.executable, str(root / "pipeline" / "lineups.py")], env, cwd=root)
+    return _run_command(
+        [sys.executable, str(root / "pipeline" / "lineups.py")], env, cwd=root
+    )
 
 
 def _run_nrl_data(env, root, action, extra_args=None):
     cmd = [sys.executable, str(root / "pipeline" / "nrl_data.py"), action]
     if extra_args:
         cmd.extend(extra_args)
-    _run_command(cmd, env, cwd=root)
+    return _run_command(cmd, env, cwd=root)
 
 
 def _run_odds(env, root, action, extra_args=None):
     cmd = [sys.executable, str(root / "pipeline" / "odds.py"), action]
     if extra_args:
         cmd.extend(extra_args)
-    _run_command(cmd, env, cwd=root)
+    return _run_command(cmd, env, cwd=root)
+
+
+def _render_prediction_results(records) -> None:
+    """Render tip and data-freshness panels from child result markers."""
+    if not records:
+        return
+    freshness = [
+        (r.get("source", "data"), r.get("detail", ""))
+        for r in records
+        if isinstance(r, dict) and r.get("kind") == "freshness"
+    ]
+    if freshness:
+        console.panel("Data refreshed", freshness, style="cyan")
+    tips = next(
+        (r for r in records if isinstance(r, dict) and r.get("kind") == "tips"),
+        None,
+    )
+    if tips and tips.get("games"):
+        rows = []
+        for game in tips["games"]:
+            matchup = f"{game.get('home', '?')} v {game.get('away', '?')}"
+            pick = game.get("tip", "?")
+            prob = game.get("prob")
+            score = game.get("score")
+            detail = pick
+            if score:
+                detail += f"  {score}"
+            if isinstance(prob, (int, float)):
+                detail += f"  ({prob:.0%})"
+            rows.append((matchup, detail))
+        title = "Tips"
+        if tips.get("round"):
+            title = f"Tips — round {tips['round']}"
+        console.panel(title, rows, style="magenta")
 
 
 def _feed_source(env):
@@ -180,14 +284,15 @@ def _refresh_nrl_data(env, root, include_bootstrap=False):
     fetches XML instead. Live odds are independent and still refresh in every
     feed mode. Individual steps fail soft; prep proceeds on cached data.
     """
+    results = []
     if _feed_source(env) == "feed":
         _log("Feed source is 'feed'; skipping nrl.com ingestion (legacy XML path).")
-        _run_odds(env, root, "live")
-        return
+        results += _run_odds(env, root, "live") or []
+        return results
     if not _nrl_data_enabled(env):
         _log("nrl.com ingestion disabled via FOOTY_TIPPER_NRL_DATA_ENABLED=false.")
-        _run_odds(env, root, "live")
-        return
+        results += _run_odds(env, root, "live") or []
+        return results
 
     if include_bootstrap and _to_bool(
         env.get("FOOTY_TIPPER_NRL_DATA_AUTO_BACKFILL"), True
@@ -199,8 +304,9 @@ def _refresh_nrl_data(env, root, include_bootstrap=False):
             _log("Historical odds backfill not found. Running one-time odds backfill.")
             _run_odds(env, root, "backfill")
 
-    _run_nrl_data(env, root, "refresh")
-    _run_odds(env, root, "live")
+    results += _run_nrl_data(env, root, "refresh") or []
+    results += _run_odds(env, root, "live") or []
+    return results
 
 
 def _to_bool(value, default):
@@ -349,7 +455,9 @@ def _run_train(env, skip_prep, root):
 def _run_inference(env, skip_prep, root):
     if not skip_prep:
         _run_data_prep(env, root)
-    _run_command([sys.executable, str(root / "pipeline" / "inference.py")], env, cwd=root)
+    return _run_command(
+        [sys.executable, str(root / "pipeline" / "inference.py")], env, cwd=root
+    )
 
 
 def _run_evaluate(env, skip_prep, root):

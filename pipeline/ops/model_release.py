@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 
+from pipeline.common import console
 from pipeline.ops import state_sync
 
 
@@ -29,7 +30,6 @@ SCHEMA_VERSION = 1
 DEFAULT_TUNING_CANDIDATES = 100
 WORK_DIR_NAME = ".footy-tipper"
 JOURNAL_FILE = "model-update.json"
-HEARTBEAT_SECONDS = 30
 LOCAL_BACKUPS_TO_KEEP = 4
 LOCAL_UPDATES_TO_KEEP = 3
 REQUIRED_PROBABILITY_STACK_VERSION = 3
@@ -63,7 +63,7 @@ def _utc_now() -> str:
 
 def _log(message, *, json_output=False):
     if not json_output:
-        print(f"[model-update] {message}", flush=True)
+        console.note(message, source="model-update")
 
 
 def _atomic_json(path, payload) -> None:
@@ -388,49 +388,148 @@ def _stop_process_group(process) -> None:
     process.wait()
 
 
-def _run_logged(command, *, root, env, log_path, label, prevent_sleep=False) -> None:
+def _tail_lines(log_path, count=30, start_offset=0) -> list:
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+            if start_offset:
+                fh.seek(start_offset)
+            lines = fh.read().splitlines()
+    except OSError:
+        return []
+    # Internal progress/result markers are noise when reading an error.
+    lines = [
+        line
+        for line in lines
+        if not line.lstrip().startswith((console.PROGRESS_MARKER, console.RESULT_MARKER))
+    ]
+    return lines[-count:]
+
+
+def _run_logged(
+    command, *, root, env, log_path, label, prevent_sleep=False, announce_failure=True
+) -> list:
+    """Run a child, tee its output to ``log_path``, and drive one live status line.
+
+    The child's stdout/stderr is streamed into the log file (full transcript kept
+    for debugging), while a single spinner+elapsed line reports liveness. Any
+    ``::ft:progress::`` / ``::ft:result::`` markers the child prints are lifted
+    onto the console; the returned list holds the decoded result records so the
+    caller can render summary panels. On failure the log tail plus a
+    plain-language hint are shown (unless ``announce_failure`` is False, letting
+    the caller present a domain-specific message instead).
+    """
     command = [str(part) for part in command]
     if prevent_sleep and shutil.which("caffeinate"):
         command = ["caffeinate", "-dimsu", *command]
     log_path = pathlib.Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    reporter = console.get_reporter()
+    results: list = []
     with open(log_path, "a", encoding="utf-8") as log:
         log.write(f"\n[{_utc_now()}] {label}: {' '.join(command)}\n")
         log.write(f"environment: {json.dumps(_redacted_environment(env), sort_keys=True)}\n")
         log.flush()
+        start_offset = log.tell()
         process = subprocess.Popen(
             command,
             cwd=str(root),
             env=env,
-            stdout=log,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
             start_new_session=True,
         )
+        step = reporter.start_step(label)
         try:
-            last_heartbeat = time.monotonic()
-            while process.poll() is None:
-                time.sleep(1)
-                if time.monotonic() - last_heartbeat >= HEARTBEAT_SECONDS:
-                    print(
-                        f"[model-update] {label} is still running; log: {log_path}",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    last_heartbeat = time.monotonic()
+            console.pump_process(process.stdout, log, reporter, results=results)
+            process.wait()
         except BaseException:
             _stop_process_group(process)
+            step.done(ok=False)
             raise
         if process.returncode:
-            try:
-                tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-30:]
-            except OSError:
-                tail = []
-            if tail:
-                print("\n".join(tail), file=sys.stderr)
+            step.done(ok=False)
+            if announce_failure:
+                reporter.fail(
+                    f"{label} failed (exit code {process.returncode})",
+                    tail=_tail_lines(log_path, start_offset=start_offset),
+                    log_path=log_path,
+                )
             raise RuntimeError(
                 f"{label} failed with exit code {process.returncode}; see {log_path}"
             )
+        step.done(ok=True)
+    return results
+
+
+def _render_freshness_panel(records) -> None:
+    rows = [
+        (rec.get("source", "data"), rec.get("detail", ""))
+        for rec in records
+        if isinstance(rec, dict) and rec.get("kind") == "freshness"
+    ]
+    if rows:
+        console.get_reporter().panel("Data refreshed", rows, style="cyan")
+
+
+def _render_eval_panel(report) -> None:
+    """Show the honest season-out headline: model vs market, gate, placement."""
+    pooled = (report or {}).get("pooled") or {}
+    correct = pooled.get("correct")
+    games = pooled.get("games")
+    acceptance = pooled.get("acceptance") or {}
+    passed = acceptance.get("passed") is True
+    rows = []
+    if correct is not None and games:
+        rows.append(("Tips (model)", f"{correct}/{games}   {correct / games:.1%}"))
+    mkt_acc = pooled.get("market_accuracy")
+    if mkt_acc is not None:
+        rows.append(("Market favourite", f"{mkt_acc:.1%}"))
+    ll = pooled.get("log_loss")
+    br = pooled.get("brier")
+    if ll is not None and br is not None:
+        rows.append(("Log-loss / Brier", f"{ll:.4f} / {br:.4f}"))
+    p_first = pooled.get("comp_p_first")
+    rank = pooled.get("comp_expected_rank")
+    if p_first is not None and rank is not None:
+        rows.append(("Comp placement", f"P(first) {p_first:.1%}, avg rank {rank:.1f}"))
+    margin = pooled.get("margin_mae")
+    mkt_margin = pooled.get("market_margin_mae")
+    if margin is not None:
+        detail = f"model {margin:.2f}"
+        if mkt_margin is not None:
+            detail += f" vs market {mkt_margin:.2f}"
+        rows.append(("Margin MAE", detail))
+    rows.append(
+        (
+            "Acceptance gate",
+            "PASS — clears the bar" if passed else "FAIL — safety gate, nothing activated",
+        )
+    )
+    console.get_reporter().panel(
+        "Model vs market (honest season-out eval)",
+        rows,
+        style="green" if passed else "yellow",
+    )
+
+
+def _render_deployed_panel(journal, release_id) -> None:
+    stages = journal.get("stages", {}) if isinstance(journal, dict) else {}
+    previous = (stages.get("pointer_activated") or {}).get("previous_release_id")
+    check_run = (stages.get("container_checked") or {}).get("run_id")
+    refresh_run = (stages.get("refreshed") or {}).get("run_id")
+    rows = [
+        ("Model release", release_id),
+        ("Replaces", previous or "(first release)"),
+        ("Published to", "Google Drive — immutable, then activated"),
+        ("Local models", "models/ updated on this Mac"),
+    ]
+    if check_run:
+        rows.append(("Container check", f"GitHub run {check_run}"))
+    if refresh_run:
+        rows.append(("Site refresh", f"GitHub run {refresh_run} (no email)"))
+    console.get_reporter().deployed(rows, title="Deployed")
 
 
 def _base_environment(root, tuning_candidates) -> dict:
@@ -694,8 +793,12 @@ def _prepare_training_data(root, env, log_path) -> None:
             "Preparing training data",
         )
     )
+    freshness = []
     for command, label in commands:
-        _run_logged(command, root=root, env=env, log_path=log_path, label=label)
+        freshness.extend(
+            _run_logged(command, root=root, env=env, log_path=log_path, label=label)
+        )
+    _render_freshness_panel(freshness)
 
 
 def _runtime_versions() -> dict:
@@ -800,20 +903,52 @@ def _evaluate_candidate(root, models_dir, db_path, env, log_path, report_path) -
     evaluation_env["FOOTY_TIPPER_MODELS_DIR"] = str(models_dir)
     evaluation_env["FOOTY_TIPPER_DB_PATH"] = str(db_path)
     evaluation_env["FOOTY_TIPPER_EVAL_REPORT_PATH"] = str(report_path)
-    _run_logged(
-        [sys.executable, root / "pipeline" / "evaluate.py"],
-        root=root,
-        env=evaluation_env,
-        log_path=log_path,
-        label="Evaluating candidate probability stack",
-    )
+    # A gate FAIL exits non-zero but is an expected outcome, not a crash, so we
+    # suppress the generic failure banner and present the numbers ourselves.
+    run_failure = None
+    try:
+        _run_logged(
+            [sys.executable, root / "pipeline" / "evaluate.py"],
+            root=root,
+            env=evaluation_env,
+            log_path=log_path,
+            label="Evaluating candidate probability stack",
+            announce_failure=False,
+        )
+    except RuntimeError as exc:
+        run_failure = exc
+
     try:
         report = json.loads(report_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("candidate evaluation did not write a valid report") from exc
-    acceptance = (report.get("pooled") or {}).get("acceptance")
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        report = None
+    if report is not None:
+        _render_eval_panel(report)
+
+    acceptance = (report or {}).get("pooled", {}).get("acceptance") if report else None
+    gate_failed = isinstance(acceptance, dict) and acceptance.get("passed") is False
+
+    if run_failure is not None:
+        if gate_failed:
+            raise RuntimeError(
+                "The new model was not clearly better than the market or the current "
+                "model, so nothing was activated. The safety gate did its job and your "
+                "live tips are unchanged."
+            )
+        console.get_reporter().fail(
+            "Evaluating candidate probability stack failed",
+            tail=_tail_lines(log_path),
+            log_path=log_path,
+        )
+        raise run_failure
+
+    if report is None:
+        raise RuntimeError("candidate evaluation did not write a valid report")
     if not isinstance(acceptance, dict) or acceptance.get("passed") is not True:
-        raise RuntimeError("candidate failed the honest nested acceptance gate")
+        raise RuntimeError(
+            "The new model did not clear the honest acceptance gate, so nothing was "
+            "activated. Your live tips are unchanged."
+        )
     return {
         "report_path": str(report_path),
         "report_sha256": _sha256(report_path),
@@ -1061,6 +1196,11 @@ def update_model(root, *, json_output=False, debug=False) -> int:
         models_dir = update_dir / "models"
         log_path = update_dir / "update.log"
         update_dir.mkdir(parents=True, exist_ok=True)
+        console.configure(quiet=json_output)
+        console.section(
+            "update-model",
+            f"{'resuming' if resumed else 'new'} release {release_id}",
+        )
         _log(
             f"{'Resuming' if resumed else 'Starting'} release {release_id}. "
             f"You can safely rerun this command after an interruption.",
@@ -1218,9 +1358,10 @@ def update_model(root, *, json_output=False, debug=False) -> int:
         if json_output:
             print(json.dumps(result, sort_keys=True))
         else:
-            _log(
-                f"Model {release_id} is active and the no-email refresh succeeded.",
-                json_output=False,
+            _render_deployed_panel(journal, release_id)
+            console.get_reporter().ok(
+                f"Model {release_id} is live and the site refresh succeeded.",
+                source="model-update",
             )
         return 0
     except KeyboardInterrupt:

@@ -8,9 +8,11 @@ import sys
 
 from dotenv import load_dotenv
 
+from pipeline.common import console
+
 
 def _log(message: str) -> None:
-    print(message, flush=True)
+    console.emit_progress(message)
 
 
 def _to_bool(value: str | None, default: bool) -> bool:

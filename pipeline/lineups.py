@@ -8,9 +8,13 @@ import sys
 
 from dotenv import load_dotenv
 
+from pipeline.common import console
+
 
 def _log(message: str) -> None:
-    print(message, flush=True)
+    # Doubles as the ingestion progress callback; routed through the marker
+    # channel so the parent CLI shows it on the live status line.
+    console.emit_progress(message)
 
 
 def _to_bool(value: str | None, default: bool) -> bool:

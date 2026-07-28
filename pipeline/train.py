@@ -14,6 +14,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.insert(0, parent_dir)
 
+from pipeline.common import console
 from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.lineups import features as lf
 from pipeline.common.model_training import calibration as calib
@@ -94,6 +95,7 @@ predictors = tc.filter_predictors(
     include_performance=tc.include_performance, predictor_list=tc.predictors
 )
 
+console.emit_progress("loading training data")
 print("Get Training Data")
 training_data = mf.get_training_data(
     db_path=db_path,
@@ -103,6 +105,7 @@ training_data = mf.get_training_data(
 if training_data.empty:
     raise RuntimeError("Training data is empty. Run data prep first.")
 
+console.emit_progress("computing Tier-A baseline ratings")
 print("Computing Tier-A baseline features")
 baseline_cfg = tb.default_baseline_config_from_env()
 # On by default: the honest eval showed tuned alpha/carryover beat the
@@ -145,6 +148,7 @@ training_data["baseline_home_win_prob_conditional"] = pd.to_numeric(
     training_data["baseline_home_win_prob_conditional"], errors="coerce"
 ).fillna(0.5)
 
+console.emit_progress("merging lineup features")
 print("Merging lineup-derived features")
 try:
     training_years = sorted(
@@ -205,6 +209,7 @@ training_data = tc.align_predictor_columns(training_data, selected_predictors)
 
 print(f"Training with {len(selected_predictors)} predictors")
 
+console.emit_progress("training home-score model")
 print("Training the model for home team scores")
 home_model = mf.train_and_select_best_model(
     training_data,
@@ -215,6 +220,7 @@ home_model = mf.train_and_select_best_model(
     tc.opt_metric,
 )
 
+console.emit_progress("training away-score model")
 print("Training the model for away team scores")
 away_model = mf.train_and_select_best_model(
     training_data,
@@ -317,6 +323,7 @@ print(
 )
 print(f"Estimated bivariate shared component lambda3={lambda3:.4f}")
 
+console.emit_progress("fitting probability pools")
 print("Fitting market and no-market simplex probability pools")
 lineup_mc_samples = int(os.getenv("FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES", "64"))
 lineup_mu_noise_scale = float(os.getenv("FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE", "0.12"))
@@ -385,6 +392,7 @@ tier_b_cond_oof = np.array(
 # ── Tier-C: binary LightGBM (OOF) ────────────────────────────────────────────
 # Trains a direct binary win/loss classifier using the same hyperparameters as
 # the Poisson models. OOF predictions are used for stacker training to avoid bias.
+console.emit_progress("generating out-of-fold predictions for the stacker")
 print("Generating OOF binary predictions for stacker training...")
 best_params = dict(home_model.named_steps["hyperparamtuning"].best_params_)
 preprocessor_steps = home_model[:-1]
@@ -399,6 +407,7 @@ binary_model_oof, binary_oof_mask = mf.generate_oof_binary_predictions(
 )
 tier_c_cond_oof = np.clip(binary_model_oof, 1e-6, 1 - 1e-6)
 
+console.emit_progress("training the final classifier + calibrator")
 print("Training final binary classifier...")
 training_data["_y_binary_col"] = (
     training_data["team_final_score_home"].to_numpy(dtype=float)

@@ -13,6 +13,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(script_dir)
 sys.path.insert(0, parent_dir)
 
+from pipeline.common import console
 from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.model_prediciton.market_score_blend import (
     apply_market_score_mean_blends,
@@ -351,11 +352,17 @@ try:
 
     # ── PRIMARY: Tips ─────────────────────────────────────────────────────────
     print(f"\n── Tips ({len(inference_data)} game(s)) ──────────────────────────────────────")
+    tip_records = []
     for th, ta, mp in zip(teams_home, teams_away, model_prob):
         tip = th if mp > 0.5 else ta
         tip_prob = mp if mp > 0.5 else 1.0 - mp
         confidence = "HIGH" if tip_prob >= 0.70 else ("MED" if tip_prob >= 0.55 else "LOW")
         print(f"  TIP [{confidence}] {th} vs {ta}: {tip} ({tip_prob:.1%})")
+        tip_records.append(
+            {"home": str(th), "away": str(ta), "tip": str(tip), "prob": float(tip_prob)}
+        )
+    if tip_records:
+        console.emit_result("tips", games=tip_records)
 
     # ── SECONDARY: Betting edge vs market ────────────────────────────────────
     value_home = int(np.nansum(edge > edge_threshold))

@@ -15,6 +15,8 @@ from pathlib import Path
 
 import requests
 
+from pipeline.common import console
+
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/era5"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 REQUEST_SLEEP_SECONDS = 0.1
@@ -187,6 +189,11 @@ def fetch_weather_for_games(
                 con.commit()
         con.commit()
         print(f"[nrl-data] weather: {fetched} games updated, {errors} errors.")
+        console.emit_result(
+            "freshness",
+            source="weather",
+            detail=f"{fetched} games updated · {errors} errors",
+        )
         return {"fetched": fetched, "errors": errors, "candidates": len(games)}
     finally:
         con.close()

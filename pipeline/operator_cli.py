@@ -26,6 +26,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pipeline import cli_workflows
+from pipeline.common import console
 
 try:
     from dotenv import load_dotenv
@@ -1137,6 +1138,8 @@ def run(argv=None, *, root: pathlib.Path | None = None, inherited_debug: bool = 
     argv = list(sys.argv[1:] if argv is None else argv)
     debug = inherited_debug or "--debug" in argv
     json_requested = "--json" in argv
+    # JSON callers need clean machine output, so silence the human reporter.
+    console.configure(quiet=json_requested)
     if "--debug" in argv:
         argv = [item for item in argv if item != "--debug"]
 

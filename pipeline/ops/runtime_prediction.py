@@ -8,6 +8,7 @@ a live email send.  This module owns that exact three-mode contract.
 from types import SimpleNamespace
 
 from pipeline import cli as pipeline_cli
+from pipeline.common import console
 from pipeline.ops.odds_gate import current_round_odds_coverage
 
 
@@ -29,8 +30,10 @@ def run(mode: str) -> int:
             f"{', '.join(VALID_MODES)}"
         )
 
+    console.section("predict", f"{mode} mode")
     root = pipeline_cli._project_root()
     pipeline_cli.load_dotenv(dotenv_path=root / "secrets.env")
+    prediction_records = []
 
     # _build_env uses getattr for optional CLI arguments, so a deliberately
     # empty namespace gives the normal production defaults without exposing
@@ -46,12 +49,12 @@ def run(mode: str) -> int:
         # fetching odds, then rebuild from the now-frozen cache so the gate and
         # inference cannot silently refer to different rounds.
         pipeline_cli._run_data_prep(env, root)
-        pipeline_cli._refresh_nrl_data(env, root)
+        prediction_records += pipeline_cli._refresh_nrl_data(env, root) or []
         inference_env = dict(env)
         inference_env["FOOTY_TIPPER_FEED_SOURCE"] = "python"
         pipeline_cli._run_data_prep(inference_env, root)
     else:
-        pipeline_cli._refresh_nrl_data(env, root)
+        prediction_records += pipeline_cli._refresh_nrl_data(env, root) or []
         pipeline_cli._run_data_prep(env, root)
 
     odds_coverage = current_round_odds_coverage(
@@ -80,7 +83,10 @@ def run(mode: str) -> int:
         allow_lineup_bootstrap=False,
     ):
         return 1
-    pipeline_cli._run_inference(inference_env, skip_prep=True, root=root)
+    prediction_records += (
+        pipeline_cli._run_inference(inference_env, skip_prep=True, root=root) or []
+    )
+    pipeline_cli._render_prediction_results(prediction_records)
 
     if mode == "refresh":
         pipeline_cli._log("Refresh mode complete. Email send skipped.")
