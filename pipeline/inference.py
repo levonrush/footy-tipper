@@ -321,6 +321,9 @@ try:
 except Exception as exc:
     print(f"Score-mean market blends skipped ({exc}).")
 
+# Both chosen on the held-out margin scorecard, not by preference: see
+# `margin_distribution.reconciliation` in reports/eval-latest.json, which scores
+# every combination of these two switches on the same per-game seeds.
 outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     inference_data=inference_data,
     mu_home=blended_mu_home,
@@ -329,6 +332,8 @@ outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     calibrated_home_win_conditional=calibrated_cond,
     dispersion_home=dispersion_home,
     dispersion_away=dispersion_away,
+    reconcile="on_conflict",
+    display="median",
 )
 outcome_df = pd.merge(outcomes, margins, on="game_id")
 

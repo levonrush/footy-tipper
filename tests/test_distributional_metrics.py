@@ -5,6 +5,7 @@ import numpy as np
 from pipeline.common.model_training.distributional_metrics import (
     crps_ensemble,
     crps_normal,
+    crps_weighted_ensemble,
     interval_coverage,
     pit_histogram,
     predictive_interval,
@@ -63,6 +64,44 @@ class CrpsTests(unittest.TestCase):
     def test_returns_nan_for_empty_or_missing_input(self):
         self.assertTrue(np.isnan(crps_ensemble([], 1.0)))
         self.assertTrue(np.isnan(crps_ensemble([1.0, 2.0], np.nan)))
+
+
+class WeightedCrpsTests(unittest.TestCase):
+    """Scores the old importance-reweighted ensemble on the same scale."""
+
+    def test_reduces_to_the_unweighted_estimator_when_weights_are_equal(self):
+        rng = np.random.default_rng(19)
+        samples = rng.normal(3.0, 5.0, size=2000)
+        for weight in (1.0, 0.25, 7.5):
+            self.assertAlmostEqual(
+                crps_weighted_ensemble(samples, np.full(samples.size, weight), 1.5),
+                crps_ensemble(samples, 1.5),
+                places=10,
+            )
+
+    def test_duplicating_a_sample_is_the_same_as_doubling_its_weight(self):
+        # The property the legacy comparison relies on: reweighting a draw and
+        # replicating it must score identically, so a weighted ensemble and the
+        # ensemble it stands for cannot disagree.
+        base = np.array([-6.0, 0.0, 4.0, 11.0])
+        weights = np.array([2.0, 1.0, 3.0, 1.0])
+        expanded = np.repeat(base, weights.astype(int))
+        self.assertAlmostEqual(
+            crps_weighted_ensemble(base, weights, 2.0),
+            crps_ensemble(expanded, 2.0),
+            places=10,
+        )
+
+    def test_shifting_weight_toward_the_outcome_improves_the_score(self):
+        samples = np.array([-10.0, 10.0])
+        self.assertLess(
+            crps_weighted_ensemble(samples, [0.1, 0.9], 10.0),
+            crps_weighted_ensemble(samples, [0.9, 0.1], 10.0),
+        )
+
+    def test_returns_nan_for_degenerate_weights(self):
+        self.assertTrue(np.isnan(crps_weighted_ensemble([1.0, 2.0], [0.0, 0.0], 1.0)))
+        self.assertTrue(np.isnan(crps_weighted_ensemble([1.0, 2.0], [1.0], 1.0)))
 
 
 class RandomisedPitTests(unittest.TestCase):
