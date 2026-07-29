@@ -86,6 +86,20 @@ class ProbabilityEvaluationTests(unittest.TestCase):
         self.assertIn("model", margin_distribution["methods"])
         self.assertGreater(margin_distribution["methods"]["model"]["crps"], 0.0)
 
+        # And the reconciliation scorecard, which prices every way of producing
+        # the displayed scoreline in points rather than in CRPS.
+        reconciliation = margin_distribution["reconciliation"]
+        self.assertEqual(reconciliation["games"], per_season)
+        for variant in evaluate.RECONCILIATION_VARIANTS:
+            self.assertEqual(reconciliation[variant]["games"], per_season)
+            self.assertGreater(reconciliation[variant]["margin_mae"], 0.0)
+        # The deployed arrangement must be one of the scored variants, so the
+        # report can never describe a configuration it did not measure.
+        self.assertIn(reconciliation["deployed"], evaluate.RECONCILIATION_VARIANTS)
+        self.assertEqual(
+            reconciliation["shipped"], reconciliation[reconciliation["deployed"]]
+        )
+
         pool_loss = result["no_market_selection_pool_log_loss"]
         tier_b_loss = result["no_market_selection_tier_b_log_loss"]
         self.assertIsNotNone(pool_loss)
@@ -141,6 +155,48 @@ class ProbabilityEvaluationTests(unittest.TestCase):
             routes["no_market_pool"] + routes["tier_b"],
             per_season,
         )
+
+    def test_reweighting_cannot_move_the_displayed_scoreline_but_solving_can(self):
+        """Pins the mechanism the reconciliation scorecard replays.
+
+        Importance weights are constant within a side, so the old path could not
+        move the displayed scoreline at all for a given side: a 55% home tip and
+        an 85% home tip printed the same score. Moving the means can. The two
+        mechanisms have to stay distinguishable or the `legacy` column in the
+        report is not reproducing the code it claims to.
+
+        `on_conflict`, which is what ships, deliberately declines to move it here
+        too. The raw means already put the home side in front, so there is no
+        contradiction to fix, and the held-out seasons say the score model is the
+        better margin estimator when left alone.
+        """
+        kwargs = dict(
+            n_simulations=40_000, lambda3=0.0, dispersion_home=5.19, dispersion_away=4.34
+        )
+        home_side = (0.55, 0.70, 0.85)
+
+        def legacy(cond):
+            scoreline, _, _, _ = evaluate._legacy_reconciled_prediction(
+                22.0, 20.0, cond, rng=pf.rng_for_game(1, salt=1), **kwargs
+            )
+            return scoreline[0] - scoreline[1]
+
+        def solved(cond, reconcile):
+            _, scoreline = pf.simulate_game(
+                22.0, 20.0, rng=pf.rng_for_game(1, salt=1), calibrated_cond=cond,
+                reconcile=reconcile, **kwargs
+            )
+            return scoreline[0] - scoreline[1]
+
+        self.assertEqual(len({legacy(c) for c in home_side}), 1)
+        self.assertGreater(len({solved(c, "always") for c in home_side}), 1)
+        self.assertEqual(len({solved(c, "on_conflict") for c in home_side}), 1)
+
+        # Whatever else moves, no version may contradict the tip.
+        for cond in home_side:
+            self.assertGreater(legacy(cond), 0)
+            self.assertGreater(solved(cond, "always"), 0)
+            self.assertGreater(solved(cond, "on_conflict"), 0)
 
     def test_poor_counterfactual_no_market_output_fails_hard_acceptance(self):
         y = np.array([0, 1] * 40)

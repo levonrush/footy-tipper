@@ -13,6 +13,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 
 import numpy as np
@@ -45,6 +46,18 @@ from pipeline.runtime_paths import (
 NORMAL_50_Z = 0.6744897501960817
 NORMAL_90_Z = 1.6448536269514722
 
+# What inference serves. The reconciliation scorecard scores every combination
+# and labels this one `shipped`, so the report always says which is deployed.
+RECONCILE_MODE = "on_conflict"
+DISPLAY_MODE = "median"
+RECONCILIATION_VARIANTS = (
+    "on_conflict_median",
+    "on_conflict_mode",
+    "always_median",
+    "always_mode",
+    "legacy",
+)
+
 
 def _prediction_metrics(y, probabilities):
     """Return directly comparable binary-probability metrics."""
@@ -70,6 +83,238 @@ def _prediction_metrics(y, probabilities):
     }
 
 
+def _legacy_reconciled_prediction(
+    mu_home,
+    mu_away,
+    calibrated_cond,
+    n_simulations,
+    lambda3,
+    dispersion_home,
+    dispersion_away,
+    rng,
+):
+    """The reconciliation the constraint-native solve replaced.
+
+    Kept here, and nowhere else, purely so the fix can be priced. It draws from
+    the *raw* score means and then importance-reweights the simulated games so
+    the reported margin carries the calibrated probability: home wins get
+    `cal / raw_cond` and away wins the complement, leaving a discontinuity in
+    the reported margin at zero. Nothing in the pipeline calls this.
+
+    Returns the modal scoreline on the tipped side, the weighted median margin,
+    and the weighted ensemble, so the point predictions and the distribution it
+    implied can both be scored.
+    """
+    home, away = pf.draw_score_samples(
+        mu_home,
+        mu_away,
+        n_simulations,
+        lambda3=lambda3,
+        dispersion_home=dispersion_home,
+        dispersion_away=dispersion_away,
+        rng=rng,
+    )
+    margins = home - away
+    home_wins = int((margins > 0).sum())
+    away_wins = int((margins < 0).sum())
+
+    cal = float(np.clip(calibrated_cond, 1e-6, 1 - 1e-6))
+    raw_cond = float(
+        np.clip(home_wins / max(1, home_wins + away_wins), 1e-6, 1 - 1e-6)
+    )
+    weights = np.ones(n_simulations)
+    weights[margins > 0] = cal / raw_cond
+    weights[margins < 0] = (1.0 - cal) / (1.0 - raw_cond)
+
+    order = np.argsort(margins, kind="stable")
+    cumulative = np.cumsum(weights[order])
+    median_margin = int(
+        margins[order][int(np.searchsorted(cumulative, 0.5 * cumulative[-1]))]
+    )
+
+    # Strict > matched the caller's tie-break: cal == 0.5 tipped the away side.
+    tip_mask = margins > 0 if cal > 0.5 else margins < 0
+    if tip_mask.any():
+        scoreline = Counter(zip(home[tip_mask], away[tip_mask])).most_common(1)[0][0]
+    else:
+        modal = Counter(zip(home, away)).most_common(1)[0][0]
+        ordered = (max(modal), min(modal)) if cal > 0.5 else (min(modal), max(modal))
+        scoreline = (
+            ordered
+            if ordered[0] != ordered[1]
+            else (
+                (ordered[0] + 1, ordered[1])
+                if cal > 0.5
+                else (ordered[0], ordered[1] + 1)
+            )
+        )
+
+    return scoreline, median_margin, margins, weights
+
+
+def _point_prediction_metrics(
+    scorelines, median_margins, actual_home, actual_away, crps_values=None
+):
+    """Score the three integers that actually reach the predictions table."""
+    scorelines = np.asarray(scorelines, dtype=float)
+    predicted_home = scorelines[:, 0]
+    predicted_away = scorelines[:, 1]
+    predicted_margin = predicted_home - predicted_away
+    actual_home = np.asarray(actual_home, dtype=float)
+    actual_away = np.asarray(actual_away, dtype=float)
+    actual_margin = actual_home - actual_away
+
+    scored = {
+        "games": int(predicted_margin.size),
+        "margin_mae": float(np.mean(np.abs(predicted_margin - actual_margin))),
+        "margin_bias": float(np.mean(predicted_margin - actual_margin)),
+        "home_score_mae": float(np.mean(np.abs(predicted_home - actual_home))),
+        "away_score_mae": float(np.mean(np.abs(predicted_away - actual_away))),
+        "total_mae": float(
+            np.mean(np.abs((predicted_home + predicted_away) - (actual_home + actual_away)))
+        ),
+        "exact_scoreline_rate": float(
+            np.mean((predicted_home == actual_home) & (predicted_away == actual_away))
+        ),
+        "median_margin_mae": float(
+            np.mean(np.abs(np.asarray(median_margins, dtype=float) - actual_margin))
+        ),
+    }
+    if crps_values is not None:
+        crps_values = np.asarray(crps_values, dtype=float)
+        finite = np.isfinite(crps_values)
+        scored["crps"] = float(np.mean(crps_values[finite])) if finite.any() else None
+    return scored
+
+
+def _score_reconciliation_point_predictions(
+    raw_pairs,
+    calibrated_cond,
+    actual_home,
+    actual_away,
+    game_ids,
+    n_samples,
+    lambda3,
+    dispersion_home,
+    dispersion_away,
+):
+    """Price every available way of producing the three displayed integers.
+
+    The distribution scorecard measures the margin's full predictive
+    distribution. This measures what a reader of the tips actually sees: a
+    scoreline and the score difference taken from it. Four live variants are
+    scored, crossing when the score means are moved onto the calibrated
+    probability (`always` or only `on_conflict`) with how the sample cloud is
+    reduced to a scoreline (`mode` or `median`), plus `legacy`, which replays the
+    importance-reweighting the constraint-native solve replaced.
+
+    Every variant runs off the same per-game seed, so they differ only in the two
+    decisions under test, not in the draws. Each carries its own margin CRPS from
+    those matched seeds; the `methods` table above draws off a shared stream, so
+    only these numbers are a clean head-to-head.
+    """
+    cond = np.asarray(calibrated_cond, dtype=float)
+    usable = np.isfinite(cond)
+    if not usable.any():
+        return None
+
+    variants = {
+        name: {"scorelines": [], "medians": [], "crps": []}
+        for name in (
+            "always_mode",
+            "always_median",
+            "on_conflict_mode",
+            "on_conflict_median",
+            "legacy",
+        )
+    }
+    kept_home = []
+    kept_away = []
+
+    def _draws(mu_h, mu_a, game_id):
+        # salt=1 is the inference seed, so these are the numbers that would ship.
+        return pf.draw_score_samples(
+            mu_h,
+            mu_a,
+            n_samples,
+            lambda3=lambda3,
+            dispersion_home=dispersion_home,
+            dispersion_away=dispersion_away,
+            rng=pf.rng_for_game(game_id, salt=1),
+        )
+
+    for i in np.flatnonzero(usable):
+        mu_h, mu_a = raw_pairs[i]
+        game_id = None if game_ids is None else game_ids[i]
+        actual = actual_home[i] - actual_away[i]
+        cal = float(np.clip(cond[i], 1e-6, 1 - 1e-6))
+        tipped_home = cal > 0.5
+
+        solved_h, solved_a = pf.solve_score_means_for_probability(mu_h, mu_a, cal)
+        solved_home, solved_away = _draws(solved_h, solved_a, game_id)
+        solved_crps = dm.crps_ensemble(solved_home - solved_away, actual)
+        solved_median = int(round(float(np.median(solved_home - solved_away))))
+
+        # `on_conflict` only differs where the score model puts the other side
+        # in front, so elsewhere it reuses the raw draws.
+        conflict = (pf.conditional_home_win_prob(mu_h, mu_a) > 0.5) != tipped_home
+        if conflict:
+            raw_home, raw_away = solved_home, solved_away
+            raw_crps, raw_median = solved_crps, solved_median
+        else:
+            raw_home, raw_away = _draws(mu_h, mu_a, game_id)
+            raw_crps = dm.crps_ensemble(raw_home - raw_away, actual)
+            raw_median = int(round(float(np.median(raw_home - raw_away))))
+
+        for name, (home_sim, away_sim, crps, median), display in (
+            ("always_mode", (solved_home, solved_away, solved_crps, solved_median), "mode"),
+            ("always_median", (solved_home, solved_away, solved_crps, solved_median), "median"),
+            ("on_conflict_mode", (raw_home, raw_away, raw_crps, raw_median), "mode"),
+            ("on_conflict_median", (raw_home, raw_away, raw_crps, raw_median), "median"),
+        ):
+            variants[name]["scorelines"].append(
+                pf.scoreline_from_samples(
+                    home_sim, away_sim, tipped_home=tipped_home, display=display
+                )
+            )
+            variants[name]["medians"].append(median)
+            variants[name]["crps"].append(crps)
+
+        legacy_scoreline, legacy_median, legacy_margins, weights = (
+            _legacy_reconciled_prediction(
+                mu_h,
+                mu_a,
+                cal,
+                n_samples,
+                lambda3,
+                dispersion_home,
+                dispersion_away,
+                pf.rng_for_game(game_id, salt=1),
+            )
+        )
+        variants["legacy"]["scorelines"].append(legacy_scoreline)
+        variants["legacy"]["medians"].append(legacy_median)
+        variants["legacy"]["crps"].append(
+            dm.crps_weighted_ensemble(legacy_margins, weights, actual)
+        )
+
+        kept_home.append(actual_home[i])
+        kept_away.append(actual_away[i])
+
+    scored = {
+        name: _point_prediction_metrics(
+            parts["scorelines"], parts["medians"], kept_home, kept_away, parts["crps"]
+        )
+        for name, parts in variants.items()
+    }
+    scored["games"] = scored["always_mode"]["games"]
+    # Name the deployed arrangement, so a report can never describe a
+    # configuration it did not measure.
+    scored["deployed"] = f"{RECONCILE_MODE}_{DISPLAY_MODE}"
+    scored["shipped"] = scored[scored["deployed"]]
+    return scored
+
+
 def _score_margin_distributions(
     blended_h,
     blended_a,
@@ -82,6 +327,7 @@ def _score_margin_distributions(
     test_mask,
     n_samples,
     seed,
+    game_ids=None,
 ):
     """Score the margin's predictive distribution against strong baselines.
 
@@ -205,6 +451,20 @@ def _score_margin_distributions(
         )
         market_comparison["model_crps"] = model_on_line_rows["crps"]
 
+    # What the fix bought the displayed scoreline, in points.
+    test_game_ids = None if game_ids is None else np.asarray(game_ids)[test_mask]
+    reconciliation = _score_reconciliation_point_predictions(
+        raw_pairs,
+        test_cond,
+        actual_home[test_mask],
+        actual_away[test_mask],
+        test_game_ids,
+        n_samples,
+        lambda3,
+        dispersion_home,
+        dispersion_away,
+    )
+
     return {
         "games": n_test,
         "sim_samples": int(n_samples),
@@ -213,6 +473,7 @@ def _score_margin_distributions(
         "dispersion_away": dispersion_away,
         "methods": methods,
         "market_comparison": market_comparison,
+        "reconciliation": reconciliation,
     }
 
 
@@ -401,10 +662,47 @@ def _pool_margin_distributions(results):
             pooled_method["pit_uniformity_mae"] = _weighted(uniformity)
         methods[name] = pooled_method
 
+    reconciliation_entries = [
+        s["reconciliation"] for s in seasons if s.get("reconciliation")
+    ]
+    reconciliation = None
+    if reconciliation_entries:
+        point_fields = (
+            "margin_mae",
+            "margin_bias",
+            "home_score_mae",
+            "away_score_mae",
+            "total_mae",
+            "exact_scoreline_rate",
+            "median_margin_mae",
+            "crps",
+        )
+        reconciliation = {
+            "games": int(sum(e.get("games") or 0 for e in reconciliation_entries)),
+            "deployed": f"{RECONCILE_MODE}_{DISPLAY_MODE}",
+        }
+        for variant in RECONCILIATION_VARIANTS:
+            reconciliation[variant] = {
+                "games": int(
+                    sum(e[variant].get("games") or 0 for e in reconciliation_entries)
+                ),
+                **{
+                    field: _weighted(
+                        [
+                            (e[variant].get(field), e[variant].get("games"))
+                            for e in reconciliation_entries
+                        ]
+                    )
+                    for field in point_fields
+                },
+            }
+        reconciliation["shipped"] = reconciliation[reconciliation["deployed"]]
+
     market_entries = [s["market_comparison"] for s in seasons]
     return {
         "games": int(sum(s["games"] for s in seasons)),
         "methods": methods,
+        "reconciliation": reconciliation,
         "market_comparison": {
             "games": int(sum(e.get("games") or 0 for e in market_entries)),
             "market_line_crps": _weighted(
@@ -811,6 +1109,7 @@ def _evaluate_season(
             test_mask,
             sim_samples,
             seed=int(test_year),
+            game_ids=game_ids,
         )
 
     # Flat-stake ROI at the edge threshold.
@@ -913,6 +1212,40 @@ def _print_margin_distribution(pooled):
             f"market line {market['market_line_crps']:.2f} "
             "(a point forecast, so its CRPS is its MAE)"
         )
+
+    reconciliation = pooled.get("reconciliation")
+    if reconciliation:
+        print(
+            "\n── Displayed scoreline: when to reconcile, and what to display ──"
+        )
+        print(
+            f"  {'Variant':<22} {'Games':>6} {'Margin MAE':>11} {'Home MAE':>9} "
+            f"{'Away MAE':>9} {'Total MAE':>10} {'CRPS':>7}"
+        )
+        deployed = reconciliation.get("deployed")
+        ranked = sorted(
+            (
+                (name, reconciliation[name])
+                for name in RECONCILIATION_VARIANTS
+                if reconciliation.get(name)
+            ),
+            key=lambda item: (
+                item[1].get("margin_mae")
+                if item[1].get("margin_mae") is not None
+                else float("inf")
+            ),
+        )
+        for name, scored in ranked:
+            label = name + (" *" if name == deployed else "")
+            print(
+                f"  {label:<22} {scored.get('games', 0):>6} "
+                f"{_fmt(scored.get('margin_mae'), 11, 2)} "
+                f"{_fmt(scored.get('home_score_mae'), 9, 2)} "
+                f"{_fmt(scored.get('away_score_mae'), 9, 2)} "
+                f"{_fmt(scored.get('total_mae'), 10, 2)} "
+                f"{_fmt(scored.get('crps'), 7, 2)}"
+            )
+        print(f"  * deployed. Best on margin MAE: {ranked[0][0]}.")
 
 
 def _build_report(results, pooled, config):

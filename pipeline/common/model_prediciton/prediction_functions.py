@@ -295,6 +295,81 @@ def draw_score_samples(
     return home_goals_sim, away_goals_sim
 
 
+def scoreline_from_samples(home_sim, away_sim, tipped_home=None, display="median"):
+    """Reduce a simulated score cloud to the one scoreline that gets displayed.
+
+    Two reductions, because they are not equally good and the difference is
+    measurable:
+
+    * `"median"` takes the median margin and the median total, which are each
+      the MAE-optimal point estimate of their own quantity, and splits the total
+      around the margin. The total is nudged one point onto the parity the margin
+      needs, toward whichever neighbour the simulation actually favours.
+    * `"mode"` takes the most common exact scoreline on the tipped side. It is a
+      mode of a two-dimensional discrete distribution, so it carries far more
+      sampling noise than either median, and it is retained only so the two can
+      be compared.
+
+    `tipped_home` fixes the side the displayed margin must fall on. A margin of
+    zero, or one whose sign contradicts the tip, is pushed to a single point in
+    the tipped direction: the scoreline and the tip are one prediction and must
+    never disagree. Both cases only arise inside the near-tie band.
+    """
+    home_sim = np.asarray(home_sim)
+    away_sim = np.asarray(away_sim)
+    margins = home_sim - away_sim
+
+    if tipped_home is None:
+        home_wins = int((margins > 0).sum())
+        away_wins = int((margins < 0).sum())
+        if home_wins == away_wins:
+            tipped_home = None
+        else:
+            tipped_home = home_wins > away_wins
+
+    if display == "mode":
+        if tipped_home is None:
+            return tuple(int(v) for v in Counter(zip(home_sim, away_sim)).most_common(1)[0][0])
+        tip_mask = margins > 0 if tipped_home else margins < 0
+        if tip_mask.any():
+            modal = Counter(zip(home_sim[tip_mask], away_sim[tip_mask])).most_common(1)[0][0]
+            return int(modal[0]), int(modal[1])
+        # Unreachable once the means agree with the tip, but a degenerate call
+        # must still return an ordered scoreline rather than raise.
+        modal = Counter(zip(home_sim, away_sim)).most_common(1)[0][0]
+        ordered = (max(modal), min(modal)) if tipped_home else (min(modal), max(modal))
+        if ordered[0] == ordered[1]:
+            ordered = (
+                (ordered[0] + 1, ordered[1]) if tipped_home else (ordered[0], ordered[1] + 1)
+            )
+        return int(ordered[0]), int(ordered[1])
+
+    if display != "median":
+        raise ValueError(f"unknown display mode: {display!r}")
+
+    margin = int(round(float(np.median(margins))))
+    if tipped_home is not None and (
+        (tipped_home and margin <= 0) or (not tipped_home and margin >= 0)
+    ):
+        margin = 1 if tipped_home else -1
+
+    totals = home_sim + away_sim
+    total = int(round(float(np.median(totals))))
+    if (total + margin) % 2:
+        up = int((totals == total + 1).sum())
+        down = int((totals == total - 1).sum())
+        total = total + 1 if up >= down else total - 1
+
+    home = (total + margin) // 2
+    away = total - home
+    # Clamping preserves the margin, which is the headline number.
+    if away < 0:
+        home, away = margin, 0
+    if home < 0:
+        home, away = 0, -margin
+    return int(home), int(away)
+
+
 def solve_score_means_for_probability(mu_home, mu_away, target_cond, min_mean=1e-3):
     """Shift the score means so their own win probability equals the target.
 
@@ -346,27 +421,53 @@ def simulate_game(
     calibrated_cond=None,
     dispersion_home=None,
     dispersion_away=None,
+    reconcile="on_conflict",
+    display="median",
 ):
     """Simulate outcomes and scoreline under Poisson-family score models.
 
-    When `calibrated_cond` (calibrated p(home win | non-draw)) is given, the
-    score means are first shifted along a total-preserving ray so the simulated
-    distribution's own win probability is the calibrated one. The margin and
-    scoreline then fall out of that single distribution rather than being
-    reweighted onto it afterwards.
+    `calibrated_cond` is the calibrated p(home win | non-draw) that decides the
+    tip. `reconcile` says when the score means are moved onto it:
+
+    * `"on_conflict"` moves them only when the score model would otherwise put
+      the wrong side in front. The requirement the scoreline has to meet is that
+      it never contradicts the tip, and on most games it already does. Held-out
+      seasons say the score model is the better margin estimator, so leaving it
+      alone where there is nothing to fix is worth roughly a third of a point of
+      margin error.
+    * `"always"` moves them on every game, so the simulated win probability
+      equals the calibrated one everywhere. Stronger coherence, measurably worse
+      margins, since it imports the tip model's view onto games where the two
+      already agreed.
+
+    Either way the means move along a total-preserving ray, so the margin and
+    scoreline fall out of one distribution rather than being reweighted onto the
+    calibrated probability afterwards.
+
+    `display` picks how the cloud is reduced to a scoreline; see
+    `scoreline_from_samples`.
     """
     if rng is None:
         rng = np.random.default_rng()
+
+    if reconcile not in {"always", "on_conflict"}:
+        raise ValueError(f"unknown reconcile mode: {reconcile!r}")
 
     mu_home = float(max(home_score_avg, 1e-9))
     mu_away = float(max(away_score_avg, 1e-9))
 
     tipped_home = None
+    reconciled = False
     if calibrated_cond is not None and np.isfinite(calibrated_cond):
         # Strict > matches the caller's tie-break: cal == 0.5 tips the away side.
         cal = float(np.clip(calibrated_cond, 1e-6, 1 - 1e-6))
-        mu_home, mu_away = solve_score_means_for_probability(mu_home, mu_away, cal)
         tipped_home = cal > 0.5
+        # Analytic, so the conflict test uses the same quantity the solver
+        # targets and costs nothing.
+        conflict = (conditional_home_win_prob(mu_home, mu_away) > 0.5) != tipped_home
+        if reconcile == "always" or conflict:
+            mu_home, mu_away = solve_score_means_for_probability(mu_home, mu_away, cal)
+            reconciled = True
 
     home_goals_sim, away_goals_sim = draw_score_samples(
         mu_home,
@@ -391,30 +492,12 @@ def simulate_game(
         # Median margin is a far more stable point estimate than the margin of
         # the modal exact scoreline.
         "median_margin": int(round(float(np.median(margins)))),
+        "reconciled": reconciled,
     }
 
-    if tipped_home is None:
-        predicted_scoreline = Counter(zip(home_goals_sim, away_goals_sim)).most_common(1)[0][0]
-        return probabilities, predicted_scoreline
-
-    # The means already sit on the tipped side, so this is the modal scoreline
-    # of the reconciled distribution, not a correction to a contradictory one.
-    # It keeps the displayed score difference from contradicting the tip.
-    tip_mask = margins > 0 if tipped_home else margins < 0
-    if tip_mask.any():
-        predicted_scoreline = Counter(
-            zip(home_goals_sim[tip_mask], away_goals_sim[tip_mask])
-        ).most_common(1)[0][0]
-    else:
-        # Unreachable for any usable simulation size now that the means agree
-        # with the tip, but kept so a degenerate call still returns an ordered
-        # scoreline rather than raising.
-        modal = Counter(zip(home_goals_sim, away_goals_sim)).most_common(1)[0][0]
-        ordered = (max(modal), min(modal)) if tipped_home else (min(modal), max(modal))
-        predicted_scoreline = ordered if ordered[0] != ordered[1] else (
-            (ordered[0] + 1, ordered[1]) if tipped_home else (ordered[0], ordered[1] + 1)
-        )
-
+    predicted_scoreline = scoreline_from_samples(
+        home_goals_sim, away_goals_sim, tipped_home=tipped_home, display=display
+    )
     return probabilities, predicted_scoreline
 
 
@@ -454,6 +537,8 @@ def predict_match_outcome_and_scoreline_with_bayes(
     calibrated_home_win_conditional=None,
     dispersion_home=None,
     dispersion_away=None,
+    reconcile="on_conflict",
+    display="median",
 ):
     """
     Predict match outcomes and scorelines.
@@ -519,6 +604,8 @@ def predict_match_outcome_and_scoreline_with_bayes(
             calibrated_cond=None if np.isnan(calibrated_cond) else calibrated_cond,
             dispersion_home=dispersion_home,
             dispersion_away=dispersion_away,
+            reconcile=reconcile,
+            display=display,
         )
 
         if not np.isnan(calibrated_cond):

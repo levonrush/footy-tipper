@@ -53,6 +53,42 @@ def crps_ensemble(samples, y):
     return mean_abs_error - spread
 
 
+def crps_weighted_ensemble(samples, weights, y):
+    """CRPS of a *weighted* empirical predictive distribution.
+
+    The same estimator as `crps_ensemble`, generalised to non-uniform sample
+    weights so an importance-weighted ensemble can be scored on one scale with
+    an ordinary one:
+
+        CRPS = sum_i w_i |x_i - y| - (1/2) sum_i sum_j w_i w_j |x_i - x_j|
+
+    with the weights normalised to sum to one. On the sorted samples the double
+    sum collapses to
+
+        sum_i sum_j w_i w_j |x_i - x_j| = 2 * sum_i w_i x_i (2 W_i - w_i - 1)
+
+    where W is the inclusive cumulative weight, so the cost is again the sort.
+    Reduces exactly to `crps_ensemble` when the weights are equal.
+    """
+    x = np.asarray(samples, dtype=float)
+    w = np.asarray(weights, dtype=float)
+    if x.size == 0 or x.size != w.size or not np.isfinite(y):
+        return float("nan")
+
+    total = float(w.sum())
+    if not np.isfinite(total) or total <= 0:
+        return float("nan")
+
+    order = np.argsort(x, kind="stable")
+    x = x[order]
+    w = w[order] / total
+
+    mean_abs_error = float(np.dot(w, np.abs(x - float(y))))
+    cumulative = np.cumsum(w)
+    spread = float(np.dot(w * x, 2.0 * cumulative - w - 1.0))
+    return mean_abs_error - spread
+
+
 def crps_normal(mu, sigma, y):
     """Closed-form CRPS for a Gaussian predictive distribution.
 

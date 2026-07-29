@@ -198,8 +198,9 @@ thesis, in particular Study 1's constrained diffusion and the evaluation framewo
 built around it, can improve the NRL prediction engine. And, honestly, where it cannot.
 
 > **Short answer.** The diffusion model is a dud here. The **evaluation framework**
-> around it is the revelation, and porting it immediately produced two findings the
-> system had no way to see before.
+> around it is the revelation, and porting it immediately produced findings the system
+> had no way to see before, including one that says a change made on thesis reasoning
+> cost accuracy (section 8).
 
 This notebook is both an engineering record of what changed and evidence that the
 thesis methodology transfers to a domain it was never designed for.
@@ -272,6 +273,7 @@ print(f"accuracy {{POOLED['accuracy']:.1%}}  log loss {{POOLED['log_loss']:.4f}}
     _section_coherence()
     _section_skew()
     _section_results()
+    _section_point_scores()
     _section_fairness()
     _section_tips_impact()
     _section_back_to_phd()
@@ -333,7 +335,7 @@ def _section_transfer() -> None:
         ["Coverage reported with width", "**Ported**", "No predictive intervals existed at all"],
         ["Randomised PIT", "**Ported, adapted**", "Margins are integers, so the plain PIT is wrong (section 4)"],
         ["Strong baselines, not a floor", "**Ported**", "Empirical replay was the thesis bar; here it is a normal approximation"],
-        ["Constraint-native over projection", "**Ported**", "Directly replaced a reweighting hack (section 5)"],
+        ["Constraint-native over projection", "**Ported, at a price**", "Replaced post-hoc reweighting; more coherent, less accurate (sections 5, 8)"],
         ["Conditional diffusion", "Rejected", "Output is a 2-vector; no joint structure exists to model"],
         ["Energy / variogram score", "Rejected", "Multivariate trajectory metrics, degenerate on 2 dims"],
         ["Zero-inflation / hurdle head", "Rejected", "Rugby scores are not zero-inflated by a separate process"],
@@ -634,6 +636,11 @@ Two consequences fell out for free:
   the negative-binomial `k` whenever the shared component was non-zero. They now
   compose, with `k` rescaled by `(lam/mu)^2` so the marginal variance still lands on
   `mu + mu^2/k` while the shared component holds the covariance at `lambda3`.
+
+**This is the coherence argument, not an accuracy claim.** Read section 8 before
+concluding the change was a win: measured on held-out seasons, the reweighted version
+it replaced was slightly *more* accurate on the displayed scoreline and on CRPS. The
+trade is real and it is now priced.
 """
     )
 
@@ -783,10 +790,13 @@ plt.show()
     )
 
     md(
-        """
+        f"""
 Reconciling the score means onto the calibrated win probability, which is **what
-actually ships**, costs CRPS (10.26 to 10.50) and worsens PIT deviation (0.0190 to
-0.0251). The win-probability stack and the score model genuinely disagree, and the
+actually ships**, costs CRPS ({METHODS["model"]["crps"]:.2f} to
+{METHODS["model_reconciled"]["crps"]:.2f}) and worsens PIT deviation
+({METHODS["model"]["pit_uniformity_mae"]:.4f} to
+{METHODS["model_reconciled"]["pit_uniformity_mae"]:.4f}). The win-probability stack
+and the score model genuinely disagree, and the
 price of making them agree is now a measured quantity rather than an assumption.
 
 That is not an argument against shipping the reconciled version. A tip that
@@ -858,12 +868,221 @@ still be the wrong *shape*, and only a distributional diagnostic will say so.
     )
 
 
+def _section_point_scores() -> None:
+    """The question section 7 cannot answer: what happened to the numbers shown."""
+    rec = MARGIN.get("reconciliation")
+    if not rec:
+        md(
+            """
+---
+## 8. What it did to the scoreline you actually read
+
+*Not available: this section needs `margin_distribution.reconciliation` in
+`reports/eval-latest.json`. Re-run `footy-tipper evaluate` to produce it.*
+"""
+        )
+        return
+
+    ORDER8 = [
+        ("legacy", "Reweighted, modal scoreline", "the arrangement before any of this"),
+        ("always_mode", "Solve every game, modal scoreline", "the first version of the fix"),
+        ("always_median", "Solve every game, median", ""),
+        ("on_conflict_mode", "Solve on conflict, modal scoreline", ""),
+        ("on_conflict_median", "Solve on conflict, median", "**deployed**"),
+    ]
+    rows = [
+        [
+            label + (f" ({note})" if note else ""),
+            f'{rec[key]["margin_mae"]:.2f}',
+            f'{rec[key]["home_score_mae"]:.2f}',
+            f'{rec[key]["away_score_mae"]:.2f}',
+            f'{rec[key]["total_mae"]:.2f}',
+            f'{rec[key]["crps"]:.2f}',
+        ]
+        for key, label, note in ORDER8
+    ]
+    old, new = rec["legacy"], rec["on_conflict_median"]
+    first = rec["always_mode"]
+
+    md(
+        f"""
+---
+## 8. What it did to the scoreline you actually read
+
+Section 7 scored the margin's whole predictive *distribution*. That is not what a
+reader sees. What ships to the predictions table is three integers: a home score, an
+away score, and their difference. Nothing had ever scored those either, and when
+something finally did, the first version of the coherence fix turned out to have made
+them **worse**. Two separate mistakes were hiding inside one change.
+
+### The scorecard, on {rec["games"]} games and identical per-game seeds
+
+{table(
+    ["How the three integers are produced", "Margin MAE", "Home MAE", "Away MAE", "Total MAE", "CRPS"],
+    rows,
+    align=[":--", "--:", "--:", "--:", "--:", "--:"],
+)}
+
+Read the top two rows first. The change described in section 5 moved margin MAE from
+**{old["margin_mae"]:.2f}** to **{first["margin_mae"]:.2f}** and CRPS from
+**{old["crps"]:.2f}** to **{first["crps"]:.2f}**, worse in every season. A change made
+on thesis reasoning, shipped, and costing accuracy. Nothing else in the system would
+ever have told me.
+
+### Mistake one: displaying a mode
+
+The displayed scoreline was the most common exact scoreline among the simulated games.
+A mode of a two-dimensional discrete distribution is a terrible point estimate, and it
+had been the displayed one since long before this work.
+"""
+    )
+
+    code(
+        """
+# Same match, same seed, sweeping the calibrated probability. Three numbers:
+# what the two displays print, and the median the distribution already knew.
+conds = np.round(np.arange(0.30, 0.71, 0.025), 3)
+by_mode, by_median = [], []
+for cond in conds:
+    kwargs = dict(n_simulations=100_000, lambda3=0.0, dispersion_home=5.19,
+                  dispersion_away=4.34, calibrated_cond=float(cond), reconcile="always")
+    _, sl_mode = pf.simulate_game(22.0, 20.0, rng=pf.rng_for_game(1, salt=1),
+                                  display="mode", **kwargs)
+    _, sl_median = pf.simulate_game(22.0, 20.0, rng=pf.rng_for_game(1, salt=1),
+                                    display="median", **kwargs)
+    by_mode.append(sl_mode[0] - sl_mode[1])
+    by_median.append(sl_median[0] - sl_median[1])
+
+fig, ax = plt.subplots(figsize=(8.8, 4.2))
+ax.plot(conds, by_mode, "o-", color=ORANGE, linewidth=1.4, markersize=4.5,
+        label="Modal scoreline: sampling noise")
+ax.plot(conds, by_median, color=BLUE, linewidth=2.6,
+        label="Median: the same distribution, read properly")
+ax.axhline(0, color=MUTED, linewidth=1.1)
+ax.axvline(0.5, color=MUTED, linewidth=1.1, linestyle=":")
+ax.set_xlabel("calibrated P(home win | non-draw)")
+ax.set_ylabel("displayed margin  (points)")
+ax.set_title("Two ways to read one simulation")
+ax.legend(loc="upper left", fontsize=9)
+tidy(ax, xgrid=False, ygrid=True)
+plt.show()
+
+print("modal margins across the sweep :", sorted(set(by_mode)))
+print("median margins across the sweep:", sorted(set(by_median)))
+"""
+    )
+
+    md(
+        f"""
+Both lines come from the same 100,000 games. One is monotone in the probability and
+crosses zero where it should. The other jumps five points between neighbouring
+confidences, because it is a mode.
+
+`simulate_game` had been returning `median_margin` the whole time and the display was
+throwing it away. Switching to it, and deriving the scoreline from the median margin and
+the median total, moves total MAE from **{first["total_mae"]:.2f}** to
+**{rec["always_median"]["total_mae"]:.2f}** and per-side score MAE down by about a
+point each. That is the largest single improvement anywhere in this notebook, and it
+cost one function.
+
+### Mistake two: enforcing coherence on games that were already coherent
+
+The margin was still wrong, so look at what the reconciliation was for. The requirement
+is that the displayed scoreline must never contradict the tip. On most games the score
+model already puts the tipped side in front, so there is nothing to fix, and the solve
+was moving the means anyway.
+"""
+    )
+
+    code(
+        """
+REC = MARGIN["reconciliation"]
+
+# Margin MAE against how hard the coherence constraint binds.
+labels = ["Score means only\\n(no reconciliation)", "Solve on conflict\\n(deployed)",
+          "Solve every game"]
+maes = [POOLED["margin_mae"], REC["on_conflict_median"]["margin_mae"],
+        REC["always_median"]["margin_mae"]]
+
+fig, ax = plt.subplots(figsize=(8.4, 3.6))
+ax.bar(range(3), maes, color=[GRID, BLUE, ORANGE], width=0.55, linewidth=0)
+for i, v in enumerate(maes):
+    ax.text(i, v + 0.02, f"{v:.2f}", ha="center", color=INK, fontsize=11,
+            fontweight="bold")
+ax.axhline(POOLED["market_margin_mae"], color=MUTED, linewidth=1.3, linestyle="--")
+ax.text(-0.44, POOLED["market_margin_mae"] + 0.018,
+        f"market line {POOLED['market_margin_mae']:.2f}", color=MUTED, fontsize=9)
+ax.set_xticks(range(3)); ax.set_xticklabels(labels, fontsize=9)
+ax.set_ylim(13.9, 14.62)
+ax.set_ylabel("margin MAE  (points, lower is better)")
+ax.set_title("Binding a coherent game to the tip costs accuracy for nothing")
+tidy(ax, xgrid=False, ygrid=True)
+plt.show()
+
+print(f"unreconciled      {maes[0]:.2f}")
+print(f"solve on conflict {maes[1]:.2f}")
+print(f"solve every game  {maes[2]:.2f}")
+"""
+    )
+
+    md(
+        f"""
+The calibrated probability is **Tier C**, which carries 100% of the tip (section 10) and
+models no scores at all. Binding the score distribution to it hands a scoreline to a
+model that has never predicted one. Doing that only where the two models disagree on
+the winner keeps the property that matters and drops the cost: margin MAE
+**{rec["always_median"]["margin_mae"]:.2f}** to **{new["margin_mae"]:.2f}**, and margin
+bias from **{rec["always_median"]["margin_bias"]:+.2f}** to **{new["margin_bias"]:+.2f}**
+points.
+
+### Where it landed
+
+Against the arrangement that predates all of this work:
+
+{table(
+    ["Displayed value", "Before", "Now", "Change"],
+    [
+        [label, f"{old[key]:.2f}", f"{new[key]:.2f}", f"{new[key] - old[key]:+.2f}"]
+        for key, label in (
+            ("margin_mae", "Margin MAE"),
+            ("home_score_mae", "Home score MAE"),
+            ("away_score_mae", "Away score MAE"),
+            ("total_mae", "Total MAE"),
+            ("crps", "Margin CRPS"),
+        )
+    ],
+    align=[":--", "--:", "--:", "--:"],
+)}
+
+Every displayed number is better, the total by more than three points, and CRPS is a
+wash ({new["crps"] - old["crps"]:+.2f}) against a version that was
+{first["crps"] - old["crps"]:+.2f} behind two hours earlier. The coherence properties
+survive intact: no step at a margin of zero, a distribution that can be sampled and
+quantiled without carrying weights around, and a scoreline that never contradicts the
+tip.
+
+### What the transfer actually taught
+
+The thesis argument was right about the mechanism and silent about the dosage. Study 1
+says do not correct an object after you generate it, and that held: the reweighting had
+a discontinuity in it and could not be sampled. What the argument does not say is *how
+much* of the constraint to impose, or which statistic to read off the result, and the
+first version of the fix got both wrong while looking principled.
+
+Reading the numbers is what separated them. Three measurements, made in one sitting,
+turned a change that cost {first["margin_mae"] - old["margin_mae"]:+.2f} points into one
+that gains {old["margin_mae"] - new["margin_mae"]:.2f}. Not one of them needed a new
+idea. They needed something in the repository that could say *this got worse*.
+"""
+    )
+
+
 def _section_fairness() -> None:
     mc = MARGIN["market_comparison"]
     md(
         f"""
 ---
-## 8. One comparison that must not be over-read
+## 9. One comparison that must not be over-read
 
 The report also shows, on the {mc["games"]} games with a bookmaker line:
 
@@ -895,14 +1114,15 @@ print("\\nSo a distribution 'beating' a point forecast on CRPS is close to autom
     )
 
     md(
-        """
+        f"""
 A genuinely fair test would give the market line the same residual-spread treatment
 and score both as distributions. That was deliberately **not** done here: rebuilding
 the exact `genuine_oof` row set outside `evaluate.py` risks a subtly non-comparable
 number, which is worse than no number. It is queued as future work.
 
-The honest market comparison remains the point one: margin MAE **14.15** for the
-model against **14.27** for the line.
+The honest market comparison remains the point one: margin MAE
+**{POOLED["margin_mae"]:.2f}** for the model against
+**{POOLED["market_margin_mae"]:.2f}** for the line.
 """
     )
 
@@ -928,14 +1148,29 @@ def _section_tips_impact() -> None:
     md(
         f"""
 ---
-## 9. What this actually does to the tips
+## 10. What this actually does to the tips
 
-The honest answer, stated before anything else: **none of this work changed a
-single tip.** Retraining on the fixed code and re-running the nested evaluation
-returns {POOLED["correct"]}/{POOLED["games"]} correct, accuracy
-{POOLED["accuracy"]:.4f}, log loss {POOLED["log_loss"]:.4f}, identical to four
-decimal places. That is the correct expectation, not a disappointment, and the
-reason is worth understanding because it points at where the real headroom is.
+The honest answer, stated before anything else: **the scoreline work cannot change a
+tip, by construction.** After simulating, `predict_match_outcome_and_scoreline_with_bayes`
+overwrites the win probabilities from the calibrated conditional:
+
+```python
+probabilities["home_win_prob"] = calibrated_cond * non_draw
+probabilities["away_win_prob"] = (1.0 - calibrated_cond) * non_draw
+home_team_result = "Win" if home_win_prob > away_win_prob else "Loss"
+```
+
+Whenever `non_draw > 0` that comparison reduces to `calibrated_cond > 0.5`. The tip is
+a function of the calibrated probability and nothing else, so no change to the score
+means, the dispersion, `lambda3`, or the reconciliation can flip one. When the change
+landed, the held-out accuracy was byte-identical before and after, as it had to be.
+
+This report reads **{POOLED["correct"]}/{POOLED["games"]}**, accuracy
+{POOLED["accuracy"]:.4f}, log loss {POOLED["log_loss"]:.4f}. That is *not* the
+before-and-after comparison: the model was retrained after that comparison was made,
+so this number reflects new artefacts on the same corpus. The measured effect of the
+work in this notebook on tipping accuracy remains exactly zero, and the reason is
+worth understanding because it points at where the real headroom is.
 
 ### Tier C is the entire tip
 
@@ -1008,7 +1243,7 @@ plt.show()
     )
 
     md(
-        """
+        f"""
 ### Where the headroom actually is
 
 Tier C is the best-performing component in the system and the only one that
@@ -1021,19 +1256,25 @@ machinery. It is giving the one component that decides every tip its own
 hyperparameter search, and then using the framework in this notebook to check
 whether the result is real.
 
+Section 8 gives that item a second reason to exist. Tier C sets the probability that
+every reconciled scoreline is now forced to carry, so the coherence tax measured there
+is a direct function of how far Tier C sits from the score models. Tuning Tier C should
+buy accuracy in the tips *and* shrink the price of coherence in the scoreline.
+
 That is itself a lesson the evaluation framework delivered. Without per-expert
-scoring on identical rows, "the ensemble gets 64%" conceals the fact that the
-ensemble is one model and the other two are decoration.
+scoring on identical rows, "the ensemble gets {POOLED["accuracy"]:.0%}" conceals the
+fact that the ensemble is one model and the other two are decoration.
 
 <div style="height:1px"></div>
 
 > **A caution on attribution.** The project's Notion page previously recorded
-> 61.9% accuracy and now records 64.0%. **That gain is not from this work.** It
-> came from the data backfill to 2008 and the new feature families, which landed
-> before any of it. The corpus changed, so the two numbers are not strictly
+> 61.9% accuracy, and this report reads {POOLED["accuracy"]:.1%}. **That gain is not
+> from this work.** It came from the data backfill to 2008 and the new feature
+> families, and from the retrain that followed, all of which sit outside this
+> notebook's changes. The corpus changed, so the two numbers are not strictly
 > comparable anyway. The measured effect of everything in this notebook on
 > tipping accuracy is exactly zero; what it bought was the ability to see what
-> the model is doing, and two correctness fixes.
+> the model is doing, two correctness fixes, and one measured trade-off.
 """
     )
 
@@ -1042,7 +1283,7 @@ def _section_back_to_phd() -> None:
     md(
         """
 ---
-## 10. What this gives the PhD back
+## 11. What this gives the PhD back
 
 The transfer is not one-directional.
 
@@ -1084,9 +1325,9 @@ def _section_next() -> None:
     md(
         """
 ---
-## 11. What is next
+## 12. What is next
 
-**The highest-value item is not on this list.** Per section 9, it is giving Tier C
+**The highest-value item is not on this list.** Per section 10, it is giving Tier C
 its own hyperparameter search, because Tier C is the only expert that reaches the
 tip and it currently inherits the score model's parameters.
 

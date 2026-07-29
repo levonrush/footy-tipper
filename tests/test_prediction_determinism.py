@@ -194,27 +194,129 @@ class ScoreMeanReconciliationTests(unittest.TestCase):
             totals.append(mu_h - mu_a)
         self.assertEqual(totals, sorted(totals))
 
-    def test_simulated_win_probability_matches_the_calibration(self):
+    @staticmethod
+    def _simulated_cond(target, reconcile):
+        probs, _ = pf.simulate_game(
+            24.0,
+            20.0,
+            n_simulations=200_000,
+            rng=pf.rng_for_game(31),
+            calibrated_cond=target,
+            reconcile=reconcile,
+        )
+        return probs, probs["home_win_prob"] / (
+            probs["home_win_prob"] + probs["away_win_prob"]
+        )
+
+    def test_always_mode_carries_the_calibration_exactly(self):
         # The property the old importance-reweighting could not provide: the
         # distribution actually simulated carries the calibrated probability.
         for target in (0.25, 0.5, 0.72):
-            probs, _ = pf.simulate_game(
-                24.0,
-                20.0,
-                n_simulations=200_000,
-                rng=pf.rng_for_game(31),
-                calibrated_cond=target,
-            )
-            simulated = probs["home_win_prob"] / (
-                probs["home_win_prob"] + probs["away_win_prob"]
-            )
+            probs, simulated = self._simulated_cond(target, "always")
             self.assertAlmostEqual(simulated, target, delta=0.01)
+            self.assertTrue(probs["reconciled"])
+
+    def test_on_conflict_mode_reconciles_only_when_the_side_would_flip(self):
+        # Raw means 24-20 favour the home side, so:
+        #   a target that also favours home is left alone, and the simulation
+        #   keeps the score model's own view;
+        #   a target favouring away must be honoured exactly, or the scoreline
+        #   would contradict the tip.
+        raw = pf.conditional_home_win_prob(24.0, 20.0)
+        self.assertGreater(raw, 0.5)
+
+        probs, simulated = self._simulated_cond(0.72, "on_conflict")
+        self.assertFalse(probs["reconciled"])
+        self.assertAlmostEqual(simulated, raw, delta=0.01)
+        self.assertNotAlmostEqual(simulated, 0.72, delta=0.005)
+
+        probs, simulated = self._simulated_cond(0.25, "on_conflict")
+        self.assertTrue(probs["reconciled"])
+        self.assertAlmostEqual(simulated, 0.25, delta=0.01)
 
     def test_unreachable_target_clamps_instead_of_raising(self):
         mu_h, mu_a = pf.solve_score_means_for_probability(20.0, 20.0, 1 - 1e-15)
         self.assertGreater(mu_h, mu_a)
         self.assertTrue(np.isfinite(mu_h) and np.isfinite(mu_a))
         self.assertAlmostEqual(mu_h + mu_a, 40.0, places=9)
+
+
+class DisplayedScorelineTests(unittest.TestCase):
+    """The three integers that reach the predictions table.
+
+    Nothing scored these until the margin scorecard went in, and the modal
+    scoreline turned out to be a high-variance statistic. These pin the median
+    reduction that replaced it.
+    """
+
+    def test_median_scoreline_difference_is_the_median_margin(self):
+        rng = np.random.default_rng(61)
+        home = rng.poisson(24.0, 40_000)
+        away = rng.poisson(18.0, 40_000)
+        expected = int(round(float(np.median(home - away))))
+
+        scoreline = pf.scoreline_from_samples(home, away, display="median")
+        self.assertEqual(scoreline[0] - scoreline[1], expected)
+
+    def test_median_total_is_within_a_point_of_the_simulated_median(self):
+        # The total gets nudged at most one point, and only for parity.
+        rng = np.random.default_rng(62)
+        home = rng.poisson(21.0, 40_000)
+        away = rng.poisson(19.0, 40_000)
+        median_total = float(np.median(home + away))
+
+        scoreline = pf.scoreline_from_samples(home, away, display="median")
+        self.assertLessEqual(abs(sum(scoreline) - median_total), 1.0)
+
+    def test_median_reduction_is_far_less_noisy_than_the_mode(self):
+        # The reason for the change: re-drawing the same match must not move the
+        # displayed margin around. The mode does, the median barely.
+        def spread(display):
+            margins = []
+            for seed in range(12):
+                home, away = pf.draw_score_samples(
+                    22.0, 20.0, 20_000, dispersion_home=5.19, dispersion_away=4.34,
+                    rng=np.random.default_rng(seed),
+                )
+                scoreline = pf.scoreline_from_samples(
+                    home, away, tipped_home=True, display=display
+                )
+                margins.append(scoreline[0] - scoreline[1])
+            return max(margins) - min(margins)
+
+        self.assertLess(spread("median"), spread("mode"))
+
+    def test_never_contradicts_the_tip_in_the_near_tie_band(self):
+        # A median margin of zero, or one landing on the wrong side, still has
+        # to show the tipped team in front.
+        for cond in (0.5001, 0.4999, 0.502, 0.498, 0.51, 0.49):
+            _, scoreline = pf.simulate_game(
+                21.0,
+                21.0,
+                n_simulations=20_000,
+                rng=pf.rng_for_game(63),
+                calibrated_cond=cond,
+                dispersion_home=5.19,
+                dispersion_away=4.34,
+            )
+            margin = scoreline[0] - scoreline[1]
+            self.assertNotEqual(margin, 0)
+            self.assertEqual(margin > 0, cond > 0.5)
+
+    def test_scores_are_never_negative(self):
+        # A lopsided negative margin against a small total must not push a score
+        # below zero, and must not silently change the margin either.
+        scoreline = pf.scoreline_from_samples(
+            np.array([0, 0, 1]), np.array([30, 31, 30]), tipped_home=False,
+            display="median",
+        )
+        self.assertGreaterEqual(scoreline[0], 0)
+        self.assertGreaterEqual(scoreline[1], 0)
+        self.assertLess(scoreline[0] - scoreline[1], 0)
+
+    def test_rejects_an_unknown_display_mode(self):
+        with self.assertRaises(ValueError):
+            pf.scoreline_from_samples([1, 2], [3, 4], display="mean")
 
 
 class SharedComponentTests(unittest.TestCase):

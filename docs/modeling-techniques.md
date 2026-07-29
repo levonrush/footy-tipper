@@ -121,7 +121,7 @@ model-only fallback. It reports calibration, tipping, market comparison,
 score/margin behavior, ROI simulations, and competition-policy evidence where
 coverage allows. Reports are written under `reports/`.
 
-The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the 2024 to 2026 nested holdout summary: 580 pooled non-draw games, 64.0% tipping accuracy, 0.6323 log loss, 0.2211 Brier, and 62.3% market-favourite accuracy on covered games. Margin MAE is 14.15 against 14.27 for the market line. These are historical evaluation results, not a promise about the next round.
+The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the 2024 to 2026 nested holdout summary: 580 pooled non-draw games, 64.5% tipping accuracy, 0.6327 log loss, 0.2213 Brier, and 62.3% market-favourite accuracy on covered games. Margin MAE is 14.13 against 14.27 for the market line. These are historical evaluation results, not a promise about the next round.
 
 ### Margin distribution
 
@@ -137,10 +137,10 @@ holdout the pooled CRPS is:
 
 | Method | CRPS | 50% cov | 90% cov | 90% width |
 |---|---|---|---|---|
-| Normal approximation | 10.21 | 0.51 | 0.87 | 55.7 |
-| Empirical replay of past errors | 10.23 | 0.49 | 0.87 | 57.0 |
-| Score model (Poisson family) | 10.26 | 0.48 | 0.84 | 51.5 |
-| Score model reconciled to the calibrated probability | 10.50 | 0.48 | 0.84 | 51.4 |
+| Normal approximation | 10.20 | 0.50 | 0.87 | 55.8 |
+| Empirical replay of past errors | 10.22 | 0.48 | 0.88 | 56.9 |
+| Score model (Poisson family) | 10.25 | 0.47 | 0.84 | 51.4 |
+| Score model reconciled to the calibrated probability | 10.50 | 0.48 | 0.83 | 51.3 |
 
 Two honest negatives follow. The 100k-draw Poisson-family simulator does not
 beat a two-parameter normal approximation fitted to prior-season residuals, so
@@ -154,6 +154,46 @@ the 90% level.
 The market line appears as a point forecast, where CRPS reduces to MAE (14.27),
 so it is not a like-for-like comparison against a distribution and should not be
 read as one.
+
+### The displayed scoreline
+
+The three integers that reach `predictions_table` are not measured by the distribution
+table above, so `margin_distribution.reconciliation` in the report measures them
+directly. Two switches on `simulate_game` decide how they are produced, and the report
+scores every combination on identical per-game seeds, plus the importance-reweighting
+that predates both:
+
+- `reconcile`: `"on_conflict"` moves the score means onto the calibrated probability
+  only where the score model would otherwise put the other side in front;
+  `"always"` moves them on every game.
+- `display`: `"median"` takes the median margin and the median total, each the
+  MAE-optimal estimate of its own quantity, and splits the total around the margin;
+  `"mode"` takes the most common exact scoreline on the tipped side.
+
+| How the three integers are produced | Margin MAE | Home MAE | Away MAE | Total MAE | CRPS |
+|---|---|---|---|---|---|
+| Solve on conflict, median (**deployed**) | 14.12 | 9.25 | 8.76 | 11.36 | 10.23 |
+| Solve on conflict, modal scoreline | 14.24 | 10.26 | 9.61 | 14.78 | 10.23 |
+| Reweighted, modal scoreline | 14.31 | 10.28 | 9.60 | 14.74 | 10.19 |
+| Solve every game, modal scoreline | 14.46 | 10.37 | 9.69 | 14.92 | 10.50 |
+| Solve every game, median | 14.49 | 9.40 | 8.93 | 11.41 | 10.50 |
+
+Both defaults follow that table rather than preference. The reasoning behind each:
+
+A mode of a two-dimensional discrete distribution carries heavy sampling noise, and
+`simulate_game` already returned `median_margin` while the display ignored it. Reading
+the median instead is worth about three and a half points of total MAE and a point of
+per-side score MAE.
+
+The requirement the scoreline has to meet is that it never contradicts the tip, and on
+most games the score model already satisfies it. The calibrated probability is Tier C,
+which models no scores at all, so reconciling a game that was already coherent hands the
+scoreline to a model that has never predicted one. Margin MAE reflects that directly:
+14.13 unreconciled, 14.12 solving only on conflict, 14.49 solving every game.
+
+Non-contradiction is enforced explicitly rather than inferred: a median margin of zero,
+or one whose sign disagrees with the tip, is pushed a single point onto the tipped side.
+Both cases only arise inside the near-tie band.
 
 Training-time metrics remain useful diagnostics, but the meta-layer has seen the season's OOF rows; do not substitute them for the nested evaluation.
 
