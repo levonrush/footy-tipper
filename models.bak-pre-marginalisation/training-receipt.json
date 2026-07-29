@@ -1,0 +1,62 @@
+{
+  "artifacts": {
+    "away_model.pkl": {
+      "sha256": "dbec00dab3c38cf358a100949fd725d7afa1fed3016e205f6fe9f83db6d41dd2",
+      "size": 8682727
+    },
+    "binary_model.pkl": {
+      "sha256": "abdd8ac5eb41ca7f03398f31a07c7bf57878d2f0e2fd78eecb49b09159b1da0b",
+      "size": 338771
+    },
+    "home_model.pkl": {
+      "sha256": "0799ce40faf77184893cf542bc834ef2603cefd272606aa18314f4b46f197f8b",
+      "size": 6826737
+    },
+    "joker_policy.json": {
+      "sha256": "80e26a457075e35c6efbb0bf776b3dba07db23dbb3cbac9757a265eef0bb512a",
+      "size": 3340
+    },
+    "model_manifest.json": {
+      "sha256": "edcb23972d32425644b02348a0d8a1c5f86db292c296428064442ff733b4acbc",
+      "size": 30945
+    },
+    "stacker.pkl": {
+      "sha256": "10c09bbca744779368ef42e32090d647bae3654132f2aa91093e7056c78a590f",
+      "size": 399
+    },
+    "stacker_no_market.pkl": {
+      "sha256": "4eff5e93e1f83ed990d5d2f1e1c48c6b1e5e359bae013a479d3caa625e6612f6",
+      "size": 381
+    },
+    "win_prob_calibrator.pkl": {
+      "sha256": "1b1b86b85a4149c4fb7c4804af6e866547c4d9731b86d070fe3511fbc14cb559",
+      "size": 183
+    },
+    "win_prob_calibrator_no_market.pkl": {
+      "sha256": "d49d3d1bf3703dd89b390274199f2ca4ac9c6d2b84399d97230bf6ffb3356797",
+      "size": 183
+    }
+  },
+  "created_at_utc": "2026-07-28T22:05:01.230962+00:00",
+  "database": {
+    "sha256": "ee7a502b2988ac5bb2ae4f3debd3350100f6814ed0c3cce15fa0fd19f4d574d7",
+    "size": 189407232,
+    "training_rows": 3577,
+    "training_year_max": 2026,
+    "training_year_min": 2009
+  },
+  "git_sha": "924c37eb9c887302569bd46a6f5b67a7e7457c69",
+  "release_id": "20260728T215320056714Z-924c37eb9c",
+  "runtime_versions": {
+    "dill": "0.4.1",
+    "lightgbm": "4.6.0",
+    "numpy": "1.26.4",
+    "pandas": "3.0.1",
+    "python": "3.11.15",
+    "scikit-learn": "1.8.0",
+    "scikit-optimize": "0.10.2"
+  },
+  "schema_version": 1,
+  "source": "local_training",
+  "tuning_candidates": 100
+}

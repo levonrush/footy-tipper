@@ -1,0 +1,118 @@
+{
+  "version": 2,
+  "created_at_utc": "2026-07-28T22:04:47.054878+00:00",
+  "source": "training_backtest_market_odds",
+  "status": "ok",
+  "default_strategy": "points",
+  "recommended_strategy_by_scenario": {
+    "lead": "points",
+    "neutral": "points",
+    "chase": "points"
+  },
+  "state_thresholds": {
+    "lead_max_gap": -3.0,
+    "chase_min_gap": 3.0
+  },
+  "simulation_config": {
+    "risk_lambda": 1.0,
+    "min_round_coverage": 0.95,
+    "min_matches_per_round": 4,
+    "min_rounds_per_season": 6,
+    "simulations": 20000,
+    "field_size": 75,
+    "crowd_mean_penalty": 0.05,
+    "crowd_skill_sigma": 0.12,
+    "seed": 2026,
+    "tie_epsilon": 0.002,
+    "scenario_points_gap": {
+      "lead": -6.0,
+      "neutral": 0.0,
+      "chase": 6.0
+    }
+  },
+  "seasons_evaluated": 18,
+  "rounds_evaluated": 466,
+  "scenario_results": [
+    {
+      "scenario": "chase",
+      "strategy": "protect",
+      "mean_win_prob": 0.0012097222222222223,
+      "median_win_prob": 0.0012374999999999999,
+      "mean_win_prob_no_joker": 2.4999999999999998e-05,
+      "season_count": 18,
+      "mean_joker_lift": 0.0011847222222222222
+    },
+    {
+      "scenario": "chase",
+      "strategy": "points",
+      "mean_win_prob": 0.0012069444444444445,
+      "median_win_prob": 0.0012374999999999999,
+      "mean_win_prob_no_joker": 2.4999999999999998e-05,
+      "season_count": 18,
+      "mean_joker_lift": 0.0011819444444444444
+    },
+    {
+      "scenario": "chase",
+      "strategy": "chase",
+      "mean_win_prob": 0.0008569444444444445,
+      "median_win_prob": 0.00075,
+      "mean_win_prob_no_joker": 2.4999999999999998e-05,
+      "season_count": 18,
+      "mean_joker_lift": 0.0008319444444444445
+    },
+    {
+      "scenario": "lead",
+      "strategy": "points",
+      "mean_win_prob": 0.083975,
+      "median_win_prob": 0.0824125,
+      "mean_win_prob_no_joker": 0.011329166666666666,
+      "season_count": 18,
+      "mean_joker_lift": 0.07264583333333333
+    },
+    {
+      "scenario": "lead",
+      "strategy": "protect",
+      "mean_win_prob": 0.08397083333333333,
+      "median_win_prob": 0.0824125,
+      "mean_win_prob_no_joker": 0.011329166666666666,
+      "season_count": 18,
+      "mean_joker_lift": 0.07264166666666666
+    },
+    {
+      "scenario": "lead",
+      "strategy": "chase",
+      "mean_win_prob": 0.06665833333333333,
+      "median_win_prob": 0.064525,
+      "mean_win_prob_no_joker": 0.011329166666666666,
+      "season_count": 18,
+      "mean_joker_lift": 0.055329166666666665
+    },
+    {
+      "scenario": "neutral",
+      "strategy": "points",
+      "mean_win_prob": 0.013659722222222222,
+      "median_win_prob": 0.01355,
+      "mean_win_prob_no_joker": 0.0008055555555555555,
+      "season_count": 18,
+      "mean_joker_lift": 0.012854166666666667
+    },
+    {
+      "scenario": "neutral",
+      "strategy": "protect",
+      "mean_win_prob": 0.013633333333333334,
+      "median_win_prob": 0.01355,
+      "mean_win_prob_no_joker": 0.0008055555555555555,
+      "season_count": 18,
+      "mean_joker_lift": 0.012827777777777778
+    },
+    {
+      "scenario": "neutral",
+      "strategy": "chase",
+      "mean_win_prob": 0.010116666666666668,
+      "median_win_prob": 0.0101625,
+      "mean_win_prob_no_joker": 0.0008055555555555555,
+      "season_count": 18,
+      "mean_joker_lift": 0.009311111111111112
+    }
+  ]
+}
