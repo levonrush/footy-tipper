@@ -55,6 +55,9 @@ class ProbabilityEvaluationTests(unittest.TestCase):
             away_odds,
             home_mu_oof - away_mu_oof,
             np.full(n, np.nan),
+            actual_home_score=home_mu_oof,
+            actual_away_score=away_mu_oof,
+            sim_samples=500,
         ), per_season
 
     def test_nested_evaluation_reports_market_and_model_only_regimes(self):
@@ -74,6 +77,14 @@ class ProbabilityEvaluationTests(unittest.TestCase):
         self.assertTrue(np.isfinite(result["no_market_counterfactual_p"]).all())
         self.assertLessEqual(result["bets"], result["market_regime"]["games"])
         self.assertIn(result["no_market_strategy"], {"simplex", "tier_b"})
+
+        # The margin scorecard rides along with the season, and must survive
+        # this fixture's degenerate zero-residual scores without crashing.
+        margin_distribution = result["margin_distribution"]
+        self.assertIsNotNone(margin_distribution)
+        self.assertEqual(margin_distribution["games"], per_season)
+        self.assertIn("model", margin_distribution["methods"])
+        self.assertGreater(margin_distribution["methods"]["model"]["crps"], 0.0)
 
         pool_loss = result["no_market_selection_pool_log_loss"]
         tier_b_loss = result["no_market_selection_tier_b_log_loss"]

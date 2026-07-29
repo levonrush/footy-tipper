@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import pathlib
 import sqlite3
@@ -683,3 +685,46 @@ class CLISmokeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelSummaryPanelTests(unittest.TestCase):
+    """train.py and evaluate.py run captured, so their metrics need a marker.
+
+    Without this path a seven-minute train finishes showing nothing but a tick,
+    and the operator has to go digging in the CLI log for the numbers.
+    """
+
+    def test_result_marker_round_trips_from_child_to_panel(self):
+        from pipeline.common import console
+
+        emitted = io.StringIO()
+        with contextlib.redirect_stdout(emitted):
+            console.emit_result(
+                "training_summary",
+                rows=[("Tipping accuracy (OOF)", "63.8%"), ("Log loss / Brier", "0.63 / 0.22")],
+            )
+
+        # Parent side: the pump lifts the marker out of the child's stdout.
+        records = []
+        console.pump_process(
+            io.StringIO(emitted.getvalue() + "some ordinary log line\n"),
+            io.StringIO(),
+            mock.Mock(),
+            results=records,
+        )
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["kind"], "training_summary")
+
+        with mock.patch.object(cli.console, "panel") as panel:
+            cli._render_model_results(records, "Training summary")
+        panel.assert_called_once()
+        title, rows = panel.call_args[0]
+        self.assertEqual(title, "Training summary")
+        self.assertIn(("Tipping accuracy (OOF)", "63.8%"), rows)
+
+    def test_no_panel_when_the_child_emitted_no_summary(self):
+        with mock.patch.object(cli.console, "panel") as panel:
+            cli._render_model_results([], "Training summary")
+            cli._render_model_results([{"kind": "freshness"}], "Training summary")
+            cli._render_model_results(None, "Training summary")
+        panel.assert_not_called()

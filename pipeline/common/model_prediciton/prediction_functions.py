@@ -7,6 +7,7 @@ from collections import Counter
 import dill as pickle
 import numpy as np
 import pandas as pd
+from scipy.optimize import brentq
 from scipy.stats import poisson, skellam
 
 from pipeline.common.odds.validity import valid_decimal_odds
@@ -117,6 +118,79 @@ def marginalized_conditional_home_win_prob(
     return float(np.mean(probs)) if probs else base
 
 
+def marginalized_conditional_home_win_prob_vec(
+    mu_home,
+    mu_away,
+    lineup_uncertainty_home=None,
+    lineup_uncertainty_away=None,
+    game_ids=None,
+    n_samples=64,
+    mu_noise_scale=0.12,
+):
+    """Vectorised `marginalized_conditional_home_win_prob` over many matches.
+
+    Produces exactly the values the scalar version would, because the per-game
+    multipliers still come from `rng_for_game(game_id, salt=2)`, but evaluates
+    the Skellam conditional across all matches at once instead of one scalar
+    call per draw. That is the difference between 64 array operations and
+    tens of thousands of scipy calls, which is what makes marginalising
+    affordable in train.py and evaluate.py rather than inference only.
+    """
+    mu_home = np.maximum(np.asarray(mu_home, dtype=float), 1e-9)
+    mu_away = np.maximum(np.asarray(mu_away, dtype=float), 1e-9)
+    n_rows = mu_home.size
+    base = conditional_home_win_prob_vec(mu_home, mu_away)
+
+    n_samples = int(max(1, n_samples))
+    mu_noise_scale = float(max(0.0, mu_noise_scale))
+    if n_rows == 0 or n_samples <= 1 or mu_noise_scale <= 0:
+        return base
+
+    unc_home = np.maximum(
+        np.nan_to_num(np.asarray(
+            np.zeros(n_rows) if lineup_uncertainty_home is None
+            else lineup_uncertainty_home, dtype=float
+        )), 0.0,
+    )
+    unc_away = np.maximum(
+        np.nan_to_num(np.asarray(
+            np.zeros(n_rows) if lineup_uncertainty_away is None
+            else lineup_uncertainty_away, dtype=float
+        )), 0.0,
+    )
+    std_home = mu_noise_scale * np.sqrt(unc_home)
+    std_away = mu_noise_scale * np.sqrt(unc_away)
+
+    # Rows with no lineup uncertainty are an exact no-op, as in the scalar path.
+    active = (std_home > 1e-9) | (std_away > 1e-9)
+    if not active.any():
+        return base
+
+    if game_ids is None:
+        game_ids = np.arange(n_rows)
+
+    mult_home = np.ones((n_rows, n_samples), dtype=float)
+    mult_away = np.ones((n_rows, n_samples), dtype=float)
+    for i in np.flatnonzero(active):
+        rng = rng_for_game(game_ids[i], salt=2)
+        mult_home[i] = np.exp(
+            rng.normal(-0.5 * std_home[i] ** 2, std_home[i], size=n_samples)
+        )
+        mult_away[i] = np.exp(
+            rng.normal(-0.5 * std_away[i] ** 2, std_away[i], size=n_samples)
+        )
+
+    totals = np.zeros(n_rows, dtype=float)
+    for draw in range(n_samples):
+        totals += conditional_home_win_prob_vec(
+            np.maximum(mu_home * mult_home[:, draw], 1e-6),
+            np.maximum(mu_away * mult_away[:, draw], 1e-6),
+        )
+    marginalised = totals / float(n_samples)
+
+    return np.where(active, marginalised, base)
+
+
 def derive_market_home_probability(df: pd.DataFrame) -> np.ndarray:
     """Get market-implied home win probability without fabricating missing rows.
 
@@ -171,6 +245,98 @@ def derive_market_home_probability(df: pd.DataFrame) -> np.ndarray:
     return values
 
 
+def draw_score_samples(
+    mu_home,
+    mu_away,
+    n_simulations,
+    lambda3=0.0,
+    dispersion_home=None,
+    dispersion_away=None,
+    rng=None,
+):
+    """Draw correlated, optionally over-dispersed score pairs.
+
+    Rugby-league points arrive in 2/4/6 lumps, so raw Poisson understates the
+    margin variance; a per-side negative-binomial `k` (gamma-mixed Poisson,
+    var = mu + mu^2/k) widens it. `lambda3` is a shared Poisson component that
+    gives the two scores a positive covariance.
+
+    Both apply at once. The independent part of each score carries the gamma
+    mixing, with its dispersion rescaled by (lam/mu)^2 so the marginal variance
+    still lands on mu + mu^2/k while the shared component holds the covariance
+    at lambda3. Previously a non-zero lambda3 silently discarded the dispersion.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    mu_home = float(max(mu_home, 1e-9))
+    mu_away = float(max(mu_away, 1e-9))
+    lambda3 = float(max(lambda3, 0.0))
+
+    shared = min(lambda3, 0.95 * min(mu_home, mu_away)) if lambda3 > 0 else 0.0
+    lam_home = max(mu_home - shared, 1e-9)
+    lam_away = max(mu_away - shared, 1e-9)
+
+    def _draw(lam, mu, dispersion):
+        if dispersion is not None and np.isfinite(dispersion) and dispersion > 0:
+            k = float(dispersion) * (lam / mu) ** 2
+            rate = rng.gamma(shape=k, scale=lam / k, size=n_simulations)
+            return rng.poisson(np.maximum(rate, 1e-12))
+        return rng.poisson(lam, size=n_simulations)
+
+    home_goals_sim = _draw(lam_home, mu_home, dispersion_home)
+    away_goals_sim = _draw(lam_away, mu_away, dispersion_away)
+
+    if shared > 0:
+        shared_sim = rng.poisson(shared, size=n_simulations)
+        home_goals_sim = home_goals_sim + shared_sim
+        away_goals_sim = away_goals_sim + shared_sim
+
+    return home_goals_sim, away_goals_sim
+
+
+def solve_score_means_for_probability(mu_home, mu_away, target_cond, min_mean=1e-3):
+    """Shift the score means so their own win probability equals the target.
+
+    The total `mu_home + mu_away` is held fixed and the difference is moved,
+    because p(home win | non-draw) under Skellam is monotone in the mean
+    difference at fixed total. Bisection therefore converges cleanly.
+
+    This is what makes the calibrated probability and the score distribution a
+    single object. The alternative, reconciling them after the fact with
+    importance weights, distorts the shape of the distribution it corrects and
+    needs a special case for calibration tipping a side the simulation never
+    produced; moving the means removes both problems by construction.
+    """
+    mu_home = float(mu_home)
+    mu_away = float(mu_away)
+    total = mu_home + mu_away
+    target = float(np.clip(target_cond, 1e-9, 1.0 - 1e-9))
+    if not np.isfinite(total) or total <= 2.0 * min_mean:
+        return mu_home, mu_away
+
+    limit = total - 2.0 * min_mean
+
+    def gap(diff):
+        return (
+            conditional_home_win_prob((total + diff) / 2.0, (total - diff) / 2.0)
+            - target
+        )
+
+    # Clamp when the target sits outside what positive means can express.
+    if gap(limit) <= 0.0:
+        diff = limit
+    elif gap(-limit) >= 0.0:
+        diff = -limit
+    else:
+        try:
+            diff = float(brentq(gap, -limit, limit, xtol=1e-9, maxiter=200))
+        except (ValueError, RuntimeError):
+            return mu_home, mu_away
+
+    return (total + diff) / 2.0, (total - diff) / 2.0
+
+
 def simulate_game(
     home_score_avg,
     away_score_avg,
@@ -183,39 +349,34 @@ def simulate_game(
 ):
     """Simulate outcomes and scoreline under Poisson-family score models.
 
-    Rugby-league points arrive in 2/4/6 lumps, so raw Poisson understates the
-    margin variance; when a per-side negative-binomial dispersion `k` is given
-    (gamma-mixed Poisson: var = mu + mu^2/k) the simulation uses it instead.
-    The bivariate shared component (`lambda3 > 0`) takes precedence when set.
-
-    When `calibrated_cond` (calibrated p(home win | non-draw)) is provided,
-    the reported margin and scoreline are importance-reweighted so they agree
-    with the calibrated probability instead of the raw simulation, and the
-    scoreline is constrained to the side the calibrated probability tips.
+    When `calibrated_cond` (calibrated p(home win | non-draw)) is given, the
+    score means are first shifted along a total-preserving ray so the simulated
+    distribution's own win probability is the calibrated one. The margin and
+    scoreline then fall out of that single distribution rather than being
+    reweighted onto it afterwards.
     """
     if rng is None:
         rng = np.random.default_rng()
 
-    home_score_avg = float(max(home_score_avg, 1e-9))
-    away_score_avg = float(max(away_score_avg, 1e-9))
-    lambda3 = float(max(lambda3, 0.0))
+    mu_home = float(max(home_score_avg, 1e-9))
+    mu_away = float(max(away_score_avg, 1e-9))
 
-    def _draw_scores(mu, dispersion):
-        if dispersion is not None and np.isfinite(dispersion) and dispersion > 0:
-            lam = rng.gamma(shape=float(dispersion), scale=mu / float(dispersion), size=n_simulations)
-            return rng.poisson(np.maximum(lam, 1e-12))
-        return rng.poisson(mu, size=n_simulations)
+    tipped_home = None
+    if calibrated_cond is not None and np.isfinite(calibrated_cond):
+        # Strict > matches the caller's tie-break: cal == 0.5 tips the away side.
+        cal = float(np.clip(calibrated_cond, 1e-6, 1 - 1e-6))
+        mu_home, mu_away = solve_score_means_for_probability(mu_home, mu_away, cal)
+        tipped_home = cal > 0.5
 
-    if lambda3 > 0:
-        shared = min(lambda3, 0.95 * min(home_score_avg, away_score_avg))
-        lam1 = max(home_score_avg - shared, 1e-9)
-        lam2 = max(away_score_avg - shared, 1e-9)
-        shared_sim = rng.poisson(shared, size=n_simulations)
-        home_goals_sim = rng.poisson(lam1, size=n_simulations) + shared_sim
-        away_goals_sim = rng.poisson(lam2, size=n_simulations) + shared_sim
-    else:
-        home_goals_sim = _draw_scores(home_score_avg, dispersion_home)
-        away_goals_sim = _draw_scores(away_score_avg, dispersion_away)
+    home_goals_sim, away_goals_sim = draw_score_samples(
+        mu_home,
+        mu_away,
+        n_simulations,
+        lambda3=lambda3,
+        dispersion_home=dispersion_home,
+        dispersion_away=dispersion_away,
+        rng=rng,
+    )
 
     margins = home_goals_sim - away_goals_sim
     home_wins = int((margins > 0).sum())
@@ -227,43 +388,31 @@ def simulate_game(
         "home_win_prob": home_wins / total_games,
         "away_win_prob": away_wins / total_games,
         "draw_prob": draws / total_games,
-    }
-
-    if calibrated_cond is None or not np.isfinite(calibrated_cond):
         # Median margin is a far more stable point estimate than the margin of
         # the modal exact scoreline.
-        probabilities["median_margin"] = int(round(float(np.median(margins))))
+        "median_margin": int(round(float(np.median(margins)))),
+    }
+
+    if tipped_home is None:
         predicted_scoreline = Counter(zip(home_goals_sim, away_goals_sim)).most_common(1)[0][0]
         return probabilities, predicted_scoreline
 
-    # Reweight each simulated game so home wins carry calibrated/raw mass and
-    # away wins the complement; the margin is then the weighted median.
-    cal = float(np.clip(calibrated_cond, 1e-6, 1 - 1e-6))
-    raw_cond = np.clip(home_wins / max(1, home_wins + away_wins), 1e-6, 1 - 1e-6)
-    weights = np.ones(n_simulations)
-    weights[margins > 0] = cal / raw_cond
-    weights[margins < 0] = (1.0 - cal) / (1.0 - raw_cond)
-
-    order = np.argsort(margins, kind="stable")
-    cum_weight = np.cumsum(weights[order])
-    median_idx = int(np.searchsorted(cum_weight, 0.5 * cum_weight[-1]))
-    probabilities["median_margin"] = int(margins[order][median_idx])
-
-    # Modal scoreline among simulations consistent with the tipped side
-    # (weights are uniform within a side, so the plain mode works there).
-    # Strict > matches the caller's tie-break: cal == 0.5 tips the away side.
-    tip_mask = margins > 0 if cal > 0.5 else margins < 0
+    # The means already sit on the tipped side, so this is the modal scoreline
+    # of the reconciled distribution, not a correction to a contradictory one.
+    # It keeps the displayed score difference from contradicting the tip.
+    tip_mask = margins > 0 if tipped_home else margins < 0
     if tip_mask.any():
         predicted_scoreline = Counter(
             zip(home_goals_sim[tip_mask], away_goals_sim[tip_mask])
         ).most_common(1)[0][0]
     else:
-        # Calibration flipped a side the simulation never produced: mirror the
-        # modal scoreline so the tipped team is in front.
+        # Unreachable for any usable simulation size now that the means agree
+        # with the tip, but kept so a degenerate call still returns an ordered
+        # scoreline rather than raising.
         modal = Counter(zip(home_goals_sim, away_goals_sim)).most_common(1)[0][0]
-        ordered = (max(modal), min(modal)) if cal > 0.5 else (min(modal), max(modal))
+        ordered = (max(modal), min(modal)) if tipped_home else (min(modal), max(modal))
         predicted_scoreline = ordered if ordered[0] != ordered[1] else (
-            (ordered[0] + 1, ordered[1]) if cal > 0.5 else (ordered[0], ordered[1] + 1)
+            (ordered[0] + 1, ordered[1]) if tipped_home else (ordered[0], ordered[1] + 1)
         )
 
     return probabilities, predicted_scoreline

@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 from sklearn.linear_model import Ridge
 from sklearn.metrics import brier_score_loss, log_loss
 
@@ -29,6 +30,7 @@ from pipeline.common.model_prediciton import prediction_functions as pf
 from pipeline.common.lineups import features as lf
 from pipeline.common.model_training import calibration as calib
 from pipeline.common.model_training import comp_sim
+from pipeline.common.model_training import distributional_metrics as dm
 from pipeline.common.model_training import modelling_functions as mf
 from pipeline.common.model_training import tier_a_baseline as tb
 from pipeline.common.model_training import training_config as tc
@@ -37,6 +39,11 @@ from pipeline.runtime_paths import (
     models_path,
     project_root as configured_project_root,
 )
+
+
+# Central-interval half-widths for a normal, in standard deviations.
+NORMAL_50_Z = 0.6744897501960817
+NORMAL_90_Z = 1.6448536269514722
 
 
 def _prediction_metrics(y, probabilities):
@@ -60,6 +67,152 @@ def _prediction_metrics(y, probabilities):
         "accuracy": float(correct / len(y)),
         "log_loss": float(log_loss(y, probabilities, labels=[0, 1])),
         "brier": float(brier_score_loss(y, probabilities)),
+    }
+
+
+def _score_margin_distributions(
+    blended_h,
+    blended_a,
+    actual_home,
+    actual_away,
+    actual_margin,
+    market_spread,
+    calibrated_cond,
+    prior_mask,
+    test_mask,
+    n_samples,
+    seed,
+):
+    """Score the margin's predictive distribution against strong baselines.
+
+    Everything else in the pipeline scores the binary win probability, so the
+    score distribution itself, and with it `lambda3`, the negative-binomial
+    dispersion, and the market score blends, has never been measured. This
+    closes that gap with CRPS, randomised PIT, and coverage-with-width.
+
+    Following the thesis evaluation discipline, the comparators are strong
+    rather than a floor: a normal approximation, an empirical replay of real
+    past errors, and the market line. Beating a uniform guess would prove
+    nothing. The over-dispersion and shared-component parameters are refitted
+    on prior seasons only, so the held-out season stays honest.
+
+    `model` is the raw score model. `model_reconciled` is what actually ships,
+    after the means are shifted onto the calibrated win probability, so the
+    difference between them prices that reconciliation step.
+    """
+    rng = np.random.default_rng(seed)
+
+    prior_margin = actual_margin[prior_mask]
+    prior_model_margin = (blended_h - blended_a)[prior_mask]
+    test_margin = actual_margin[test_mask]
+    model_margin = (blended_h - blended_a)[test_mask]
+    n_test = int(test_mask.sum())
+    if n_test == 0 or prior_mask.sum() < 2:
+        return None
+
+    # Distribution parameters from prior seasons only.
+    lambda3 = mf.estimate_lambda3(
+        actual_home[prior_mask],
+        actual_away[prior_mask],
+        blended_h[prior_mask],
+        blended_a[prior_mask],
+    )
+    dispersion_home = mf.estimate_dispersion(actual_home[prior_mask], blended_h[prior_mask])
+    dispersion_away = mf.estimate_dispersion(actual_away[prior_mask], blended_a[prior_mask])
+
+    def _margin_samples(mu_pairs):
+        sets = []
+        for mu_h, mu_a in mu_pairs:
+            home, away = pf.draw_score_samples(
+                mu_h,
+                mu_a,
+                n_samples,
+                lambda3=lambda3,
+                dispersion_home=dispersion_home,
+                dispersion_away=dispersion_away,
+                rng=rng,
+            )
+            sets.append(home - away)
+        return sets
+
+    methods = {}
+
+    raw_pairs = list(zip(blended_h[test_mask], blended_a[test_mask]))
+    methods["model"] = dm.score_sample_forecasts(
+        _margin_samples(raw_pairs), test_margin, rng=rng
+    )
+
+    # What ships: means shifted onto the calibrated win probability.
+    test_cond = np.asarray(calibrated_cond, dtype=float)
+    reconciled_pairs = [
+        pf.solve_score_means_for_probability(mu_h, mu_a, cond)
+        if np.isfinite(cond)
+        else (mu_h, mu_a)
+        for (mu_h, mu_a), cond in zip(raw_pairs, test_cond)
+    ]
+    methods["model_reconciled"] = dm.score_sample_forecasts(
+        _margin_samples(reconciled_pairs), test_margin, rng=rng
+    )
+
+    # Baseline: normal approximation with prior-season residual spread.
+    residuals = prior_margin - prior_model_margin
+    sigma = float(np.std(residuals, ddof=1)) if residuals.size > 1 else float("nan")
+    if np.isfinite(sigma) and sigma > 0:
+        crps_values = [
+            dm.crps_normal(mu, sigma, y) for mu, y in zip(model_margin, test_margin)
+        ]
+        # Continuous, so the PIT needs no randomisation.
+        pit_values = norm.cdf((test_margin - model_margin) / sigma)
+        methods["normal_approximation"] = {
+            "games": n_test,
+            "crps": float(np.mean(crps_values)),
+            "sigma": sigma,
+            "pit": dm.pit_histogram(pit_values),
+            "intervals": [
+                dm.interval_coverage(
+                    model_margin - sigma * z, model_margin + sigma * z, test_margin,
+                    level=level,
+                )
+                for level, z in ((0.5, NORMAL_50_Z), (0.9, NORMAL_90_Z))
+            ],
+        }
+
+    # Baseline: replay real past errors around the model's margin. The direct
+    # analogue of the thesis empirical trajectory baseline, and the bar to beat.
+    if residuals.size >= 30:
+        replay_sets = [
+            mu + rng.choice(residuals, size=n_samples, replace=True)
+            for mu in model_margin
+        ]
+        methods["empirical_replay"] = dm.score_sample_forecasts(
+            replay_sets, test_margin, rng=rng
+        )
+
+    # Market line as a point forecast. Point CRPS is MAE, which is what puts
+    # deterministic and probabilistic methods on one scale.
+    spread = market_spread[test_mask]
+    has_line = np.isfinite(spread)
+    market_comparison = {"games": int(has_line.sum())}
+    if has_line.any():
+        market_comparison["market_line_crps"] = float(
+            np.mean(np.abs(spread[has_line] - test_margin[has_line]))
+        )
+        # Same rows, so the head-to-head is like for like.
+        model_on_line_rows = dm.score_sample_forecasts(
+            _margin_samples([raw_pairs[i] for i in np.flatnonzero(has_line)]),
+            test_margin[has_line],
+            rng=rng,
+        )
+        market_comparison["model_crps"] = model_on_line_rows["crps"]
+
+    return {
+        "games": n_test,
+        "sim_samples": int(n_samples),
+        "lambda3": float(lambda3),
+        "dispersion_home": dispersion_home,
+        "dispersion_away": dispersion_away,
+        "methods": methods,
+        "market_comparison": market_comparison,
     }
 
 
@@ -180,6 +333,87 @@ def _pool_probability_results(results):
         "no_market_regime_expert_metrics": no_market_regime_experts,
         "no_market_counterfactual_expert_metrics": (no_market_counterfactual_experts),
         "acceptance": acceptance,
+        "margin_distribution": _pool_margin_distributions(results),
+    }
+
+
+def _pool_margin_distributions(results):
+    """Game-weighted pooling of the per-season margin-distribution scorecard."""
+    seasons = [
+        res["margin_distribution"]
+        for res in results
+        if res.get("margin_distribution")
+    ]
+    if not seasons:
+        return None
+
+    def _weighted(values_and_weights):
+        pairs = [(v, w) for v, w in values_and_weights if v is not None and w]
+        if not pairs:
+            return None
+        total = float(sum(w for _, w in pairs))
+        return float(sum(v * w for v, w in pairs) / total) if total else None
+
+    method_names = sorted({name for s in seasons for name in s["methods"]})
+    methods = {}
+    for name in method_names:
+        entries = [s["methods"][name] for s in seasons if name in s["methods"]]
+        pooled_method = {
+            "games": int(sum(e.get("games") or 0 for e in entries)),
+            "crps": _weighted([(e.get("crps"), e.get("games")) for e in entries]),
+        }
+        # Coverage and width travel together, by level, and never apart.
+        levels = sorted(
+            {
+                interval["level"]
+                for e in entries
+                for interval in e.get("intervals", [])
+            }
+        )
+        pooled_method["intervals"] = [
+            {
+                "level": level,
+                "coverage": _weighted(
+                    [
+                        (interval.get("coverage"), interval.get("games"))
+                        for e in entries
+                        for interval in e.get("intervals", [])
+                        if interval["level"] == level
+                    ]
+                ),
+                "width": _weighted(
+                    [
+                        (interval.get("width"), interval.get("games"))
+                        for e in entries
+                        for interval in e.get("intervals", [])
+                        if interval["level"] == level
+                    ]
+                ),
+            }
+            for level in levels
+        ]
+        uniformity = [
+            (e["pit"].get("uniformity_mae"), e.get("games"))
+            for e in entries
+            if e.get("pit")
+        ]
+        if uniformity:
+            pooled_method["pit_uniformity_mae"] = _weighted(uniformity)
+        methods[name] = pooled_method
+
+    market_entries = [s["market_comparison"] for s in seasons]
+    return {
+        "games": int(sum(s["games"] for s in seasons)),
+        "methods": methods,
+        "market_comparison": {
+            "games": int(sum(e.get("games") or 0 for e in market_entries)),
+            "market_line_crps": _weighted(
+                [(e.get("market_line_crps"), e.get("games")) for e in market_entries]
+            ),
+            "model_crps": _weighted(
+                [(e.get("model_crps"), e.get("games")) for e in market_entries]
+            ),
+        },
     }
 
 
@@ -261,6 +495,14 @@ def _evaluate_season(
     away_odds,
     actual_margin,
     market_spread,
+    actual_home_score=None,
+    actual_away_score=None,
+    sim_samples=20000,
+    game_ids=None,
+    lineup_unc_home=None,
+    lineup_unc_away=None,
+    lineup_mc_samples=64,
+    lineup_mu_noise_scale=0.12,
     edge_threshold=0.05,
 ):
     prior_mask = non_draw & genuine_oof & (year_col < test_year)
@@ -280,7 +522,18 @@ def _evaluate_season(
 
     blended_h = np.maximum((1.0 - wh) * baseline_mu_home + wh * home_mu_oof, 1e-6)
     blended_a = np.maximum((1.0 - wa) * baseline_mu_away + wa * away_mu_oof, 1e-6)
-    tier_b_cond = pf.conditional_home_win_prob_vec(blended_h, blended_a)
+    # Marginalise over lineup uncertainty exactly as train.py fits and
+    # inference.py serves, so this evaluation measures the deployed stack
+    # rather than a slightly different one.
+    tier_b_cond = pf.marginalized_conditional_home_win_prob_vec(
+        blended_h,
+        blended_a,
+        lineup_unc_home,
+        lineup_unc_away,
+        game_ids=game_ids,
+        n_samples=lineup_mc_samples,
+        mu_noise_scale=lineup_mu_noise_scale,
+    )
 
     # Probability-stack v3, fitted strictly on seasons before the held-out
     # year. The market pool sees only genuine paired H2H prices; the no-market
@@ -540,6 +793,26 @@ def _evaluate_season(
             np.mean(np.abs(blend_pred[test_mask] - margin_actual))
         )
 
+    # Proper scoring rules on the margin distribution, which point MAE above
+    # cannot see: CRPS, randomised PIT, and coverage reported with width.
+    # Needs the realised scores, since the over-dispersion and shared-component
+    # parameters are refitted per season rather than taken from the manifest.
+    result["margin_distribution"] = None
+    if actual_home_score is not None and actual_away_score is not None:
+        result["margin_distribution"] = _score_margin_distributions(
+            blended_h,
+            blended_a,
+            actual_home_score,
+            actual_away_score,
+            actual_margin,
+            market_spread,
+            model_p,
+            prior_mask,
+            test_mask,
+            sim_samples,
+            seed=int(test_year),
+        )
+
     # Flat-stake ROI at the edge threshold.
     edge = np.where(valid_market, model_p - market_p, np.nan)
     oh = home_odds[test_mask]
@@ -593,6 +866,55 @@ def _manifest_fingerprint(project_root, models_dir=None):
         return None
 
 
+def _print_margin_distribution(pooled):
+    """Print the margin scorecard: CRPS first, then calibration with width.
+
+    Ordered worst-CRPS-last so the winner is obvious, and the baselines sit in
+    the same table as the model rather than in a footnote. A method that wins
+    CRPS while badly under-covering has bought sharpness with honesty, which is
+    only visible when the two columns sit side by side.
+    """
+    if not pooled or not pooled.get("methods"):
+        return
+
+    print("\n── Margin distribution (CRPS, lower is better) ──")
+    print(
+        f"  {'Method':<22} {'Games':>6} {'CRPS':>8} "
+        f"{'50% cov':>8} {'90% cov':>8} {'90% width':>10} {'PIT dev':>8}"
+    )
+
+    def _sort_key(item):
+        crps = item[1].get("crps")
+        return crps if crps is not None else float("inf")
+
+    def _fmt(value, width, precision):
+        if value is None:
+            return format("n/a", f">{width}")
+        return format(value, f">{width}.{precision}f")
+
+    for name, scored in sorted(pooled["methods"].items(), key=_sort_key):
+        by_level = {
+            interval["level"]: interval for interval in scored.get("intervals", [])
+        }
+        print(
+            f"  {name:<22} {scored.get('games', 0):>6} "
+            f"{_fmt(scored.get('crps'), 8, 2)} "
+            f"{_fmt(by_level.get(0.5, {}).get('coverage'), 8, 2)} "
+            f"{_fmt(by_level.get(0.9, {}).get('coverage'), 8, 2)} "
+            f"{_fmt(by_level.get(0.9, {}).get('width'), 10, 1)} "
+            f"{_fmt(scored.get('pit_uniformity_mae'), 8, 4)}"
+        )
+
+    market = pooled.get("market_comparison") or {}
+    if market.get("market_line_crps") is not None:
+        print(
+            f"  On the {market['games']} games with a line: "
+            f"model CRPS {market['model_crps']:.2f} vs "
+            f"market line {market['market_line_crps']:.2f} "
+            "(a point forecast, so its CRPS is its MAE)"
+        )
+
+
 def _build_report(results, pooled, config):
     seasons = [
         {k: v for k, v in res.items() if not isinstance(v, np.ndarray)}
@@ -635,6 +957,9 @@ def main():
     db_path = database_path(project_root)
     models_dir = models_path(project_root)
     n_seasons = int(os.getenv("FOOTY_TIPPER_EVAL_SEASONS", "3"))
+    # CRPS converges quickly, so evaluation needs far fewer draws than the
+    # 100k inference uses for a modal scoreline.
+    sim_samples = int(os.getenv("FOOTY_TIPPER_EVAL_SIM_SAMPLES", "20000"))
 
     home_model = pf.load_models("home_model", project_root, models_dir=models_dir)
     away_model = pf.load_models("away_model", project_root, models_dir=models_dir)
@@ -738,6 +1063,20 @@ def main():
     baseline_mu_home = data["baseline_mu_home"].to_numpy(dtype=float)
     baseline_mu_away = data["baseline_mu_away"].to_numpy(dtype=float)
 
+    # Same lineup-uncertainty settings train.py and inference.py use.
+    lineup_mc_samples = int(os.getenv("FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES", "64"))
+    lineup_mu_noise_scale = float(os.getenv("FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE", "0.12"))
+    lineup_unc_home = (
+        pd.to_numeric(data.get("lineup_selection_uncertainty_home", 0.0), errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    lineup_unc_away = (
+        pd.to_numeric(data.get("lineup_selection_uncertainty_away", 0.0), errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+
     actual_margin = data["team_final_score_home"].to_numpy(dtype=float) - data[
         "team_final_score_away"
     ].to_numpy(dtype=float)
@@ -772,6 +1111,14 @@ def main():
             away_odds,
             actual_margin,
             market_spread,
+            data["team_final_score_home"].to_numpy(dtype=float),
+            data["team_final_score_away"].to_numpy(dtype=float),
+            sim_samples,
+            game_ids=data["game_id"].to_numpy(),
+            lineup_unc_home=lineup_unc_home,
+            lineup_unc_away=lineup_unc_away,
+            lineup_mc_samples=lineup_mc_samples,
+            lineup_mu_noise_scale=lineup_mu_noise_scale,
         )
         if res is None:
             print(f"  {test_year}: skipped (not enough prior or test rows).")
@@ -916,6 +1263,55 @@ def main():
     if pooled_margin_blend_mae is not None:
         print(f" vs ridge blend {pooled_margin_blend_mae:.2f}", end="")
     print()
+
+    _print_margin_distribution(probability_pooled.get("margin_distribution"))
+
+    # Lift the headline numbers onto the operator's console; this script's stdout
+    # is captured by the parent, so without a result marker the step shows only a tick.
+    summary_rows = [
+        (
+            "Tipping accuracy",
+            f"{pooled_correct / pooled_games:.1%}  ({pooled_correct}/{pooled_games})",
+        ),
+        ("Log loss / Brier", f"{pooled_log_loss:.4f} / {pooled_brier:.4f}"),
+    ]
+    if pooled_mkt_games:
+        summary_rows.append(
+            (
+                "Market favourite",
+                f"{pooled_mkt_correct / pooled_mkt_games:.1%}  ({pooled_mkt_correct}/{pooled_mkt_games})",
+            )
+        )
+    summary_rows.append(
+        (
+            "Margin MAE",
+            f"model {pooled_margin_mae:.2f}"
+            + (
+                f"  vs market line {pooled_market_margin_mae:.2f}"
+                if pooled_market_margin_mae is not None
+                else ""
+            ),
+        )
+    )
+    margin_pooled = probability_pooled.get("margin_distribution")
+    if margin_pooled and margin_pooled.get("methods"):
+        ranked = sorted(
+            margin_pooled["methods"].items(),
+            key=lambda kv: kv[1]["crps"] if kv[1].get("crps") is not None else float("inf"),
+        )
+        best_name, best = ranked[0]
+        summary_rows.append(("Best margin CRPS", f"{best_name} {best['crps']:.2f}"))
+        model_scored = margin_pooled["methods"].get("model")
+        if model_scored and model_scored.get("crps") is not None:
+            summary_rows.append(("Score model CRPS", f"{model_scored['crps']:.2f}"))
+    if pooled_bets:
+        summary_rows.append(
+            ("Flat-stake ROI", f"{100.0 * pooled_profit / pooled_bets:+.1f}%  ({pooled_bets} bets)")
+        )
+    summary_rows.append(
+        ("Acceptance gate", "PASS" if acceptance["passed"] else "FAIL")
+    )
+    console.emit_result("evaluation_summary", rows=summary_rows)
 
     comp_results = [res["comp_sim"] for res in results if res.get("comp_sim")]
     pooled_p_first = (

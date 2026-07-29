@@ -121,7 +121,39 @@ model-only fallback. It reports calibration, tipping, market comparison,
 score/margin behavior, ROI simulations, and competition-policy evidence where
 coverage allows. Reports are written under `reports/`.
 
-The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the current 2024–2026 nested holdout summary: 552 pooled non-draw games, 63.4% tipping accuracy, 0.6413 log loss, and 61.2% market-favourite accuracy on covered games. The competition simulation reported about a 35.0% win probability in its configured field scenario. These are historical evaluation results, not a promise about the next round.
+The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the 2024 to 2026 nested holdout summary: 580 pooled non-draw games, 64.0% tipping accuracy, 0.6323 log loss, 0.2211 Brier, and 62.3% market-favourite accuracy on covered games. Margin MAE is 14.15 against 14.27 for the market line. These are historical evaluation results, not a promise about the next round.
+
+### Margin distribution
+
+The evaluation also scores the *distribution* the simulator draws from, not just
+its point margin, using CRPS, randomised PIT, and coverage reported with width
+(`distributional_metrics.py`). Randomisation in the PIT is required because
+margins are integers; the plain transform is non-uniform even under a correctly
+specified model. Over-dispersion and the shared component are refitted on prior
+seasons only, so held-out seasons stay honest.
+
+Comparators are deliberately strong rather than a floor. On the 2024 to 2026
+holdout the pooled CRPS is:
+
+| Method | CRPS | 50% cov | 90% cov | 90% width |
+|---|---|---|---|---|
+| Normal approximation | 10.21 | 0.51 | 0.87 | 55.7 |
+| Empirical replay of past errors | 10.23 | 0.49 | 0.87 | 57.0 |
+| Score model (Poisson family) | 10.26 | 0.48 | 0.84 | 51.5 |
+| Score model reconciled to the calibrated probability | 10.50 | 0.48 | 0.84 | 51.4 |
+
+Two honest negatives follow. The 100k-draw Poisson-family simulator does not
+beat a two-parameter normal approximation fitted to prior-season residuals, so
+the negative-binomial dispersion and shared component are not currently earning
+their complexity on this metric. And reconciling the score means onto the
+calibrated win probability, which is what ships, *costs* CRPS and calibration:
+the win-probability stack and the score model disagree, and the price of making
+them agree is now measured rather than assumed. All four methods under-cover at
+the 90% level.
+
+The market line appears as a point forecast, where CRPS reduces to MAE (14.27),
+so it is not a like-for-like comparison against a distribution and should not be
+read as one.
 
 Training-time metrics remain useful diagnostics, but the meta-layer has seen the season's OOF rows; do not substitute them for the nested evaluation.
 
@@ -145,6 +177,11 @@ See [Competition strategy](comp-strategy.md) and [Joker strategy](joker-strategy
 - Player identities and old team-list layouts are noisier than match-level IDs.
 - A score model cannot fully represent rugby league's discrete scoring and tactical state; dispersion and shared components only soften the assumption.
 - `lambda3` may estimate near zero when the evidence does not support a shared component.
+- On the current holdout the score model's CRPS does not beat a normal
+  approximation, so the Poisson-family machinery is not yet demonstrably worth
+  its complexity for distributional accuracy. It is retained because the
+  simulation also supplies the scoreline and draw probability, which a margin
+  distribution alone does not give.
 - A competition-win policy depends on field size, points gap, opponent behavior, and joker rules; it is scenario-dependent.
 - The nrl.com/odds feed replacement is on the runtime path, but source coverage and markup remain operational dependencies; the legacy XML feed is the rollback.
 

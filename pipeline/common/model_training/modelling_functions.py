@@ -50,6 +50,44 @@ def _make_tuning_callback(total, outcome_var):
     return _callback
 
 
+def estimate_lambda3(y_home, y_away, mu_home, mu_away):
+    """Method-of-moments shared Poisson component from residual covariance.
+
+    Shared with evaluate.py so the held-out seasons can refit it on prior
+    seasons only, rather than inheriting a corpus-wide value.
+    """
+    y_home = np.asarray(y_home, dtype=float)
+    y_away = np.asarray(y_away, dtype=float)
+    mu_home = np.asarray(mu_home, dtype=float)
+    mu_away = np.asarray(mu_away, dtype=float)
+
+    if len(y_home) < 2:
+        return 0.0
+
+    resid_home = y_home - mu_home
+    resid_away = y_away - mu_away
+    cov = float(np.cov(resid_home, resid_away, ddof=1)[0, 1])
+    lambda3 = max(0.0, cov)
+
+    # Cap to keep most matches in a feasible shared-component range.
+    cap = float(np.quantile(np.minimum(mu_home, mu_away), 0.25) * 0.8)
+    return float(max(0.0, min(lambda3, max(cap, 0.0))))
+
+
+def estimate_dispersion(y, mu):
+    """Method-of-moments negative-binomial k from OOF residuals.
+
+    var = mu + mu^2/k  =>  k = mean(mu^2) / mean((y-mu)^2 - mu).
+    Returns None when residuals show no over-dispersion (plain Poisson).
+    """
+    y = np.asarray(y, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    excess = float(np.mean((y - mu) ** 2 - mu))
+    if not np.isfinite(excess) or excess <= 0:
+        return None
+    return float(np.mean(mu**2) / excess)
+
+
 def select_blend_weights_by_log_loss(y, baseline_mu_home, baseline_mu_away, model_mu_home, model_mu_away):
     """Grid-search (w_home, w_away) minimising log-loss of the conditional win prob.
 

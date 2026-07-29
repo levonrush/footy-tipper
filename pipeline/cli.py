@@ -220,6 +220,32 @@ def _render_prediction_results(records) -> None:
         console.panel(title, rows, style="magenta")
 
 
+def _render_model_results(records, title, style="cyan") -> None:
+    """Render the training/evaluation summary panel from child result markers.
+
+    train.py and evaluate.py run as captured children, so their printed metrics
+    only reach the log. They emit the headline numbers as a result marker; this
+    puts them back in front of the operator, where a long run is otherwise
+    indistinguishable from a no-op.
+    """
+    summary = next(
+        (
+            r
+            for r in (records or [])
+            if isinstance(r, dict)
+            and r.get("kind") in {"training_summary", "evaluation_summary"}
+        ),
+        None,
+    )
+    if not summary or not summary.get("rows"):
+        return
+    rows = [
+        (row[0], row[1]) if isinstance(row, (list, tuple)) and len(row) == 2 else row
+        for row in summary["rows"]
+    ]
+    console.panel(title, rows, style=style)
+
+
 def _feed_source(env):
     return str(env.get("FOOTY_TIPPER_FEED_SOURCE", "python")).strip().lower() or "python"
 
@@ -449,7 +475,11 @@ def _bootstrap_lineups_for_training_if_needed(env, root):
 def _run_train(env, skip_prep, root):
     if not skip_prep:
         _run_data_prep(env, root)
-    _run_command([sys.executable, str(root / "pipeline" / "train.py")], env, cwd=root)
+    records = _run_command(
+        [sys.executable, str(root / "pipeline" / "train.py")], env, cwd=root
+    )
+    _render_model_results(records, "Training summary", style="green")
+    return records
 
 
 def _run_inference(env, skip_prep, root):
@@ -463,7 +493,11 @@ def _run_inference(env, skip_prep, root):
 def _run_evaluate(env, skip_prep, root):
     if not skip_prep:
         _run_data_prep(env, root)
-    _run_command([sys.executable, str(root / "pipeline" / "evaluate.py")], env, cwd=root)
+    records = _run_command(
+        [sys.executable, str(root / "pipeline" / "evaluate.py")], env, cwd=root
+    )
+    _render_model_results(records, "Evaluation summary", style="magenta")
+    return records
 
 
 def _model_artifacts_exist(root: pathlib.Path) -> bool:

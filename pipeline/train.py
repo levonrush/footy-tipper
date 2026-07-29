@@ -47,37 +47,9 @@ def _select_blend_weight_by_log_loss(
     )
 
 
-def _estimate_lambda3(y_home, y_away, mu_home, mu_away):
-    y_home = np.asarray(y_home, dtype=float)
-    y_away = np.asarray(y_away, dtype=float)
-    mu_home = np.asarray(mu_home, dtype=float)
-    mu_away = np.asarray(mu_away, dtype=float)
-
-    if len(y_home) < 2:
-        return 0.0
-
-    resid_home = y_home - mu_home
-    resid_away = y_away - mu_away
-    cov = float(np.cov(resid_home, resid_away, ddof=1)[0, 1])
-    lambda3 = max(0.0, cov)
-
-    # Cap to keep most matches in a feasible shared-component range.
-    cap = float(np.quantile(np.minimum(mu_home, mu_away), 0.25) * 0.8)
-    return float(max(0.0, min(lambda3, max(cap, 0.0))))
-
-
-def _estimate_dispersion(y, mu):
-    """Method-of-moments negative-binomial k from OOF residuals.
-
-    var = mu + mu^2/k  =>  k = mean(mu^2) / mean((y-mu)^2 - mu).
-    Returns None when residuals show no over-dispersion (plain Poisson).
-    """
-    y = np.asarray(y, dtype=float)
-    mu = np.asarray(mu, dtype=float)
-    excess = float(np.mean((y - mu) ** 2 - mu))
-    if not np.isfinite(excess) or excess <= 0:
-        return None
-    return float(np.mean(mu**2) / excess)
+# Shared with evaluate.py, which refits them per held-out season.
+_estimate_lambda3 = mf.estimate_lambda3
+_estimate_dispersion = mf.estimate_dispersion
 
 
 def _non_draw_mask(df: pd.DataFrame) -> np.ndarray:
@@ -349,29 +321,7 @@ tier_a_cond = np.clip(
     1 - 1e-6,
 )
 
-# In-sample Tier B predictions (used for inference at prediction time).
 train_game_ids = training_data["game_id"].to_numpy()
-tier_b_cond = np.array(
-    [
-        pf.marginalized_conditional_home_win_prob(
-            mh,
-            ma,
-            lineup_uncertainty_home=uh,
-            lineup_uncertainty_away=ua,
-            n_samples=lineup_mc_samples,
-            mu_noise_scale=lineup_mu_noise_scale,
-            rng=pf.rng_for_game(gid, salt=2),
-        )
-        for mh, ma, uh, ua, gid in zip(
-            blended_mu_home,
-            blended_mu_away,
-            lineup_unc_home,
-            lineup_unc_away,
-            train_game_ids,
-        )
-    ],
-    dtype=float,
-)
 market_cond = pf.derive_market_home_probability(training_data)
 
 # OOF blended mus for stacker training (use weights selected above).
@@ -381,12 +331,20 @@ blended_mu_home_oof = np.maximum(
 blended_mu_away_oof = np.maximum(
     (1.0 - away_weight) * baseline_mu_away + away_weight * away_model_mu_oof, 1e-6
 )
-tier_b_cond_oof = np.array(
-    [
-        pf.conditional_home_win_prob(mh, ma)
-        for mh, ma in zip(blended_mu_home_oof, blended_mu_away_oof)
-    ],
-    dtype=float,
+
+# Marginalise over lineup uncertainty here, not just at inference. The pools
+# and calibrator are fitted on this array, and inference.py serves the
+# marginalised Tier-B probability, so computing it plainly here would fit the
+# meta-layer on a different input from the one it receives in production.
+# Deterministic per game via rng_for_game, so re-runs never flip a tip.
+tier_b_cond_oof = pf.marginalized_conditional_home_win_prob_vec(
+    blended_mu_home_oof,
+    blended_mu_away_oof,
+    lineup_unc_home,
+    lineup_unc_away,
+    game_ids=train_game_ids,
+    n_samples=lineup_mc_samples,
+    mu_noise_scale=lineup_mu_noise_scale,
 )
 
 # ── Tier-C: binary LightGBM (OOF) ────────────────────────────────────────────
@@ -814,6 +772,30 @@ try:
         print(
             f"  Brier     (market benchmark): {market_br:.4f}  |  model: {model_br:.4f}  ({'▲ better' if model_br < market_br else '▼ worse'})"
         )
+
+    # Lift the headline numbers onto the operator's console. The parent captures
+    # this script's stdout, so without a result marker a seven-minute train
+    # finishes showing nothing but a tick.
+    summary_rows = [
+        ("Tipping accuracy (OOF)", f"{tip_acc:.1%}  ({int(tip_correct.sum())}/{len(tip_correct)})"),
+        ("Log loss / Brier", f"{nd_log_loss:.4f} / {nd_brier:.4f}"),
+        ("Blend weights (home/away)", f"{home_weight:.2f} / {away_weight:.2f}"),
+        ("NB dispersion (home/away)", f"{dispersion_home:.2f} / {dispersion_away:.2f}"
+            if dispersion_home and dispersion_away else "plain Poisson"),
+        ("Shared component lambda3", f"{lambda3:.4f}"),
+        ("Market pool", str(market_selection.get("selected", "n/a"))),
+        ("No-market pool", str(no_market_selection.get("selected", "n/a"))),
+    ]
+    if valid_market.sum() >= 10:
+        summary_rows.insert(
+            1,
+            (
+                "vs market favourite",
+                f"{model_tip_on_mkt.mean():.1%} model vs {market_tip.mean():.1%} market "
+                f"({'+' if diff > 0 else ''}{diff:.1%} on {int(valid_market.sum())} games)",
+            ),
+        )
+    console.emit_result("training_summary", rows=summary_rows)
 
     # Calibration reliability table (predicted probability bins vs actual win rate).
     n_bins = 10

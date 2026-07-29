@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Added
+- Distributional scoring for the margin (`pipeline/common/model_training/distributional_metrics.py`): CRPS on ensemble samples, randomised PIT for the discrete outcome, and coverage returned welded to interval width. Wired into the nested evaluation and persisted in `reports/eval-*.json`, scored against a normal approximation, an empirical replay of past errors, and the market line. Nothing previously scored the score distribution, so `lambda3`, the negative-binomial dispersion, and the market score blends were unfalsifiable.
+- `research/phd-methods-transfer.ipynb` documenting which PhD methods were ported, which were rejected, and the results, generated with embedded outputs by `research/build_phd_transfer_notebook.py`.
+
+### Changed
+- The calibrated win probability and the simulated scoreline are now one object. Score means are solved along a total-preserving ray so the simulated distribution's own win probability is the calibrated one, replacing the post-hoc importance reweighting and removing the mirroring fallback for a side the simulation could not produce.
+- `lambda3` and the per-side negative-binomial dispersion now compose. A non-zero shared component previously discarded the dispersion outright; the dispersion is rescaled so the marginal variance is preserved while the shared component carries the covariance.
+- `train.py` and `evaluate.py` print a summary panel through the shared reporter. Their stdout is captured by the parent, so a long run previously finished showing only a tick with the numbers buried in the CLI log.
+
+### Fixed
+- Train/serve skew in the probability meta-layer. `train.py` computed the lineup-marginalised Tier-B probability and discarded it, fitting the pools and calibrator on the unmarginalised value while inference served the marginalised one; `evaluate.py` had the same gap. Both now marginalise, via a vectorised path that reproduces the scalar values exactly.
+- `install.R` no longer breaks a working R library. It now tests whether each package loads rather than whether it is listed, installs only what fails, and re-verifies afterwards. Previously an opportunistic upgrade could remove and fail to rebuild `dplyr`, aborting data preparation even though the restored library was fine.
+
 ## [1.0.0] - 2026-07-22
 
 ### Documentation

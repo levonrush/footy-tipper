@@ -21,6 +21,8 @@ Several notebooks refer to the deleted root `R/` directory or the old `pipeline/
 
 ## Other experiments
 
+- [`phd-methods-transfer.ipynb`](phd-methods-transfer.ipynb) documents which methods from the *From Samples to Sensors* PhD were ported into the production stack and which were rejected, with the evaluation results that followed. Unlike the notebooks above it describes **shipped** code: the distributional metrics, the constraint-native probability/scoreline reconciliation, and the lineup-marginalisation fix are all live. Numbers are read from `reports/eval-latest.json` rather than typed, so the notebook goes stale the moment that report is regenerated.
+- [`build_phd_transfer_notebook.py`](build_phd_transfer_notebook.py) generates the notebook above with its outputs already embedded, because the `footy-tipper` env has no Jupyter kernel. Regenerate with `python research/build_phd_transfer_notebook.py`; do not hand-edit the `.ipynb`.
 - [`model-training.ipynb`](model-training.ipynb) is an earlier interactive model-training workflow. It is not the artifact-producing production trainer.
 - [`model_properties.py`](model_properties.py) is a small model-inspection experiment, not an operator command.
 
