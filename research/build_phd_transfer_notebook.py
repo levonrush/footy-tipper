@@ -1164,5 +1164,100 @@ def main() -> int:
     return 0
 
 
+def export_blog_figure(out_path: pathlib.Path) -> int:
+    """Render the margin-cliff figure for the Medium post.
+
+    Same computation as the notebook's coherence section, relabelled for a
+    reader who has never heard of a predictive density, and drawn larger so it
+    survives Medium's downscaling. It reuses the shipped simulator rather than
+    reimplementing the maths, so the picture cannot drift from the code.
+    """
+    import numpy as np
+    from pipeline.common.model_prediciton import prediction_functions as pf
+
+    plt.rcParams.update({
+        "figure.facecolor": SURFACE, "axes.facecolor": SURFACE,
+        "savefig.facecolor": SURFACE, "font.family": "sans-serif",
+        "font.size": 15, "axes.titlesize": 19, "axes.titleweight": "bold",
+        "axes.titlecolor": INK, "axes.labelcolor": INK_2, "axes.edgecolor": GRID,
+        "axes.linewidth": 1.0, "axes.grid": True, "grid.color": GRID,
+        "grid.linewidth": 0.9, "text.color": INK, "xtick.color": MUTED,
+        "ytick.color": MUTED, "xtick.labelcolor": INK_2, "ytick.labelcolor": INK_2,
+        "legend.frameon": False, "legend.fontsize": 14, "figure.dpi": 140,
+    })
+
+    season = SEASONS[-1]["margin_distribution"]
+    disp_h, disp_a = season["dispersion_home"], season["dispersion_away"]
+    cal = 0.35  # calibrated model tips the away side; raw score means tip home
+
+    home, away = pf.draw_score_samples(
+        24.0, 20.0, 200_000, dispersion_home=disp_h, dispersion_away=disp_a,
+        rng=pf.rng_for_game(1),
+    )
+    raw = home - away
+
+    raw_cond = (raw > 0).sum() / max(1, (raw > 0).sum() + (raw < 0).sum())
+    weights = np.ones(raw.size)
+    weights[raw > 0] = cal / raw_cond
+    weights[raw < 0] = (1 - cal) / (1 - raw_cond)
+
+    solved_h, solved_a = pf.solve_score_means_for_probability(24.0, 20.0, cal)
+    fixed_home, fixed_away = pf.draw_score_samples(
+        solved_h, solved_a, 200_000, dispersion_home=disp_h, dispersion_away=disp_a,
+        rng=pf.rng_for_game(1),
+    )
+    fixed = fixed_home - fixed_away
+
+    bins = np.arange(-60, 61, 3)
+    old_heights, _ = np.histogram(raw, bins=bins, weights=weights / weights.sum() / 3)
+    peak = float(old_heights.max())
+    cliff_left = float(old_heights[np.searchsorted(bins, 0) - 2])
+
+    fig, ax = plt.subplots(figsize=(10.6, 5.9))
+    ax.hist(raw, bins=bins, weights=weights / weights.sum() / 3, histtype="step",
+            edgecolor=ORANGE, linewidth=3.0, label="The old way: patched afterwards")
+    ax.hist(fixed, bins=bins, density=True, histtype="step", edgecolor=BLUE,
+            linewidth=3.0, label="The fix: solved up front")
+    ax.axvline(0, color=MUTED, linewidth=1.4)
+
+    # Just enough headroom to clear the spike and seat the legend. More than
+    # this and the curves get stranded at the bottom of the frame.
+    ax.set_ylim(0, peak * 1.22)
+    ax.set_xlim(-64, 64)
+
+    ax.annotate(
+        "the cliff: the old\nnumbers jump\nstraight down here",
+        xy=(-1.0, cliff_left * 0.86), xytext=(-61, peak * 1.14), color=INK,
+        fontsize=14.5, fontweight="bold", linespacing=1.45, va="top",
+        arrowprops=dict(arrowstyle="->", color=INK, lw=1.8,
+                        connectionstyle="arc3,rad=-0.22"),
+    )
+    # Sit these where both curves have flattened, so nothing is obscured.
+    ax.text(-44, peak * 0.13, "away team wins", color=MUTED, fontsize=13, ha="center")
+    ax.text(44, peak * 0.13, "home team wins", color=MUTED, fontsize=13, ha="center")
+
+    ax.set_xlabel("winning margin (points)", labelpad=14)
+    ax.set_ylabel("how likely that margin is", labelpad=14)
+    ax.set_title("Same match, same model, two ways of getting an answer", pad=20)
+    ax.set_yticks([])
+    # Inset from the corner so the box never touches the axis or the title.
+    ax.legend(loc="upper right", bbox_to_anchor=(0.985, 0.99), borderaxespad=0)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(GRID)
+    ax.xaxis.grid(False)
+    ax.yaxis.grid(True)
+    ax.set_axisbelow(True)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight", facecolor=SURFACE)
+    plt.close(fig)
+    print(f"Wrote {out_path} ({out_path.stat().st_size / 1024:.0f} KB)")
+    return 0
+
+
 if __name__ == "__main__":
+    if "--blog-figure" in sys.argv:
+        target = sys.argv[sys.argv.index("--blog-figure") + 1]
+        raise SystemExit(export_blog_figure(pathlib.Path(target)))
     raise SystemExit(main())
