@@ -70,12 +70,23 @@ unavailable.
 
 Two properties of the objective are deliberate. Within one realized season,
 maximising P(first) is exactly equivalent to maximising tips correct, because
-rival scores do not depend on our tips; deviating from the field for its own
+rival scores do not depend on our tips. Deviating from the field for its own
 sake buys nothing at selection time, and the in-season case for it lives in the
 competition-strategy layer, which knows the live points gap. Across seasons it
 is not the same as pooled accuracy: P(first) saturates, so clearing the field
 in a strong season is worth more than the same average accuracy spread evenly.
 Seasons are therefore scored separately and averaged, never pooled.
+
+Those two facts together produce a result worth stating plainly, because it is
+easy to mistake for a bug. The rival field tips the market favourite, so the
+field is strong in exactly the seasons the market is strong. A model that
+tracks the market therefore banks its extra tips in seasons that were
+unwinnable anyway, and gives them back in the seasons it could have won. On
+2010 to 2026 the raw market wins more tips than Tier C in twelve of seventeen
+seasons and still scores worse on mean P(first), 0.058 against 0.150, because
+Tier C's good seasons are ones where it clears a weakened field. No
+within-season monotonicity is broken by this; the whole effect is composition
+across seasons.
 
 The raw market participates in the comparison and is reported as the best
 expert when it wins, but it is never deployed as the model on its own. What
