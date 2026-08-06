@@ -563,6 +563,33 @@ class ShrinkageSelectionTests(unittest.TestCase):
         self.assertNotEqual(selection["selected"], "market")
         self.assertLess(pool.weight_map["market"], 1.0)
 
+    def test_shrinkage_target_is_chosen_on_log_loss_not_p_first(self):
+        """The safety default must not ride on a noisy statistic.
+
+        A walk-forward fold once promoted Tier A as the target on a 0.024
+        P(first) edge while it was 0.15 worse on log loss, and the model
+        regressed. Choosing how far to move from the default is a different
+        question from choosing the default.
+        """
+        groups, y, market, experts, forecaster = self._fixture()
+        # Tier A clears the field in one season and is dreadful in the rest:
+        # P(first) 0.25 against tier_c's 0.02, log loss 0.72 against 0.65.
+        experts["tier_a"] = np.where(
+            groups == 2026.0, forecaster(20, 0.66), forecaster(65, 0.60)
+        )
+        pool = self._pool()
+        path = {0.0: experts["tier_c"], 1.0: forecaster(30, 0.68)}
+
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=market
+        )
+
+        self.assertEqual(selection["shrinkage_target"], "tier_c")
+        self.assertEqual(
+            calib.strongest_deployable_expert(experts, y, groups, market=market),
+            "tier_c",
+        )
+
     def test_comparison_bar_is_the_best_deployable_expert(self):
         groups, y, market, experts, forecaster = self._fixture()
         # Make the market the strongest single expert overall.

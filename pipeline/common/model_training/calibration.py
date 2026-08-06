@@ -959,7 +959,7 @@ def strongest_deployable_expert(
     groups=None,
     *,
     market=None,
-    objective="p_first",
+    objective="log_loss",
     rows=None,
 ):
     """Name the expert a rejected pool should shrink toward.
@@ -967,6 +967,15 @@ def strongest_deployable_expert(
     Chosen up front because the shrinkage path has to be built around a target
     before the nested predictions exist. Tier A/B/C probabilities are already
     out-of-fold, so ranking them directly is honest.
+
+    Ranked on log loss, deliberately, even though rungs of the path are ranked
+    on P(finish first). This target is the safety default the whole path falls
+    back to, and P(first) is far too noisy to choose it: it is close to bimodal
+    per season, so a couple of lucky seasons can promote a clearly worse
+    expert. A walk-forward fold did exactly that, picking Tier A on a 0.024
+    P(first) edge while Tier A was 0.15 worse on log loss, and the resulting
+    model regressed against the deployed one. Deciding *how far to move* from
+    the default is a different question from deciding *what the default is*.
     """
     experts = {
         name: np.asarray(probabilities, dtype=float)
@@ -1157,13 +1166,21 @@ def select_market_pool(
             return (-placement["mean_p_first"], -entry["accuracy"], entry["log_loss"], name)
         return (entry["log_loss"], -entry["accuracy"], entry["brier"], name)
 
+    def stability_rank(name):
+        entry = expert_metrics[name]
+        return (entry["log_loss"], -entry["accuracy"], entry["brier"], name)
+
     best_name = min(expert_metrics, key=rank_key)
     best = expert_metrics[best_name]
     # The bar and the fallback are now the same object. Judging the pool against
     # a comparator we are not allowed to deploy meant a narrow miss against the
     # market shipped a third choice that was worse than either.
+    #
+    # The target is ranked on log loss rather than on P(first): it is the safety
+    # default, and P(first) is too noisy per season to choose one. See
+    # strongest_deployable_expert for what happens when it is not.
     fallback_candidates = fallback_names or list(expert_metrics)
-    fallback_name = min(fallback_candidates, key=rank_key)
+    fallback_name = min(fallback_candidates, key=stability_rank)
     fallback = expert_metrics[fallback_name]
     best_deployable = expert_metrics[fallback_name]
     best_deployable_comp = expert_comp.get(fallback_name)
