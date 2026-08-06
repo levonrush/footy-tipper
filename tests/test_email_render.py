@@ -146,6 +146,23 @@ class HtmlRenderTests(unittest.TestCase):
         self.assertNotIn("A 78%", html_out)
         self.assertIn(">Confidence</th>", html_out)
 
+    def test_confidence_band_uses_the_draw_excluded_probability(self):
+        """A 0.71 conditional with a 4% draw stores as 0.6816 and must stay green.
+
+        Reading the stored probability raw would drop this tip out of the
+        >= 70% band purely because of draw mass the model is not scored on.
+        """
+        predictions = _predictions()
+        predictions.loc[0, "home_team_result"] = "Win"
+        predictions.loc[0, "home_team_win_prob"] = 0.71 * 0.96
+        predictions.loc[0, "home_team_lose_prob"] = 0.29 * 0.96
+
+        html_out = _render_html(predictions=predictions)
+
+        self.assertIn(">71%<", html_out)
+        self.assertNotIn(">68%<", html_out)
+        self.assertIn("#dcfce7", html_out)
+
     def test_joker_section_is_reader_friendly(self):
         html_out = _render_html()
         self.assertIn("HOLD JOKER THIS ROUND", html_out)

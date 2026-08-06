@@ -423,7 +423,23 @@ print(
     + ", ".join(f"{name}={weight:.3f}" for name, weight in stacker.weight_map.items())
 )
 
-market_loso = calib.loso_simplex_pool_predictions(
+market_learned_weights = dict(stacker.weight_map)
+market_expert_probabilities = {
+    "tier_a": tier_a_cond[market_fit_mask],
+    "tier_b": tier_b_cond_oof[market_fit_mask],
+    "tier_c": tier_c_cond_oof[market_fit_mask],
+    "market": market_cond[market_fit_mask],
+}
+# The shrinkage path needs its target before the nested predictions exist, so
+# the strongest deployable expert is chosen from the (already out-of-fold)
+# expert probabilities first.
+market_fallback_expert = calib.strongest_deployable_expert(
+    market_expert_probabilities,
+    y_full[market_fit_mask],
+    comp_years_all[market_fit_mask],
+    market=market_cond[market_fit_mask],
+)
+market_loso_path = calib.loso_simplex_pool_predictions(
     tier_a=tier_a_cond[market_fit_mask],
     tier_b=tier_b_cond_oof[market_fit_mask],
     market=market_cond[market_fit_mask],
@@ -431,7 +447,10 @@ market_loso = calib.loso_simplex_pool_predictions(
     y=y_full[market_fit_mask],
     groups=comp_years_all[market_fit_mask],
     include_market=True,
+    shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+    fallback_expert=market_fallback_expert,
 )
+market_loso = None if market_loso_path is None else market_loso_path.get(1.0)
 calibrator = calib.TemperatureCalibrator()
 if market_loso is not None:
     market_loso_rows = np.isfinite(market_loso)
@@ -457,31 +476,41 @@ market_nested = calib.nested_loso_simplex_predictions(
     y=y_full[market_fit_mask],
     groups=comp_years_all[market_fit_mask],
     include_market=True,
+    shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+    fallback_expert=market_fallback_expert,
 )
-market_expert_probabilities = {
-    "tier_a": tier_a_cond[market_fit_mask],
-    "tier_b": tier_b_cond_oof[market_fit_mask],
-    "tier_c": tier_c_cond_oof[market_fit_mask],
-    "market": market_cond[market_fit_mask],
-}
 market_selection = calib.select_market_pool(
     stacker,
     market_nested,
     y_full[market_fit_mask],
     market_expert_probabilities,
     groups=comp_years_all[market_fit_mask],
+    market_probabilities=market_cond[market_fit_mask],
 )
 calibrator = calib.fit_selected_market_calibrator(
     market_selection,
     market_expert_probabilities,
     y_full[market_fit_mask],
     calibrator,
+    loso_path_predictions=market_loso_path,
 )
 print(
     "Market pool nested selection: "
     f"{market_selection['selected']} "
-    f"({market_selection['selection_rows']} rows)."
+    f"(shrinkage={market_selection.get('selected_shrinkage')}, "
+    f"target={market_selection.get('shrinkage_target')}, "
+    f"objective={market_selection.get('objective')}, "
+    f"{market_selection['selection_rows']} rows)."
 )
+for _rung in market_selection.get("path", []):
+    _comp = _rung.get("comp") or {}
+    print(
+        f"  shrinkage {_rung['shrinkage']:.2f}: "
+        f"P(first)={_comp.get('mean_p_first', float('nan')):.4f} "
+        f"tips={_comp.get('tips_correct', 0)}/{_comp.get('games', 0)} "
+        f"log-loss={_rung['pool']['log_loss']:.4f} "
+        f"{'admissible' if _rung['admissible'] else 'blocked'}"
+    )
 
 # Counterfactual no-market regime: A/B/C on every genuine-OOF row, regardless
 # of whether that historical fixture happened to have market prices.
@@ -502,14 +531,28 @@ print(
     )
 )
 
-no_market_loso = calib.loso_simplex_pool_predictions(
+no_market_expert_probabilities = {
+    "tier_a": tier_a_cond[stacker_fit_mask],
+    "tier_b": tier_b_cond_oof[stacker_fit_mask],
+    "tier_c": tier_c_cond_oof[stacker_fit_mask],
+}
+no_market_fallback_expert = calib.strongest_deployable_expert(
+    no_market_expert_probabilities,
+    y_full[stacker_fit_mask],
+    comp_years_all[stacker_fit_mask],
+    market=market_cond[stacker_fit_mask],
+)
+no_market_loso_path = calib.loso_simplex_pool_predictions(
     tier_a=tier_a_cond[stacker_fit_mask],
     tier_b=tier_b_cond_oof[stacker_fit_mask],
     tier_c=tier_c_cond_oof[stacker_fit_mask],
     y=y_full[stacker_fit_mask],
     groups=comp_years_all[stacker_fit_mask],
     include_market=False,
+    shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+    fallback_expert=no_market_fallback_expert,
 )
+no_market_loso = None if no_market_loso_path is None else no_market_loso_path.get(1.0)
 calibrator_no_market = calib.TemperatureCalibrator()
 if no_market_loso is not None:
     no_market_loso_rows = np.isfinite(no_market_loso)
@@ -527,18 +570,16 @@ no_market_nested = calib.nested_loso_simplex_predictions(
     comp_years_all[stacker_fit_mask],
     tier_c=tier_c_cond_oof[stacker_fit_mask],
     include_market=False,
+    shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+    fallback_expert=no_market_fallback_expert,
 )
-no_market_expert_probabilities = {
-    "tier_a": tier_a_cond[stacker_fit_mask],
-    "tier_b": tier_b_cond_oof[stacker_fit_mask],
-    "tier_c": tier_c_cond_oof[stacker_fit_mask],
-}
 no_market_selection = calib.select_no_market_pool(
     stacker_no_market,
     no_market_nested,
     y_full[stacker_fit_mask],
     no_market_expert_probabilities,
     groups=comp_years_all[stacker_fit_mask],
+    market_probabilities=market_cond[stacker_fit_mask],
 )
 no_market_strategy = no_market_selection["strategy"]
 calibrator_no_market = calib.fit_selected_pool_calibrator(
@@ -546,6 +587,7 @@ calibrator_no_market = calib.fit_selected_pool_calibrator(
     no_market_expert_probabilities,
     y_full[stacker_fit_mask],
     calibrator_no_market,
+    loso_path_predictions=no_market_loso_path,
 )
 no_market_eligibility = no_market_selection["eligibility"]
 no_market_pool_log_loss = no_market_eligibility["pool_log_loss"]
@@ -783,9 +825,35 @@ try:
         ("NB dispersion (home/away)", f"{dispersion_home:.2f} / {dispersion_away:.2f}"
             if dispersion_home and dispersion_away else "plain Poisson"),
         ("Shared component lambda3", f"{lambda3:.4f}"),
-        ("Market pool", str(market_selection.get("selected", "n/a"))),
-        ("No-market pool", str(no_market_selection.get("selected", "n/a"))),
+        (
+            "Market pool",
+            f"{market_selection.get('selected', 'n/a')} "
+            f"(shrinkage {market_selection.get('selected_shrinkage', 0.0):.2f} "
+            f"toward {market_selection.get('shrinkage_target', 'n/a')})",
+        ),
+        (
+            "No-market pool",
+            f"{no_market_selection.get('selected', 'n/a')} "
+            f"(shrinkage {no_market_selection.get('selected_shrinkage', 0.0):.2f})",
+        ),
     ]
+    _market_comp = (market_selection.get("pool_comp") or {})
+    _chosen_comp = next(
+        (
+            row.get("comp")
+            for row in market_selection.get("path", [])
+            if row.get("shrinkage") == market_selection.get("selected_shrinkage")
+        ),
+        None,
+    ) or {}
+    if _chosen_comp:
+        summary_rows.append(
+            (
+                "Deployed P(win comp)",
+                f"{_chosen_comp.get('mean_p_first', float('nan')):.3f} mean per season, "
+                f"{_chosen_comp.get('tips_correct', 0)}/{_chosen_comp.get('games', 0)} tips",
+            )
+        )
     if valid_market.sum() >= 10:
         summary_rows.insert(
             1,
@@ -935,7 +1003,12 @@ manifest = {
             "calibrator_file": "win_prob_calibrator.pkl",
             "fit_rows": int(market_fit_mask.sum()),
             "experts": list(stacker.expert_names_),
+            # Captured before selection, which mutates the pool in place. Without
+            # this the manifest cannot say what a collapsed pool had learned.
+            "learned_weights": market_learned_weights,
             "weights": stacker.weight_map,
+            "selected_shrinkage": market_selection.get("selected_shrinkage"),
+            "shrinkage_target": market_selection.get("shrinkage_target"),
             "temperature": float(calibrator.temperature_),
             "selection": market_selection,
         },
@@ -952,6 +1025,8 @@ manifest = {
             "experts": list(stacker_no_market.expert_names_),
             "learned_weights": no_market_learned_weights,
             "weights": stacker_no_market.weight_map,
+            "selected_shrinkage": no_market_selection.get("selected_shrinkage"),
+            "shrinkage_target": no_market_selection.get("shrinkage_target"),
             "temperature": float(calibrator_no_market.temperature_),
         },
     },

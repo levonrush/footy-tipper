@@ -6,6 +6,7 @@ import os
 import pandas as pd
 
 from pipeline.common.odds.validity import valid_decimal_odds
+from pipeline.common.use_predictions.probabilities import two_way_home_probability
 
 
 # The 'get_tipper_picks' function calculates the odds thresholds and returns a DataFrame of tipper picks.
@@ -56,8 +57,13 @@ def get_tipper_picks(predictions, prod_run=False):
         game_id = row.get("game_id")
         home_team = row.get("team_home")
         away_team = row.get("team_away")
-        home_prob = pd.to_numeric(pd.Series([row.get("home_team_win_prob")]), errors="coerce").iloc[0]
-        away_prob = pd.to_numeric(pd.Series([row.get("home_team_lose_prob")]), errors="coerce").iloc[0]
+        # Two-way, to match the market price it is about to be compared against:
+        # a decimal H2H price is a two-way quote, so pricing against the
+        # draw-deflated probability understates every edge by the draw mass.
+        home_prob = two_way_home_probability(
+            row.get("home_team_win_prob"), row.get("home_team_lose_prob")
+        )
+        away_prob = None if pd.isna(home_prob) else 1.0 - home_prob
         home_odds = pd.to_numeric(pd.Series([row.get("team_head_to_head_odds_home")]), errors="coerce").iloc[0]
         away_odds = pd.to_numeric(pd.Series([row.get("team_head_to_head_odds_away")]), errors="coerce").iloc[0]
 

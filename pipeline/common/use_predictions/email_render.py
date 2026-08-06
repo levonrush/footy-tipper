@@ -8,6 +8,10 @@ import pandas as pd
 
 from pipeline.common.odds.validity import valid_decimal_odds
 from pipeline.common.use_predictions.joker import _round_label
+from pipeline.common.use_predictions.probabilities import (  # re-exported for site/email_copy
+    tip_probability,
+    two_way_home_probability,
+)
 
 
 def _default_subject(predictions):
@@ -136,16 +140,10 @@ def _first_game_callout(predictions):
         return None
 
     first_game = predictions.iloc[0]
-    is_home_tip = first_game.get("home_team_result") == "Win"
-    tip_probability = (
-        first_game.get("home_team_win_prob")
-        if is_home_tip
-        else first_game.get("home_team_lose_prob")
-    )
     return {
         "fixture": f"{first_game['team_home']} vs {first_game['team_away']}",
         "tip": _prediction_winner(first_game),
-        "tip_probability": _format_probability(tip_probability),
+        "tip_probability": _format_probability(tip_probability(first_game)),
         "scoreline": _format_predicted_scoreline(first_game),
         "margin": _format_predicted_margin(first_game),
     }
@@ -306,8 +304,7 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
     lines.extend(["", "Predicted winners:"])
     for _, row in predictions.iterrows():
         winner = _prediction_winner(row)
-        is_home_tip = row.get("home_team_result") == "Win"
-        tip_prob = row["home_team_win_prob"] if is_home_tip else row["home_team_lose_prob"]
+        tip_prob = tip_probability(row)
         lines.append(
             f"- {row['team_home']} vs {row['team_away']}: {winner} "
             f"({_format_probability(tip_prob)}, "
@@ -402,8 +399,7 @@ def _render_html_email(
         row_bg = "#f9fafb" if i % 2 == 0 else "#ffffff"
         # Colour by confidence in the tipped team, not by home-win probability:
         # a strong away favourite must read green, not red.
-        is_home_tip = row.get("home_team_result") == "Win"
-        tip_prob = row['home_team_win_prob'] if is_home_tip else row['home_team_lose_prob']
+        tip_prob = tip_probability(row)
         if pd.isna(tip_prob):
             tip_prob = 0.5
         if tip_prob >= 0.70:

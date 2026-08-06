@@ -299,6 +299,375 @@ class SimplexLogitPoolTests(unittest.TestCase):
         self.assertEqual(pool.weight_map["tier_c"], 1.0)
 
 
+class ShrinkagePathTests(unittest.TestCase):
+    """The mixture path between a learned pool and its one-hot fallback."""
+
+    def _pool(self):
+        pool = calib.SimplexLogitPool(include_market=True)
+        pool.expert_names_ = ("tier_a", "tier_b", "tier_c", "market")
+        pool.weights_ = np.array([0.1, 0.2, 0.4, 0.3])
+        pool._is_fitted = True
+        return pool
+
+    def test_blend_stays_on_the_simplex(self):
+        pool = self._pool()
+        learned = pool.weights_.copy()
+        for shrinkage in (0.0, 0.25, 0.5, 0.75, 1.0):
+            pool.blend_toward_expert("tier_c", learned, shrinkage)
+            self.assertTrue((pool.weights_ >= 0.0).all())
+            self.assertAlmostEqual(float(pool.weights_.sum()), 1.0, places=12)
+            self.assertEqual(pool.expert_names_, ("tier_a", "tier_b", "tier_c", "market"))
+            self.assertTrue(pool._is_fitted)
+
+    def test_zero_shrinkage_matches_select_expert_exactly(self):
+        pool = self._pool()
+        learned = pool.weights_.copy()
+        pool.blend_toward_expert("tier_c", learned, 0.0)
+        shrunk = pool.weights_.copy()
+
+        reference = self._pool()
+        reference.select_expert("tier_c")
+
+        np.testing.assert_array_equal(shrunk, reference.weights_)
+
+    def test_full_shrinkage_returns_the_learned_weights(self):
+        pool = self._pool()
+        learned = pool.weights_.copy()
+        pool.blend_toward_expert("tier_c", learned, 1.0)
+        np.testing.assert_allclose(pool.weights_, learned, atol=1e-12)
+
+    def test_intermediate_shrinkage_lies_between_the_endpoints(self):
+        n = 200
+        rng = np.random.default_rng(7)
+        tier_a = rng.uniform(0.2, 0.8, n)
+        tier_b = rng.uniform(0.2, 0.8, n)
+        tier_c = np.full(n, 0.3)
+        market = np.full(n, 0.8)
+
+        pool = self._pool()
+        learned = pool.weights_.copy()
+
+        pool.blend_toward_expert("tier_c", learned, 1.0)
+        full = pool.predict(tier_a, tier_b, tier_c=tier_c, market=market)
+        pool.blend_toward_expert("tier_c", learned, 0.0)
+        none_ = pool.predict(tier_a, tier_b, tier_c=tier_c, market=market)
+        pool.blend_toward_expert("tier_c", learned, 0.5)
+        half = pool.predict(tier_a, tier_b, tier_c=tier_c, market=market)
+
+        between = ((half > np.minimum(full, none_)) & (half < np.maximum(full, none_)))
+        self.assertTrue(between.all())
+
+    def test_invalid_shrinkage_is_rejected(self):
+        pool = self._pool()
+        learned = pool.weights_.copy()
+        with self.assertRaises(ValueError):
+            pool.blend_toward_expert("tier_c", learned, 1.5)
+        with self.assertRaises(ValueError):
+            pool.blend_toward_expert("nope", learned, 0.5)
+
+    def test_path_at_one_matches_the_unpathed_nested_predictions(self):
+        rng = np.random.default_rng(11)
+        groups = np.repeat(np.arange(2020, 2026, dtype=float), 70)
+        n = len(groups)
+        tier_a = rng.uniform(0.15, 0.85, n)
+        tier_b = np.clip(tier_a + rng.normal(0, 0.08, n), 0.01, 0.99)
+        tier_c = np.clip(tier_a + rng.normal(0, 0.10, n), 0.01, 0.99)
+        y = (rng.uniform(0, 1, n) < tier_a).astype(int)
+
+        plain = calib.nested_loso_simplex_predictions(
+            tier_a, tier_b, y, groups, tier_c=tier_c, include_market=False
+        )
+        path = calib.nested_loso_simplex_predictions(
+            tier_a,
+            tier_b,
+            y,
+            groups,
+            tier_c=tier_c,
+            include_market=False,
+            shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+            fallback_expert="tier_c",
+        )
+
+        self.assertIsNotNone(plain)
+        self.assertIsNotNone(path)
+        np.testing.assert_allclose(path[1.0], plain, atol=1e-12)
+
+    def test_path_predictions_ignore_held_season_labels(self):
+        rng = np.random.default_rng(13)
+        groups = np.repeat(np.arange(2020, 2026, dtype=float), 70)
+        n = len(groups)
+        tier_a = rng.uniform(0.15, 0.85, n)
+        tier_b = np.clip(tier_a + rng.normal(0, 0.08, n), 0.01, 0.99)
+        tier_c = np.clip(tier_a + rng.normal(0, 0.10, n), 0.01, 0.99)
+        y = (rng.uniform(0, 1, n) < tier_a).astype(int)
+        hold = groups == 2025
+
+        def run(labels):
+            return calib.nested_loso_simplex_predictions(
+                tier_a,
+                tier_b,
+                labels,
+                groups,
+                tier_c=tier_c,
+                include_market=False,
+                shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+                fallback_expert="tier_c",
+            )
+
+        flipped = y.copy()
+        flipped[hold] = 1 - flipped[hold]
+        original, altered = run(y), run(flipped)
+
+        for shrinkage in original:
+            np.testing.assert_allclose(
+                original[shrinkage][hold], altered[shrinkage][hold], atol=1e-12
+            )
+
+
+class CompObjectiveTests(unittest.TestCase):
+    """P(finish first) as the selection objective."""
+
+    def _season(self, seed=3, n=180):
+        rng = np.random.default_rng(seed)
+        market = rng.uniform(0.2, 0.8, n)
+        market = np.where(np.isclose(market, 0.5), 0.55, market)
+        y = (rng.uniform(0, 1, n) < market).astype(int)
+        return market, y
+
+    def test_p_first_is_monotone_in_tips_correct_within_a_season(self):
+        """Rival scores do not depend on our tips, so more correct is always better.
+
+        This is why differentiating for its own sake buys nothing at selection
+        time, and why the in-season points gap logic belongs in comp_strategy.
+        """
+        market, y = self._season()
+        groups = np.full(len(y), 2025.0)
+
+        scores = []
+        for wrong in (0, 10, 25, 45):
+            probabilities = np.where(y == 1, 0.8, 0.2)
+            probabilities[:wrong] = 1.0 - probabilities[:wrong]
+            placement = calib.comp_placement_metrics(probabilities, market, y, groups)
+            scores.append((placement["tips_correct"], placement["mean_p_first"]))
+
+        for (tips_a, p_a), (tips_b, p_b) in zip(scores, scores[1:]):
+            self.assertGreater(tips_a, tips_b)
+            self.assertGreaterEqual(p_a, p_b)
+
+    def test_mean_p_first_is_not_the_same_as_pooled_accuracy(self):
+        """A spiky candidate can beat a flat one that gets the same tips right.
+
+        P(first) saturates, so clearing the field once is worth more than being
+        mediocre twice. That is the whole reason seasons are scored separately
+        and then averaged rather than pooled.
+        """
+        market, y = self._season(seed=5, n=200)
+        groups = np.where(np.arange(len(y)) < 100, 2024.0, 2025.0)
+        correct = np.where(y == 1, 0.8, 0.2)
+        wrong = 1.0 - correct
+
+        # Both candidates get exactly the same number of tips right overall.
+        spiky = correct.copy()
+        spiky[:40] = wrong[:40]
+        flat = correct.copy()
+        flat[:20] = wrong[:20]
+        flat[100:120] = wrong[100:120]
+
+        spiky_metrics = calib.comp_placement_metrics(spiky, market, y, groups)
+        flat_metrics = calib.comp_placement_metrics(flat, market, y, groups)
+
+        self.assertEqual(spiky_metrics["tips_correct"], flat_metrics["tips_correct"])
+        self.assertNotAlmostEqual(
+            spiky_metrics["mean_p_first"], flat_metrics["mean_p_first"], places=6
+        )
+
+    def test_games_without_market_are_excluded_not_fabricated(self):
+        market, y = self._season(seed=9)
+        groups = np.full(len(y), 2025.0)
+        probabilities = np.where(y == 1, 0.8, 0.2)
+        holed = market.copy()
+        holed[:30] = np.nan
+
+        full = calib.comp_placement_metrics(probabilities, market, y, groups)
+        partial = calib.comp_placement_metrics(probabilities, holed, y, groups)
+
+        self.assertEqual(partial["excluded_no_market"], 30)
+        self.assertEqual(partial["games"], full["games"] - 30)
+
+
+class ShrinkageSelectionTests(unittest.TestCase):
+    """The gate now chooses how much of the pool to keep, on comp evidence."""
+
+    def _pool(self):
+        pool = calib.SimplexLogitPool(include_market=True)
+        pool.expert_names_ = ("tier_a", "tier_b", "tier_c", "market")
+        pool.weights_ = np.array([0.05, 0.10, 0.55, 0.30])
+        pool._is_fitted = True
+        return pool
+
+    def _fixture(self, n=400, seed=17):
+        """Four 100-game seasons where candidates differ in which tips they miss.
+
+        Misses are spread evenly across seasons (by position within the season)
+        so no single season carries all of a candidate's errors.
+        """
+        rng = np.random.default_rng(seed)
+        groups = np.repeat(np.array([2023.0, 2024.0, 2025.0, 2026.0]), n // 4)
+        y = rng.integers(0, 2, n)
+        within_season = np.arange(n) % (n // 4)
+
+        def forecaster(miss_below, confidence=0.65):
+            probabilities = np.where(y == 1, confidence, 1.0 - confidence)
+            missed = within_season < miss_below
+            probabilities[missed] = 1.0 - probabilities[missed]
+            return probabilities
+
+        experts = {
+            "tier_a": forecaster(44, 0.54),
+            "tier_b": forecaster(40, 0.58),
+            "tier_c": forecaster(36, 0.64),
+            # Wrong on a mostly disjoint set, as a real market would be.
+            "market": np.where(
+                within_season >= 62,
+                np.where(y == 1, 0.38, 0.62),
+                np.where(y == 1, 0.62, 0.38),
+            ),
+        }
+        return groups, y, experts["market"], experts, forecaster
+
+    def test_a_shrunk_pool_can_be_deployed(self):
+        """The defect this change exists for.
+
+        The learned pool is strong but not by the old margin; previously that
+        collapsed the artifact onto one expert. Now an intermediate rung can be
+        deployed, keeping some market weight instead of discarding all of it.
+        """
+        groups, y, market, experts, forecaster = self._fixture()
+        pool = self._pool()
+        # Each rung up the path misses fewer games than the one below it.
+        path = {
+            0.0: experts["tier_c"],
+            0.5: forecaster(33, 0.66),
+            1.0: forecaster(30, 0.68),
+        }
+
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=market
+        )
+
+        self.assertIn(selection["selected_shrinkage"], (0.0, 0.5, 1.0))
+        self.assertGreater(selection["selected_shrinkage"], 0.0)
+        self.assertEqual(selection["objective"], "p_first")
+        self.assertEqual(selection["shrinkage_target"], "tier_c")
+        # Policy from #38 survives: market is never the deployed model alone.
+        self.assertNotEqual(selection["selected"], "market")
+        self.assertLess(pool.weight_map["market"], 1.0)
+
+    def test_comparison_bar_is_the_best_deployable_expert(self):
+        groups, y, market, experts, forecaster = self._fixture()
+        # Make the market the strongest single expert overall.
+        experts["market"] = forecaster(20, 0.80)
+        pool = self._pool()
+        path = {0.0: experts["tier_c"], 1.0: forecaster(30, 0.68)}
+
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=experts["market"]
+        )
+
+        self.assertEqual(selection["best_expert"]["name"], "market")
+        self.assertEqual(selection["best_deployable_expert"]["name"], "tier_c")
+        self.assertNotEqual(selection["selected"], "market")
+
+    def test_parsimony_keeps_the_status_quo_when_the_edge_is_trivial(self):
+        groups, y, market, experts, _ = self._fixture()
+        pool = self._pool()
+        # Every rung is effectively the fallback, so the smallest wins.
+        path = {
+            0.0: experts["tier_c"],
+            0.5: experts["tier_c"].copy(),
+            1.0: experts["tier_c"].copy(),
+        }
+
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=market
+        )
+
+        self.assertEqual(selection["selected_shrinkage"], 0.0)
+        self.assertEqual(selection["selected"], "tier_c")
+        self.assertEqual(pool.weight_map["tier_c"], 1.0)
+
+    def test_calibration_guard_blocks_a_badly_calibrated_winner(self):
+        groups, y, market, experts, forecaster = self._fixture()
+        pool = self._pool()
+        # More tips right than tier_c, but ruinously overconfident on the ones
+        # it misses, so the log-loss and Brier guard should refuse it.
+        reckless = forecaster(25, 0.99)
+        path = {0.0: experts["tier_c"], 1.0: reckless}
+
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=market
+        )
+
+        blocked = [row for row in selection["path"] if row["shrinkage"] == 1.0][0]
+        self.assertFalse(blocked["admissible"])
+        self.assertFalse(blocked["calibration_guard"]["passed"])
+        self.assertEqual(selection["selected_shrinkage"], 0.0)
+
+    def test_legacy_array_still_produces_a_binary_decision(self):
+        groups, y, market, experts, _ = self._fixture()
+        pool = self._pool()
+        nested = np.where(y == 1, 0.66, 0.34)
+
+        selection = calib.select_market_pool(
+            pool, nested, y, experts, groups=groups, objective="log_loss"
+        )
+
+        self.assertEqual(selection["objective"], "log_loss")
+        self.assertIn(selection["selected_shrinkage"], (0.0, 1.0))
+        self.assertIn(selection["selected"], ("learned", "tier_c"))
+
+    def test_selected_calibrator_uses_the_path_predictions(self):
+        groups, y, market, experts, _ = self._fixture()
+        pool = self._pool()
+        path = {0.0: experts["tier_c"], 1.0: np.where(y == 1, 0.70, 0.30)}
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=market
+        )
+
+        learned_calibrator = calib.TemperatureCalibrator().fit(path[1.0], y)
+        chosen = calib.fit_selected_pool_calibrator(
+            selection, experts, y, learned_calibrator, loso_path_predictions=path
+        )
+        expected = calib.TemperatureCalibrator().fit(
+            path[selection["selected_shrinkage"]], y
+        )
+        self.assertAlmostEqual(chosen.temperature_, expected.temperature_, places=9)
+
+    def test_zero_rung_calibration_matches_the_in_sample_expert_fit(self):
+        """The unification is behaviour-preserving at the status quo.
+
+        A one-hot pool has no fitted parameters, so its held-out prediction is
+        the expert's own probability and the two fits coincide.
+        """
+        groups, y, market, experts, _ = self._fixture()
+        pool = self._pool()
+        path = {0.0: experts["tier_c"], 1.0: experts["tier_c"].copy()}
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=market
+        )
+        self.assertEqual(selection["selected_shrinkage"], 0.0)
+
+        with_path = calib.fit_selected_pool_calibrator(
+            selection, experts, y, calib.TemperatureCalibrator(), loso_path_predictions=path
+        )
+        without_path = calib.fit_selected_pool_calibrator(
+            selection, experts, y, calib.TemperatureCalibrator()
+        )
+        self.assertAlmostEqual(
+            with_path.temperature_, without_path.temperature_, places=9
+        )
+
+
 class TemperatureCalibratorTests(unittest.TestCase):
     def test_temperature_is_positive_neutral_and_side_preserving(self):
         probs = np.array([0.05, 0.15, 0.3, 0.45, 0.55, 0.7, 0.85, 0.95])
@@ -604,6 +973,42 @@ class ProbabilityArtifactContractTests(unittest.TestCase):
             self._write_probability_artifacts(root)
             (root / "model_manifest.json").write_text(
                 json.dumps(self._manifest()), encoding="utf-8"
+            )
+
+            state_sync._validate_model_artifacts(root)
+
+    def test_v3_manifest_accepts_a_shrunk_market_pool(self):
+        """A partially shrunk pool is still a fitted simplex, so v3 stands.
+
+        Shrinkage adds manifest keys only; it does not change the artifact
+        contract, which is why no schema bump is needed and why every already
+        published release stays activatable.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            self._write_base_models(root)
+            self._write_probability_artifacts(root)
+
+            pool = calib.SimplexLogitPool(include_market=True)
+            pool.expert_names_ = ("tier_a", "tier_b", "tier_c", "market")
+            pool.weights_ = np.array([0.05, 0.10, 0.55, 0.30])
+            pool._is_fitted = True
+            learned = pool.weights_.copy()
+            pool.blend_toward_expert("tier_c", learned, 0.5)
+            with open(root / "stacker.pkl", "wb") as handle:
+                dill.dump(pool, handle)
+
+            manifest = self._manifest()
+            market = manifest["probability_stack"]["market"]
+            market["weights"] = pool.weight_map
+            market["learned_weights"] = {
+                name: float(weight)
+                for name, weight in zip(pool.expert_names_, learned)
+            }
+            market["selected_shrinkage"] = 0.5
+            market["shrinkage_target"] = "tier_c"
+            (root / "model_manifest.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
             )
 
             state_sync._validate_model_artifacts(root)

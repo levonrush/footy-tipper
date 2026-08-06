@@ -26,6 +26,7 @@ from pipeline.common.use_predictions.joker import (
     compute_joker_round_metrics,
     get_joker_round_candidates,
 )
+from pipeline.common.use_predictions.probabilities import two_way_home_probability
 
 DEFAULT_FIELD_SIZE = 75
 DEFAULT_N_SIMS = 8000
@@ -187,10 +188,10 @@ def _recommend(db_path, project_root, predictions, mode):
         return _unavailable("No predictions with win probabilities available.", mode)
 
     frame = predictions.reset_index(drop=True)
-    win = pd.to_numeric(frame["home_team_win_prob"], errors="coerce")
-    lose = pd.to_numeric(frame["home_team_lose_prob"], errors="coerce")
-    denom = win + lose
-    model_p = np.clip((win / denom).where(denom > 0, 0.5).fillna(0.5).to_numpy(dtype=float), 1e-6, 1 - 1e-6)
+    home_prob = two_way_home_probability(
+        frame["home_team_win_prob"], frame["home_team_lose_prob"]
+    )
+    model_p = np.clip(home_prob.fillna(0.5).to_numpy(dtype=float), 1e-6, 1 - 1e-6)
 
     market_p = np.full(len(frame), np.nan)
     if {"team_head_to_head_odds_home", "team_head_to_head_odds_away"}.issubset(frame.columns):

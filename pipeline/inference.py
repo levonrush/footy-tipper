@@ -358,6 +358,10 @@ try:
     # ── PRIMARY: Tips ─────────────────────────────────────────────────────────
     print(f"\n── Tips ({len(inference_data)} game(s)) ──────────────────────────────────────")
     tip_records = []
+    # `model_prob` is the calibrated conditional, so these percentages are
+    # already two-way (draws excluded) -- the same convention the site, the
+    # email and the staking layer publish. Do not "fix" this to read the
+    # persisted home_team_win_prob, which carries the (1 - draw) factor.
     for th, ta, mp in zip(teams_home, teams_away, model_prob):
         tip = th if mp > 0.5 else ta
         tip_prob = mp if mp > 0.5 else 1.0 - mp

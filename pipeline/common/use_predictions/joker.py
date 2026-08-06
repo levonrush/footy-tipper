@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from pipeline.common.use_predictions.probabilities import two_way_home_probability
+
 
 def _load_json_file(path):
     try:
@@ -728,10 +730,9 @@ def get_joker_round_recommendation(db_path, project_root, predictions=None):
         and not predictions.empty
         and {"game_id", "home_team_win_prob", "home_team_lose_prob"}.issubset(predictions.columns)
     ):
-        win = pd.to_numeric(predictions["home_team_win_prob"], errors="coerce")
-        lose = pd.to_numeric(predictions["home_team_lose_prob"], errors="coerce")
-        denom = win + lose
-        p_home = (win / denom).where(denom > 0)
+        p_home = two_way_home_probability(
+            predictions["home_team_win_prob"], predictions["home_team_lose_prob"]
+        )
         model_probs = pd.DataFrame(
             {
                 "game_id": pd.to_numeric(predictions["game_id"], errors="coerce"),

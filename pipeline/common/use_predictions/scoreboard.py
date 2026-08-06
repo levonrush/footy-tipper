@@ -9,6 +9,11 @@ import sqlite3
 
 import pandas as pd
 
+from pipeline.common.use_predictions.probabilities import (
+    tipped_home as _tipped_home_from_probs,
+    two_way_home_probability,
+)
+
 _SCOREBOARD_QUERY = """
 SELECT
     CAST(ft.game_id AS INTEGER) AS game_id,
@@ -22,6 +27,7 @@ SELECT
     CAST(ft.team_head_to_head_odds_home AS REAL) AS odds_home,
     CAST(ft.team_head_to_head_odds_away AS REAL) AS odds_away,
     p.home_team_win_prob,
+    p.home_team_lose_prob,
     p.home_team_result
 FROM predictions_table p
 JOIN footy_tipping_data ft ON ft.game_id = p.game_id
@@ -67,7 +73,13 @@ def get_season_scoreboard(db_path):
     model_tipped_home = settled["home_team_result"].astype(str).str.strip().eq("Win")
     no_result = ~settled["home_team_result"].astype(str).str.strip().isin(["Win", "Loss"])
     if no_result.any():
-        model_tipped_home = model_tipped_home.where(~no_result, settled["home_team_win_prob"] > 0.5)
+        # Compare the two sides rather than testing the home probability against
+        # 0.5: both carry the same (1 - draw) factor, so `win > 0.5` would hand
+        # the away team any game whose conditional sits just above a half.
+        fallback = _tipped_home_from_probs(
+            settled["home_team_win_prob"], settled["home_team_lose_prob"]
+        )
+        model_tipped_home = model_tipped_home.where(~no_result, fallback)
     settled = settled.assign(model_correct=(model_tipped_home == home_won))
 
     has_odds = (settled["odds_home"] > 1.0) & (settled["odds_away"] > 1.0)
@@ -129,13 +141,19 @@ def get_season_results(db_path):
     home_won = settled["team_final_score_home"] > settled["team_final_score_away"]
     draw = settled["team_final_score_home"] == settled["team_final_score_away"]
     tipped_home = settled["home_team_result"].astype(str).str.strip().eq("Win")
+    home_prob = two_way_home_probability(
+        settled["home_team_win_prob"], settled["home_team_lose_prob"]
+    )
 
     settled = settled.assign(
         tipped_team=settled["team_home"].where(tipped_home, settled["team_away"]),
         winner=settled["team_home"].where(home_won, settled["team_away"]).where(~draw, "Draw"),
         tip_correct=(tipped_home == home_won) & ~draw,
         is_draw=draw,
-        tip_prob=settled["home_team_win_prob"].where(tipped_home, 1.0 - settled["home_team_win_prob"]),
+        # Two-way both ways round. Using `1 - home_team_win_prob` for away tips
+        # would fold the draw mass into the away side only, inflating away-tip
+        # confidence relative to home-tip confidence on identical numbers.
+        tip_prob=home_prob.where(tipped_home, 1.0 - home_prob),
     )
     return settled.sort_values(["round_id", "game_id"], ascending=[False, True]).reset_index(drop=True)
 
