@@ -1051,7 +1051,7 @@ def select_market_pool(
     min_log_loss_improvement=0.005,
     accuracy_tolerance=0.01,
     brier_tolerance=0.005,
-    objective="p_first",
+    objective="log_loss",
     market_probabilities=None,
 ):
     """Choose how much of the learned pool to deploy, on competition evidence.
@@ -1161,13 +1161,17 @@ def select_market_pool(
     if market_p is None:
         market_p = experts.get("market")
     market_p = None if market_p is None else np.asarray(market_p, dtype=float)
-    # The competition objective needs a rival field (market prices) and seasons
-    # to aggregate over. Without either, fall back to the log-loss ordering
-    # rather than inventing a field.
-    use_comp = bool(objective == "p_first" and market_p is not None and groups is not None)
+    # Competition placement is always reported when a rival field and seasons
+    # exist, but it only *selects* when asked for. Mean per-season P(first) is
+    # close to bimodal, so a handful of seasons swings it, and walk-forward
+    # runs showed the rung it picks flipping between the endpoints across
+    # retrains of near-identical data. It is a good scoreboard and a poor
+    # objective; log loss is stable and the guards do the rest.
+    can_report_comp = bool(market_p is not None and groups is not None)
+    use_comp = bool(objective == "p_first" and can_report_comp)
 
     def comp(probabilities, rows=selection_rows):
-        if not use_comp:
+        if not can_report_comp:
             return None
         return comp_placement_metrics(probabilities, market_p, y, groups, rows=rows)
 
@@ -1306,13 +1310,10 @@ def select_market_pool(
                     "pooled_passed": bool(comp_ok),
                     "recent_passed": bool(recent_comp_ok),
                     "recent_groups": int(recent_groups),
-                    "recent_mean_p_first": (
-                        None if not use_comp else _recent_mean_p_first(rung_comp, recent_groups)
-                    ),
-                    "recent_target_mean_p_first": (
-                        None
-                        if not use_comp
-                        else _recent_mean_p_first(best_deployable_comp, recent_groups)
+                    "selects": bool(use_comp),
+                    "recent_mean_p_first": _recent_mean_p_first(rung_comp, recent_groups),
+                    "recent_target_mean_p_first": _recent_mean_p_first(
+                        best_deployable_comp, recent_groups
                     ),
                 },
                 "admissible": admissible,
@@ -1321,14 +1322,24 @@ def select_market_pool(
 
     admissible_rungs = [row for row in path if row["admissible"]]
 
-    def selection_key(row):
-        placement = row["comp"]
-        primary = -placement["mean_p_first"] if (use_comp and placement) else row["pool"]["log_loss"]
-        # Ties go to the smaller shrinkage: when the evidence cannot separate
-        # two rungs, move less.
-        return (primary, row["shrinkage"], row["pool"]["log_loss"])
+    if use_comp:
+        def selection_key(row):
+            placement = row["comp"]
+            primary = -placement["mean_p_first"] if placement else row["pool"]["log_loss"]
+            return (primary, row["shrinkage"], row["pool"]["log_loss"])
 
-    chosen = min(admissible_rungs, key=selection_key)
+        chosen = min(admissible_rungs, key=selection_key)
+    else:
+        # Parsimony on a stable statistic: take the smallest shrinkage whose log
+        # loss is within the improvement threshold of the best admissible rung.
+        # Moving further than the evidence supports is how the market weight
+        # ended up at either extreme in the first place.
+        best_loss = min(row["pool"]["log_loss"] for row in admissible_rungs)
+        cutoff = best_loss + float(min_log_loss_improvement)
+        chosen = min(
+            (row for row in admissible_rungs if row["pool"]["log_loss"] <= cutoff),
+            key=lambda row: (row["shrinkage"], row["pool"]["log_loss"]),
+        )
     selected_shrinkage = float(chosen["shrinkage"])
     keep_learned = selected_shrinkage == 1.0
 
@@ -1408,7 +1419,7 @@ def select_no_market_pool(
     min_log_loss_improvement=0.005,
     accuracy_tolerance=0.01,
     brier_tolerance=0.005,
-    objective="p_first",
+    objective="log_loss",
     market_probabilities=None,
 ):
     """Select the counterfactual A/B/C pool without weakening Tier-B safety.

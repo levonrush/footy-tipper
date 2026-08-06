@@ -57,26 +57,27 @@ the same artifact contract. This exists because "the learned mixture did not
 clearly beat the best expert" is a weaker claim than "the best expert alone is
 the right model", and collapsing straight to a corner treated them as the same.
 
-Rungs are ranked by mean per-season P(finish first), simulated against a rival
-field that tips the market favourite, because that is what a tipping
-competition pays out on. Log loss and Brier act as a guard rather than the
-objective: a rung must also stay within the release tolerances of the best
-deployable expert, both pooled and in each recent season, since the joker and
-competition-strategy layers consume these probabilities directly. Zero
-shrinkage is always admissible and is bitwise identical to the one-hot
-fallback, so the safe choice is always reachable; ties resolve toward the
-smaller shrinkage. Tier B remains the default when nested evidence is
-unavailable.
+Rungs are ranked on nested season-out log loss, and the rule is parsimonious:
+take the smallest shrinkage whose log loss falls within the improvement
+threshold of the best admissible rung. A rung is admissible only if it stays
+within the release tolerances of the best deployable expert, both pooled and in
+each recent season. Zero shrinkage is always admissible and is bitwise
+identical to the one-hot fallback, so the safe choice is always reachable. Tier
+B remains the default when nested evidence is unavailable. The shrinkage target
+is ranked on log loss too.
 
-A rung must clear the target on P(first) over the recent-season window as well
-as on the all-time mean. Without that, a market-heavy rung can win the average
-on seasons that no longer resemble the one being predicted: the market's own
-tipping accuracy fell roughly nine points after 2023, from about 71% to about
-62%, and a walk-forward fold duly deployed the full learned pool on a stronger
-all-time mean while trailing the target 0.352 to 0.493 over the recent window.
-It cost seven tips on the held-out season and halved the pooled competition
-number. The shrinkage target is chosen on log loss for the same family of
-reasons.
+Competition placement, mean per-season P(finish first) against a rival field
+that tips the market favourite, is computed and recorded for every rung and
+every expert, but it does not select. It was tried as the objective and
+withdrawn. Two walk-forward runs on near-identical data chose different rungs
+for the same fold, once landing on the full market-heavy pool, which cost seven
+tips on the held-out season and failed the release gate. The statistic is close
+to bimodal per season, so a handful of seasons swings the mean, and the market's
+own tipping accuracy fell roughly nine points after 2023, which lets a
+market-heavy rung win an average taken over seasons that no longer resemble the
+one being predicted. It is a good scoreboard and a poor objective. The
+`objective="p_first"` path and its recent-window guard remain available for
+experiments and are covered by tests, but nothing ships on them.
 
 Two properties of the objective are deliberate. Within one realized season,
 maximising P(first) is exactly equivalent to maximising tips correct, because

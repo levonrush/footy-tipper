@@ -557,11 +557,36 @@ class ShrinkageSelectionTests(unittest.TestCase):
 
         self.assertIn(selection["selected_shrinkage"], (0.0, 0.5, 1.0))
         self.assertGreater(selection["selected_shrinkage"], 0.0)
-        self.assertEqual(selection["objective"], "p_first")
+        self.assertEqual(selection["objective"], "log_loss")
         self.assertEqual(selection["shrinkage_target"], "tier_c")
+        # Competition placement is still measured, it just does not select.
+        self.assertIsNotNone(selection["path"][-1]["comp"])
+        self.assertFalse(selection["path"][-1]["comp_guard"]["selects"])
         # Policy from #38 survives: market is never the deployed model alone.
         self.assertNotEqual(selection["selected"], "market")
         self.assertLess(pool.weight_map["market"], 1.0)
+
+    def test_parsimony_stops_at_the_smallest_rung_the_evidence_supports(self):
+        """Move as far as the evidence justifies and no further.
+
+        The market weight ended up pinned at an extreme precisely because the
+        old gate could only pick an endpoint.
+        """
+        groups, y, market, experts, forecaster = self._fixture()
+        pool = self._pool()
+        # 0.5 captures the improvement (0.653 to 0.612 log loss); 1.0 adds
+        # 0.0009 more, well inside the 0.005 threshold.
+        path = {
+            0.0: experts["tier_c"],
+            0.5: forecaster(30, 0.68),
+            1.0: forecaster(30, 0.70),
+        }
+
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=market
+        )
+
+        self.assertEqual(selection["selected_shrinkage"], 0.5)
 
     def test_shrinkage_target_is_chosen_on_log_loss_not_p_first(self):
         """The safety default must not ride on a noisy statistic.
@@ -624,15 +649,14 @@ class ShrinkageSelectionTests(unittest.TestCase):
         self.assertEqual(pool.weight_map["tier_c"], 1.0)
 
     def test_a_rung_winning_only_on_old_seasons_is_blocked(self):
-        """The stability requirement, taken from a real walk-forward failure.
+        """The stability requirement guarding the optional P(first) objective.
 
-        The 2024 fold deployed the full learned pool because it won the
-        all-time mean P(first), 0.152 against the target's 0.106. Over the
-        recent three seasons it scored 0.352 against 0.493, and on the held-out
-        season it cost seven tips and halved the pooled competition number. The
-        market's own tipping accuracy fell about nine points after 2023, so
-        market-heavy rungs can ride on history that no longer resembles the
-        season being predicted.
+        Taken from a real walk-forward failure: the 2024 fold deployed the full
+        learned pool because it won the all-time mean P(first), 0.152 against
+        the target's 0.106, while trailing 0.352 to 0.493 over the recent three
+        seasons. It cost seven tips on the held-out season. That objective is
+        no longer the default for exactly this reason, but it remains
+        selectable, so the guard has to keep working.
         """
         groups, y, market, experts, forecaster = self._fixture()
         pool = self._pool()
@@ -643,7 +667,13 @@ class ShrinkageSelectionTests(unittest.TestCase):
         path = {0.0: experts["tier_c"], 1.0: old_glory}
 
         selection = calib.select_market_pool(
-            pool, path, y, experts, groups=groups, market_probabilities=market
+            pool,
+            path,
+            y,
+            experts,
+            groups=groups,
+            market_probabilities=market,
+            objective="p_first",
         )
 
         rung = [row for row in selection["path"] if row["shrinkage"] == 1.0][0]

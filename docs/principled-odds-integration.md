@@ -64,12 +64,16 @@ The market pool uses:
 How much of the learned pool ships is selected along a shrinkage path from the
 learned weights to a one-hot weighting of the strongest deployable Tier A/B/C
 expert, using fully nested season-out predictions on market-covered rows. Rungs
-are ranked by mean per-season P(finish first) against a simulated rival field
-that tips the market favourite; log loss and Brier are a guard, requiring each
-rung to stay within the release tolerances of the best deployable expert both
-pooled and per recent season. Zero shrinkage is always admissible, is identical
-to the one-hot fallback, and wins ties, so the conservative answer is always
-available. If nested evidence is unavailable, Tier B is the safe default.
+are ranked on log loss, parsimoniously: the smallest shrinkage whose log loss
+falls within the improvement threshold of the best admissible rung wins. A rung
+is admissible only if it stays within the release tolerances of the best
+deployable expert both pooled and per recent season. Zero shrinkage is always
+admissible and is identical to the one-hot fallback, so the conservative answer
+is always available. If nested evidence is unavailable, Tier B is the safe
+default.
+
+Competition placement is recorded for every rung but does not select. See
+`docs/modeling-techniques.md` for why that objective was tried and withdrawn.
 
 The comparison bar and the fallback are the same expert. Judging the pool
 against a comparator that cannot be deployed, while drawing the fallback from a
