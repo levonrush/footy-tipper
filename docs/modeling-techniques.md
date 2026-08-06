@@ -46,14 +46,41 @@ Two constrained logit pools combine:
 - OOF Tier-C probability
 - genuine market conditional probability in the market-covered pool only
 
-Pool weights are nonnegative, sum to one, and have no intercept. The
-learned market pool is retained only when fully nested season-out predictions
-provide material log-loss improvement over the strongest individual
-comparator on the same covered rows, stay within the accuracy and Brier
-tolerances, and pass recent-season stability checks. The raw market participates
-in that comparison, but a rejected pool becomes a one-hot selection of the
-strongest Tier A/B/C model expert rather than a raw market-only winner
-forecast. Tier B is the safe default when nested evidence is unavailable.
+Pool weights are nonnegative, sum to one, and have no intercept.
+
+How much of the learned pool is deployed is chosen along a shrinkage path
+between two endpoints: the learned weights, and a one-hot weighting of the
+strongest deployable Tier A/B/C expert. Every rung is
+`normalize(s * learned + (1 - s) * onehot(fallback))` for `s` in
+`{0, 0.25, 0.5, 0.75, 1}`, so it is still a simplex and still deployable under
+the same artifact contract. This exists because "the learned mixture did not
+clearly beat the best expert" is a weaker claim than "the best expert alone is
+the right model", and collapsing straight to a corner treated them as the same.
+
+Rungs are ranked by mean per-season P(finish first), simulated against a rival
+field that tips the market favourite, because that is what a tipping
+competition pays out on. Log loss and Brier act as a guard rather than the
+objective: a rung must also stay within the release tolerances of the best
+deployable expert, both pooled and in each recent season, since the joker and
+competition-strategy layers consume these probabilities directly. Zero
+shrinkage is always admissible and is bitwise identical to the one-hot
+fallback, so the safe choice is always reachable; ties resolve toward the
+smaller shrinkage. Tier B remains the default when nested evidence is
+unavailable.
+
+Two properties of the objective are deliberate. Within one realized season,
+maximising P(first) is exactly equivalent to maximising tips correct, because
+rival scores do not depend on our tips; deviating from the field for its own
+sake buys nothing at selection time, and the in-season case for it lives in the
+competition-strategy layer, which knows the live points gap. Across seasons it
+is not the same as pooled accuracy: P(first) saturates, so clearing the field
+in a strong season is worth more than the same average accuracy spread evenly.
+Seasons are therefore scored separately and averaged, never pooled.
+
+The raw market participates in the comparison and is reported as the best
+expert when it wins, but it is never deployed as the model on its own. What
+shrinkage changes is that market evidence is now throttled rather than
+discarded outright when the learned pool falls short.
 
 The no-market pool is trained on counterfactually masked OOF rows and is
 retained only when it beats Tier B in season-out log loss.
@@ -61,9 +88,13 @@ Positive-temperature, no-intercept calibration is fitted to the selected
 leave-one-season-out path, so 50% stays neutral and calibration cannot reverse
 a tip.
 
+The manifest records `learned_weights`, `selected_shrinkage`,
+`shrinkage_target` and the full scored path for both regimes, so the deployed
+weights can always be traced back to what was learned and why it was moved.
+
 At inference, genuinely missing H2H odds route to the no-market artifact or
 the manifest-declared Tier-B fallback. Market-covered games use the
-manifest-recorded learned pool or its selected Tier A/B/C expert fallback.
+manifest-recorded pool at whatever shrinkage was selected.
 Compatibility guards prevent older artifacts from reversing unanimous
 Tier/market evidence.
 
@@ -84,7 +115,7 @@ Score simulation uses a bivariate Poisson shared component `lambda3`. When OOF r
 | --- | --- |
 | `home_model.pkl`, `away_model.pkl` | Tier-B score pipelines |
 | `binary_model.pkl` | Tier-C classifier |
-| `stacker.pkl` | selected constrained market-covered logit pool: learned weights or a one-hot Tier A/B/C fallback |
+| `stacker.pkl` | selected constrained market-covered logit pool: learned weights, a shrunk mixture, or a one-hot Tier A/B/C fallback |
 | `win_prob_calibrator.pkl` | positive-temperature calibrator for the selected market-covered path |
 | `stacker_no_market.pkl` | constrained Tier A/B/C no-market pool, when selected |
 | `win_prob_calibrator_no_market.pkl` | positive-temperature no-market calibrator |
