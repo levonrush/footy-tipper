@@ -623,6 +623,34 @@ class ShrinkageSelectionTests(unittest.TestCase):
         self.assertEqual(selection["selected"], "tier_c")
         self.assertEqual(pool.weight_map["tier_c"], 1.0)
 
+    def test_a_rung_winning_only_on_old_seasons_is_blocked(self):
+        """The stability requirement, taken from a real walk-forward failure.
+
+        The 2024 fold deployed the full learned pool because it won the
+        all-time mean P(first), 0.152 against the target's 0.106. Over the
+        recent three seasons it scored 0.352 against 0.493, and on the held-out
+        season it cost seven tips and halved the pooled competition number. The
+        market's own tipping accuracy fell about nine points after 2023, so
+        market-heavy rungs can ride on history that no longer resembles the
+        season being predicted.
+        """
+        groups, y, market, experts, forecaster = self._fixture()
+        pool = self._pool()
+        # Strong in the oldest season, weak across the recent window.
+        old_glory = np.where(
+            groups == 2023.0, forecaster(8, 0.70), forecaster(52, 0.62)
+        )
+        path = {0.0: experts["tier_c"], 1.0: old_glory}
+
+        selection = calib.select_market_pool(
+            pool, path, y, experts, groups=groups, market_probabilities=market
+        )
+
+        rung = [row for row in selection["path"] if row["shrinkage"] == 1.0][0]
+        self.assertFalse(rung["comp_guard"]["recent_passed"])
+        self.assertFalse(rung["admissible"])
+        self.assertEqual(selection["selected_shrinkage"], 0.0)
+
     def test_calibration_guard_blocks_a_badly_calibrated_winner(self):
         groups, y, market, experts, forecaster = self._fixture()
         pool = self._pool()

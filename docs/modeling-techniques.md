@@ -68,6 +68,16 @@ fallback, so the safe choice is always reachable; ties resolve toward the
 smaller shrinkage. Tier B remains the default when nested evidence is
 unavailable.
 
+A rung must clear the target on P(first) over the recent-season window as well
+as on the all-time mean. Without that, a market-heavy rung can win the average
+on seasons that no longer resemble the one being predicted: the market's own
+tipping accuracy fell roughly nine points after 2023, from about 71% to about
+62%, and a walk-forward fold duly deployed the full learned pool on a stronger
+all-time mean while trailing the target 0.352 to 0.493 over the recent window.
+It cost seven tips on the held-out season and halved the pooled competition
+number. The shrinkage target is chosen on log loss for the same family of
+reasons.
+
 Two properties of the objective are deliberate. Within one realized season,
 maximising P(first) is exactly equivalent to maximising tips correct, because
 rival scores do not depend on our tips. Deviating from the field for its own

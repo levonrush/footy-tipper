@@ -1004,6 +1004,20 @@ def strongest_deployable_expert(
     return min(experts, key=key)
 
 
+def _recent_mean_p_first(placement, recent_groups):
+    """Mean P(finish first) over the most recent seasons only.
+
+    `comp_placement_metrics` returns seasons in ascending group order, so the
+    tail is the recent window.
+    """
+    if not placement or not placement.get("seasons"):
+        return None
+    window = placement["seasons"][-max(1, int(recent_groups)) :]
+    if not window:
+        return None
+    return float(np.mean([season["p_first"] for season in window]))
+
+
 def _pool_selection_rows(nested, expert_probabilities):
     """Rows where a nested pool and every comparator are directly comparable."""
     if nested is None:
@@ -1256,15 +1270,29 @@ def select_market_pool(
             loss_tolerance=brier_tolerance,
         )
         comp_ok = True
+        recent_comp_ok = True
         if use_comp and rung_comp is not None and best_deployable_comp is not None:
             comp_ok = rung_comp["mean_p_first"] >= (
                 best_deployable_comp["mean_p_first"] - float(min_log_loss_improvement)
             )
+            # Averaging P(first) over every season lets a rung ride on ancient
+            # history. The market's own tipping accuracy fell about nine points
+            # after 2023, so a market-heavy rung can win the all-time mean while
+            # losing the seasons that resemble the one being predicted. Require
+            # it to hold up over the same recent window the calibration guard
+            # already uses.
+            recent_rung = _recent_mean_p_first(rung_comp, recent_groups)
+            recent_target = _recent_mean_p_first(best_deployable_comp, recent_groups)
+            if recent_rung is not None and recent_target is not None:
+                recent_comp_ok = recent_rung >= (
+                    recent_target - float(min_log_loss_improvement)
+                )
         # Zero shrinkage is the deployed status quo and is always available, so
         # the search can never end with nothing to fall back to.
         admissible = shrinkage == 0.0 or bool(
             calibration_ok["passed"]
             and comp_ok
+            and recent_comp_ok
             and all(item["passed"] for item in stability)
         )
         path.append(
@@ -1274,6 +1302,19 @@ def select_market_pool(
                 "comp": rung_comp,
                 "recent_group_stability": stability,
                 "calibration_guard": calibration_ok,
+                "comp_guard": {
+                    "pooled_passed": bool(comp_ok),
+                    "recent_passed": bool(recent_comp_ok),
+                    "recent_groups": int(recent_groups),
+                    "recent_mean_p_first": (
+                        None if not use_comp else _recent_mean_p_first(rung_comp, recent_groups)
+                    ),
+                    "recent_target_mean_p_first": (
+                        None
+                        if not use_comp
+                        else _recent_mean_p_first(best_deployable_comp, recent_groups)
+                    ),
+                },
                 "admissible": admissible,
             }
         )
