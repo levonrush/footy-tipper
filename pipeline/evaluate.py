@@ -580,6 +580,33 @@ def _pool_probability_results(results):
         ),
     }
 
+    # The competition view: what each candidate would actually have won.
+    # Seasons are scored separately and then averaged, because P(first)
+    # saturates and pooling would wash out exactly the effect that matters.
+    # One fold is one season; fall back to the fold index when a caller has not
+    # labelled the year.
+    pooled_groups = np.concatenate(
+        [
+            np.full(len(res["y_test"]), float(res.get("year", index)))
+            for index, res in enumerate(results)
+        ]
+    )
+    comp_candidates = {
+        "deployed": pooled_p,
+        "no_market_counterfactual": pooled_no_market_p,
+        "tier_a": pooled_tier_a,
+        "tier_b": pooled_tier_b,
+        "tier_c": pooled_tier_c,
+        "market": pooled_market,
+    }
+    competition = {}
+    for name, probabilities in comp_candidates.items():
+        placement = calib.comp_placement_metrics(
+            probabilities, pooled_market, pooled_y, pooled_groups
+        )
+        if placement is not None:
+            competition[name] = placement
+
     return {
         **operational,
         "market_regime": actual_market,
@@ -594,6 +621,7 @@ def _pool_probability_results(results):
         "no_market_regime_expert_metrics": no_market_regime_experts,
         "no_market_counterfactual_expert_metrics": (no_market_counterfactual_experts),
         "acceptance": acceptance,
+        "competition": competition,
         "margin_distribution": _pool_margin_distributions(results),
     }
 
@@ -855,7 +883,19 @@ def _evaluate_season(
         if candidate._is_fitted:
             market_pool = candidate
             market_calibrator = calib.TemperatureCalibrator()
-            market_loso = calib.loso_simplex_pool_predictions(
+            market_expert_probabilities = {
+                "tier_a": tier_a_cond[market_prior_mask],
+                "tier_b": tier_b_cond[market_prior_mask],
+                "tier_c": tier_c_cond_oof[market_prior_mask],
+                "market": market_cond[market_prior_mask],
+            }
+            market_fallback_expert = calib.strongest_deployable_expert(
+                market_expert_probabilities,
+                y_full[market_prior_mask],
+                year_col[market_prior_mask],
+                market=market_cond[market_prior_mask],
+            )
+            market_loso_path = calib.loso_simplex_pool_predictions(
                 tier_a=tier_a_cond[market_prior_mask],
                 tier_b=tier_b_cond[market_prior_mask],
                 tier_c=tier_c_cond_oof[market_prior_mask],
@@ -863,7 +903,10 @@ def _evaluate_season(
                 y=y_full[market_prior_mask],
                 groups=year_col[market_prior_mask],
                 include_market=True,
+                shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+                fallback_expert=market_fallback_expert,
             )
+            market_loso = None if market_loso_path is None else market_loso_path.get(1.0)
             if market_loso is not None:
                 market_loso_rows = np.isfinite(market_loso)
                 market_calibrator.fit(
@@ -878,25 +921,23 @@ def _evaluate_season(
                 y=y_full[market_prior_mask],
                 groups=year_col[market_prior_mask],
                 include_market=True,
+                shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+                fallback_expert=market_fallback_expert,
             )
-            market_expert_probabilities = {
-                "tier_a": tier_a_cond[market_prior_mask],
-                "tier_b": tier_b_cond[market_prior_mask],
-                "tier_c": tier_c_cond_oof[market_prior_mask],
-                "market": market_cond[market_prior_mask],
-            }
             market_selection = calib.select_market_pool(
                 market_pool,
                 market_nested,
                 y_full[market_prior_mask],
                 market_expert_probabilities,
                 groups=year_col[market_prior_mask],
+                market_probabilities=market_cond[market_prior_mask],
             )
             market_calibrator = calib.fit_selected_market_calibrator(
                 market_selection,
                 market_expert_probabilities,
                 y_full[market_prior_mask],
                 market_calibrator,
+                loso_path_predictions=market_loso_path,
             )
 
     no_market_pool = calib.SimplexLogitPool(include_market=False).fit(
@@ -908,14 +949,28 @@ def _evaluate_season(
     no_market_learned_weights = no_market_pool.weight_map
     no_market_calibrator = calib.TemperatureCalibrator()
 
-    no_market_loso = calib.loso_simplex_pool_predictions(
+    no_market_expert_probabilities = {
+        "tier_a": tier_a_cond[prior_mask],
+        "tier_b": tier_b_cond[prior_mask],
+        "tier_c": tier_c_cond_oof[prior_mask],
+    }
+    no_market_fallback_expert = calib.strongest_deployable_expert(
+        no_market_expert_probabilities,
+        y_full[prior_mask],
+        year_col[prior_mask],
+        market=market_cond[prior_mask],
+    )
+    no_market_loso_path = calib.loso_simplex_pool_predictions(
         tier_a=tier_a_cond[prior_mask],
         tier_b=tier_b_cond[prior_mask],
         tier_c=tier_c_cond_oof[prior_mask],
         y=y_full[prior_mask],
         groups=year_col[prior_mask],
         include_market=False,
+        shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+        fallback_expert=no_market_fallback_expert,
     )
+    no_market_loso = None if no_market_loso_path is None else no_market_loso_path.get(1.0)
     if no_market_loso is not None:
         no_market_loso_rows = np.isfinite(no_market_loso)
         no_market_calibrator.fit(
@@ -930,18 +985,16 @@ def _evaluate_season(
         y=y_full[prior_mask],
         groups=year_col[prior_mask],
         include_market=False,
+        shrinkage_grid=calib.DEFAULT_SHRINKAGE_GRID,
+        fallback_expert=no_market_fallback_expert,
     )
-    no_market_expert_probabilities = {
-        "tier_a": tier_a_cond[prior_mask],
-        "tier_b": tier_b_cond[prior_mask],
-        "tier_c": tier_c_cond_oof[prior_mask],
-    }
     no_market_selection = calib.select_no_market_pool(
         no_market_pool,
         nested_no_market,
         y_full[prior_mask],
         no_market_expert_probabilities,
         groups=year_col[prior_mask],
+        market_probabilities=market_cond[prior_mask],
     )
     no_market_strategy = no_market_selection["strategy"]
     no_market_calibrator = calib.fit_selected_pool_calibrator(
@@ -949,6 +1002,7 @@ def _evaluate_season(
         no_market_expert_probabilities,
         y_full[prior_mask],
         no_market_calibrator,
+        loso_path_predictions=no_market_loso_path,
     )
     no_market_eligibility = no_market_selection["eligibility"]
     no_market_pool_log_loss = no_market_eligibility["pool_log_loss"]
@@ -1640,6 +1694,25 @@ def main():
     if pooled_bets:
         summary_rows.append(
             ("Flat-stake ROI", f"{100.0 * pooled_profit / pooled_bets:+.1f}%  ({pooled_bets} bets)")
+        )
+    # The headline: what each candidate would have won, not how well it was
+    # calibrated. Deployed first, then the comparators worth arguing with.
+    competition = probability_pooled.get("competition") or {}
+    for label, name in (
+        ("Deployed", "deployed"),
+        ("Tier C alone", "tier_c"),
+        ("Market favourite", "market"),
+    ):
+        placement = competition.get(name)
+        if not placement:
+            continue
+        summary_rows.append(
+            (
+                f"P(win comp): {label}",
+                f"{placement['mean_p_first']:.3f} mean/season, "
+                f"rank {placement['mean_expected_rank']:.1f}, "
+                f"{placement['tips_correct']}/{placement['games']} tips",
+            )
         )
     summary_rows.append(
         ("Acceptance gate", "PASS" if acceptance["passed"] else "FAIL")

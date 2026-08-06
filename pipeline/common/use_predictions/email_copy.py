@@ -5,6 +5,8 @@ import json
 import os
 import re
 
+import pandas as pd
+
 # For direct Anthropic API calls
 try:
     from anthropic import Anthropic
@@ -29,6 +31,7 @@ from pipeline.common.use_predictions.email_render import (
     _prediction_winner,
     _render_html_email,
     _render_plain_email,
+    two_way_home_probability,
 )
 from pipeline.common.use_predictions.llm import DEFAULT_CLAUDE_MODEL
 from pipeline.common.use_predictions.news import _fetch_nrl_news_context
@@ -106,10 +109,12 @@ def _build_prompt_input(predictions, tipper_picks, joker_recommendation=None):
     fixture_lines = []
     for _, row in predictions.iterrows():
         winner = _prediction_winner(row)
+        home_prob = two_way_home_probability(row["home_team_win_prob"], row["home_team_lose_prob"])
+        away_prob = None if pd.isna(home_prob) else 1.0 - home_prob
         fixture_lines.append(
             f"- {row['team_home']} vs {row['team_away']}: tip {winner} "
-            f"(home win {_format_probability(row['home_team_win_prob'])}, "
-            f"away win {_format_probability(row['home_team_lose_prob'])}, "
+            f"(home win {_format_probability(home_prob)}, "
+            f"away win {_format_probability(away_prob)}, "
             f"score tip {_format_predicted_score_numbers(row)}, "
             f"margin {_format_predicted_margin(row)}, "
             f"market {row['team_home']} "

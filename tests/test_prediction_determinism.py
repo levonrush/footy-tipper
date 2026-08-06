@@ -382,5 +382,57 @@ class VectorisedWinProbTests(unittest.TestCase):
         np.testing.assert_allclose(vec, scalar, atol=1e-12)
 
 
+class GoldenPointTests(unittest.TestCase):
+    """A tie after eighty minutes is not a drawn game."""
+
+    def _probabilities(self, mu_home=22.0, mu_away=20.0, seed=5):
+        probabilities, _ = pf.simulate_game(
+            mu_home, mu_away, n_simulations=40000, rng=np.random.default_rng(seed)
+        )
+        return probabilities
+
+    def test_draw_probability_is_a_small_residual(self):
+        probabilities = self._probabilities()
+        # The unadjusted simulation puts 4% to 6% on a tie; the realised NRL
+        # rate is 0.32% since 2016.
+        self.assertLess(probabilities["draw_prob"], 0.01)
+        self.assertGreater(probabilities["draw_prob"], 0.0)
+
+    def test_the_triple_still_sums_to_one(self):
+        probabilities = self._probabilities()
+        total = (
+            probabilities["home_win_prob"]
+            + probabilities["away_win_prob"]
+            + probabilities["draw_prob"]
+        )
+        self.assertAlmostEqual(total, 1.0, places=9)
+
+    def test_extra_time_does_not_move_the_conditional_probability(self):
+        """The invariant that matters.
+
+        Everything upstream is fitted and calibrated on the non-draw
+        conditional, so resolving ties must redistribute the tied mass without
+        changing which side is favoured or by how much.
+        """
+        def conditional(share):
+            original = pf.GOLDEN_POINT_UNRESOLVED_SHARE
+            pf.GOLDEN_POINT_UNRESOLVED_SHARE = share
+            try:
+                probabilities = self._probabilities()
+            finally:
+                pf.GOLDEN_POINT_UNRESOLVED_SHARE = original
+            return probabilities["home_win_prob"] / (
+                probabilities["home_win_prob"] + probabilities["away_win_prob"]
+            )
+
+        # share=1.0 leaves every tie unresolved, i.e. the old behaviour.
+        self.assertAlmostEqual(conditional(0.10), conditional(1.0), places=9)
+
+    def test_a_lopsided_game_sends_extra_time_to_the_stronger_side(self):
+        lopsided = self._probabilities(mu_home=30.0, mu_away=14.0)
+        even = self._probabilities(mu_home=20.0, mu_away=20.0)
+        self.assertGreater(lopsided["home_win_prob"], even["home_win_prob"])
+
+
 if __name__ == "__main__":
     unittest.main()

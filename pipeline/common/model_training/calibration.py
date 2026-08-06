@@ -6,6 +6,7 @@ from scipy.optimize import minimize, minimize_scalar
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.model_selection import GroupKFold
 
+from pipeline.common.model_training import comp_sim
 from pipeline.common.odds.validity import valid_decimal_odds
 
 PROB_EPS = 1e-4
@@ -416,6 +417,44 @@ class SimplexLogitPool:
         self._is_fitted = True
         return self
 
+    def blend_toward_expert(self, expert_name, learned_weights, shrinkage):
+        """Move the learned weights a fraction of the way toward one expert.
+
+        `shrinkage=1.0` keeps the learned pool, `shrinkage=0.0` reproduces
+        `select_expert` exactly, and the values between are the intermediate
+        rungs the selection gate chooses from. Rejecting a learned mixture is a
+        reason to trust it less, not a reason to throw all of it away.
+
+        Every point on the path is still a simplex, so the deployed artifact
+        keeps the same nonnegative sum-to-one contract the release validator
+        enforces, and no lambda is stored on the object: the manifest records
+        it, the pickle stays a plain weight vector.
+        """
+        if expert_name not in self.expert_names_:
+            raise ValueError(f"unknown simplex expert: {expert_name}")
+        shrinkage = float(shrinkage)
+        if not np.isfinite(shrinkage) or shrinkage < 0.0 or shrinkage > 1.0:
+            raise ValueError(f"shrinkage must lie in [0, 1]: {shrinkage}")
+
+        target = np.zeros(len(self.expert_names_), dtype=float)
+        target[self.expert_names_.index(expert_name)] = 1.0
+        if shrinkage == 0.0:
+            # Bitwise identical to select_expert, so the status quo stays exact.
+            self.weights_ = target
+            self._is_fitted = True
+            return self
+
+        learned = np.asarray(learned_weights, dtype=float)
+        if learned.shape != target.shape:
+            raise ValueError("learned weights do not match the pool's experts")
+        weights = np.clip(shrinkage * learned + (1.0 - shrinkage) * target, 0.0, 1.0)
+        total = float(weights.sum())
+        if not np.isfinite(total) or total <= 0:
+            raise ValueError("shrunk weights did not sum to a positive total")
+        self.weights_ = weights / total
+        self._is_fitted = True
+        return self
+
 
 class LogisticStacker:
     """Meta-model for combining Tier A/Tier B/market probabilities.
@@ -602,6 +641,17 @@ def loso_stacker_predictions(
     return preds
 
 
+def _normalise_shrinkage_grid(shrinkage_grid):
+    """Sorted, de-duplicated grid with 0.0 always present as the safe rung."""
+    values = {0.0}
+    for value in shrinkage_grid:
+        value = float(value)
+        if not np.isfinite(value) or value < 0.0 or value > 1.0:
+            raise ValueError(f"shrinkage grid values must lie in [0, 1]: {value}")
+        values.add(value)
+    return tuple(sorted(values))
+
+
 def loso_simplex_pool_predictions(
     tier_a,
     tier_b,
@@ -611,8 +661,16 @@ def loso_simplex_pool_predictions(
     tier_c=None,
     market=None,
     include_market=True,
+    shrinkage_grid=None,
+    fallback_expert=None,
 ):
-    """Leave-one-season-out predictions from a simplex logit pool."""
+    """Leave-one-season-out predictions from a simplex logit pool.
+
+    With `shrinkage_grid`, returns `{shrinkage: predictions}` covering the whole
+    path from the one-hot fallback to the learned pool. The pool is fitted once
+    per season and every rung reuses those weights, so a five-point grid costs
+    one extra matrix product per fold rather than five extra optimiser runs.
+    """
     tier_a = np.asarray(tier_a, dtype=float)
     tier_b = np.asarray(tier_b, dtype=float)
     y = np.asarray(y, dtype=int)
@@ -620,12 +678,22 @@ def loso_simplex_pool_predictions(
     tier_c = None if tier_c is None else np.asarray(tier_c, dtype=float)
     market = None if market is None else np.asarray(market, dtype=float)
 
+    path_mode = shrinkage_grid is not None
+    if path_mode:
+        if fallback_expert is None:
+            raise ValueError("a shrinkage grid requires a fallback expert")
+        grid = _normalise_shrinkage_grid(shrinkage_grid)
+
     finite_groups = np.isfinite(groups)
     unique_groups = np.unique(groups[finite_groups])
     if len(unique_groups) < 3:
         return None
 
-    preds = np.full(len(tier_a), np.nan)
+    if path_mode:
+        preds = {value: np.full(len(tier_a), np.nan) for value in grid}
+    else:
+        preds = np.full(len(tier_a), np.nan)
+
     for group in unique_groups:
         hold = groups == group
         train = finite_groups & ~hold
@@ -641,13 +709,27 @@ def loso_simplex_pool_predictions(
         )
         if not pool._is_fitted:
             continue
-        preds[hold] = pool.predict(
+        hold_args = (
             tier_a[hold],
             tier_b[hold],
-            tier_c=None if tier_c is None else tier_c[hold],
-            market=None if market is None else market[hold],
         )
+        hold_kwargs = {
+            "tier_c": None if tier_c is None else tier_c[hold],
+            "market": None if market is None else market[hold],
+        }
+        if not path_mode:
+            preds[hold] = pool.predict(*hold_args, **hold_kwargs)
+            continue
 
+        learned_weights = np.asarray(pool.weights_, dtype=float).copy()
+        for value in grid:
+            pool.blend_toward_expert(fallback_expert, learned_weights, value)
+            preds[value][hold] = pool.predict(*hold_args, **hold_kwargs)
+
+    if path_mode:
+        if not any(np.isfinite(array).any() for array in preds.values()):
+            return None
+        return preds
     if not np.isfinite(preds).any():
         return None
     return preds
@@ -685,12 +767,25 @@ def nested_loso_simplex_predictions(
     tier_c=None,
     market=None,
     include_market=True,
+    shrinkage_grid=None,
+    fallback_expert=None,
 ):
     """Fully nested season-out pool + temperature predictions.
 
     For each outer held season, the pool is fitted only on prior input rows and
     its temperature is learned from inner LOSO predictions within that outer
     training set. Held-season labels cannot influence either layer.
+
+    With `shrinkage_grid`, returns `{shrinkage: predictions}`. Each rung gets its
+    own temperature, fitted on that rung's inner predictions, because a shrunk
+    pool is a different forecaster from the learned one and borrowing the
+    learned pool's temperature would misstate every intermediate rung.
+
+    `fallback_expert` is supplied by the caller rather than re-chosen per fold.
+    Picking it inside the fold would need the competition objective, and with it
+    the market prices and outcomes, threaded through this helper. The residual
+    optimism is one choice among three experts, made on aggregate performance;
+    the per-fold weights, temperatures and predictions all remain honest.
     """
     tier_a = np.asarray(tier_a, dtype=float)
     tier_b = np.asarray(tier_b, dtype=float)
@@ -699,12 +794,22 @@ def nested_loso_simplex_predictions(
     tier_c = None if tier_c is None else np.asarray(tier_c, dtype=float)
     market = None if market is None else np.asarray(market, dtype=float)
 
+    path_mode = shrinkage_grid is not None
+    if path_mode:
+        if fallback_expert is None:
+            raise ValueError("a shrinkage grid requires a fallback expert")
+        grid = _normalise_shrinkage_grid(shrinkage_grid)
+
     finite_groups = np.isfinite(groups)
     unique_groups = np.unique(groups[finite_groups])
     if len(unique_groups) < 4:
         return None
 
-    predictions = np.full(len(tier_a), np.nan)
+    if path_mode:
+        predictions = {value: np.full(len(tier_a), np.nan) for value in grid}
+    else:
+        predictions = np.full(len(tier_a), np.nan)
+
     for outer_group in unique_groups:
         hold = finite_groups & (groups == outer_group)
         train = finite_groups & (groups != outer_group)
@@ -719,16 +824,12 @@ def nested_loso_simplex_predictions(
             tier_c=None if tier_c is None else tier_c[train],
             market=None if market is None else market[train],
             include_market=include_market,
+            shrinkage_grid=shrinkage_grid,
+            fallback_expert=fallback_expert,
         )
         if inner_predictions is None:
             continue
-        inner_rows = np.isfinite(inner_predictions)
-        if inner_rows.sum() < 50:
-            continue
 
-        calibrator = TemperatureCalibrator().fit(
-            inner_predictions[inner_rows], y[train][inner_rows]
-        )
         pool = SimplexLogitPool(include_market=include_market).fit(
             tier_a[train],
             tier_b[train],
@@ -738,17 +839,169 @@ def nested_loso_simplex_predictions(
         )
         if not pool._is_fitted:
             continue
-        outer_predictions = pool.predict(
-            tier_a[hold],
-            tier_b[hold],
-            tier_c=None if tier_c is None else tier_c[hold],
-            market=None if market is None else market[hold],
-        )
-        predictions[hold] = calibrator.predict(outer_predictions)
+        hold_args = (tier_a[hold], tier_b[hold])
+        hold_kwargs = {
+            "tier_c": None if tier_c is None else tier_c[hold],
+            "market": None if market is None else market[hold],
+        }
 
+        if not path_mode:
+            inner_rows = np.isfinite(inner_predictions)
+            if inner_rows.sum() < 50:
+                continue
+            calibrator = TemperatureCalibrator().fit(
+                inner_predictions[inner_rows], y[train][inner_rows]
+            )
+            predictions[hold] = calibrator.predict(pool.predict(*hold_args, **hold_kwargs))
+            continue
+
+        learned_weights = np.asarray(pool.weights_, dtype=float).copy()
+        for value in grid:
+            inner_rung = inner_predictions[value]
+            inner_rows = np.isfinite(inner_rung)
+            if inner_rows.sum() < 50:
+                continue
+            calibrator = TemperatureCalibrator().fit(
+                inner_rung[inner_rows], y[train][inner_rows]
+            )
+            pool.blend_toward_expert(fallback_expert, learned_weights, value)
+            predictions[value][hold] = calibrator.predict(
+                pool.predict(*hold_args, **hold_kwargs)
+            )
+
+    if path_mode:
+        if not any(np.isfinite(array).any() for array in predictions.values()):
+            return None
+        return predictions
     if not np.isfinite(predictions).any():
         return None
     return predictions
+
+
+def comp_placement_metrics(probabilities, market, y, groups, rows=None):
+    """Score a forecaster the way the competition scores it: P(finish first).
+
+    Tips are `probabilities > 0.5`; the rival field tips the market favourite
+    with per-rival flip noise, exactly as `comp_sim` models it.
+
+    Two properties of this objective are deliberate and load-bearing.
+
+    First, *within* one realized season, maximising `p_first` is exactly
+    equivalent to maximising tips correct: rival scores do not depend on our
+    tips, so `p_first` is monotone in our score. Deviating from the field for
+    its own sake buys nothing here. The genuine value of differentiating when
+    behind depends on the live points gap and belongs in `comp_strategy`.
+
+    Second, *across* seasons it is not the same as pooled accuracy. `p_first`
+    is S-shaped in the season score, so clearing the field in a strong season
+    is worth far more than the same average accuracy spread evenly, and
+    finishing fortieth rather than twentieth costs nothing extra. That is why
+    seasons are scored separately and then averaged, never pooled: the mean of
+    per-season `p_first` is the quantity that tracks winning a comp.
+
+    Games without a usable market price are dropped rather than handed a
+    fabricated favourite, and the count is reported.
+    """
+    probabilities = np.asarray(probabilities, dtype=float)
+    market = np.asarray(market, dtype=float)
+    y = np.asarray(y, dtype=int)
+    groups = np.asarray(groups, dtype=float)
+
+    usable = np.isfinite(probabilities) & np.isfinite(groups)
+    if rows is not None:
+        usable &= np.asarray(rows, dtype=bool)
+    excluded_no_market = int((usable & ~np.isfinite(market)).sum())
+    usable &= np.isfinite(market)
+
+    seasons = []
+    for group in np.unique(groups[usable]):
+        season_rows = usable & (groups == group)
+        if not season_rows.any():
+            continue
+        placement = comp_sim.simulate_comp_placement(
+            probabilities[season_rows], market[season_rows], y[season_rows]
+        )
+        if placement is None:
+            continue
+        seasons.append(
+            {
+                "group": float(group),
+                "games": int(season_rows.sum()),
+                "tips_correct": int(placement["user_score"]),
+                "accuracy": float(placement["user_score"]) / float(season_rows.sum()),
+                "p_first": float(placement["p_first"]),
+                "expected_rank": float(placement["expected_rank"]),
+            }
+        )
+
+    if not seasons:
+        return None
+    return {
+        "mean_p_first": float(np.mean([season["p_first"] for season in seasons])),
+        "mean_expected_rank": float(np.mean([season["expected_rank"] for season in seasons])),
+        "tips_correct": int(sum(season["tips_correct"] for season in seasons)),
+        "games": int(sum(season["games"] for season in seasons)),
+        "seasons": seasons,
+        "excluded_no_market": excluded_no_market,
+    }
+
+
+DEFAULT_SHRINKAGE_GRID = (0.0, 0.25, 0.5, 0.75, 1.0)
+
+# Experts a rejected pool may collapse onto. The raw market stays a comparator
+# but is never deployed as the model on its own.
+DEPLOYABLE_EXPERT_NAMES = ("tier_a", "tier_b", "tier_c")
+
+
+def strongest_deployable_expert(
+    expert_probabilities,
+    y,
+    groups=None,
+    *,
+    market=None,
+    objective="log_loss",
+    rows=None,
+):
+    """Name the expert a rejected pool should shrink toward.
+
+    Chosen up front because the shrinkage path has to be built around a target
+    before the nested predictions exist. Tier A/B/C probabilities are already
+    out-of-fold, so ranking them directly is honest.
+
+    Ranked on log loss, deliberately, even though rungs of the path are ranked
+    on P(finish first). This target is the safety default the whole path falls
+    back to, and P(first) is far too noisy to choose it: it is close to bimodal
+    per season, so a couple of lucky seasons can promote a clearly worse
+    expert. A walk-forward fold did exactly that, picking Tier A on a 0.024
+    P(first) edge while Tier A was 0.15 worse on log loss, and the resulting
+    model regressed against the deployed one. Deciding *how far to move* from
+    the default is a different question from deciding *what the default is*.
+    """
+    experts = {
+        name: np.asarray(probabilities, dtype=float)
+        for name, probabilities in expert_probabilities.items()
+        if name in DEPLOYABLE_EXPERT_NAMES
+    }
+    if not experts:
+        raise ValueError("no deployable expert is available")
+
+    y = np.asarray(y, dtype=int)
+    usable = np.ones(len(y), dtype=bool) if rows is None else np.asarray(rows, dtype=bool)
+    for probabilities in experts.values():
+        usable &= np.isfinite(probabilities)
+
+    market = None if market is None else np.asarray(market, dtype=float)
+    use_comp = bool(objective == "p_first" and market is not None and groups is not None)
+
+    def key(name):
+        metrics = _pool_selection_metrics(y, experts[name], usable)
+        if use_comp:
+            placement = comp_placement_metrics(experts[name], market, y, groups, rows=usable)
+            if placement is not None:
+                return (-placement["mean_p_first"], -metrics["accuracy"], metrics["log_loss"], name)
+        return (metrics["log_loss"], -metrics["accuracy"], metrics["brier"], name)
+
+    return min(experts, key=key)
 
 
 def _pool_selection_rows(nested, expert_probabilities):
@@ -784,19 +1037,49 @@ def select_market_pool(
     min_log_loss_improvement=0.005,
     accuracy_tolerance=0.01,
     brier_tolerance=0.005,
+    objective="p_first",
+    market_probabilities=None,
 ):
-    """Keep learned market weights only when nested evidence is compelling.
+    """Choose how much of the learned pool to deploy, on competition evidence.
 
-    Otherwise the same simplex artifact becomes a one-hot weighting of the
-    strongest Tier A/B/C expert. The raw market remains an overall comparator,
-    but it is not a standalone production fallback when the learned
-    market-aware pool fails its robustness gate.
+    `nested_pool_predictions` may be a single array (the learned pool, scored
+    the legacy way) or `{shrinkage: predictions}` covering the path from the
+    one-hot fallback to the learned pool. The path exists because "the learned
+    mixture did not clearly beat the best expert" is not the same claim as "the
+    best expert alone is the right model", and collapsing straight to a corner
+    of the simplex acts as though it were.
+
+    Candidates are ranked by mean per-season P(finish first), which is what a
+    tipping competition actually pays out on, with log loss and Brier demoted
+    to a guard: a candidate that wins tips on badly calibrated probabilities
+    would degrade the joker and competition-strategy layers downstream, both of
+    which consume these numbers directly.
+
+    The raw market stays a comparator and never becomes the deployed model on
+    its own, but shrinkage means market evidence is throttled rather than
+    discarded outright whenever the learned pool falls short.
     """
     y = np.asarray(y, dtype=int)
-    nested = (
-        None
-        if nested_pool_predictions is None
-        else np.asarray(nested_pool_predictions, dtype=float)
+    if isinstance(nested_pool_predictions, dict):
+        nested_path = {
+            float(shrinkage): np.asarray(predictions, dtype=float)
+            for shrinkage, predictions in nested_pool_predictions.items()
+        }
+        nested_path = {
+            shrinkage: predictions
+            for shrinkage, predictions in nested_path.items()
+            if np.isfinite(predictions).any()
+        }
+        nested = nested_path[max(nested_path)] if nested_path else None
+    elif nested_pool_predictions is None:
+        nested_path, nested = {}, None
+    else:
+        nested = np.asarray(nested_pool_predictions, dtype=float)
+        nested_path = {1.0: nested}
+    learned_weights = (
+        np.asarray(pool.weights_, dtype=float).copy()
+        if getattr(pool, "weights_", None) is not None
+        else None
     )
     experts = {
         name: np.asarray(probabilities, dtype=float)
@@ -831,6 +1114,8 @@ def select_market_pool(
         }
 
     selection_rows = _pool_selection_rows(nested, experts)
+    for rung in nested_path.values():
+        selection_rows &= np.isfinite(rung)
     if not selection_rows.any():
         fallback_name = (
             "tier_b"
@@ -856,70 +1141,170 @@ def select_market_pool(
     expert_metrics = {
         name: metrics(probabilities) for name, probabilities in experts.items()
     }
-    def expert_rank(name):
-        return (
-            expert_metrics[name]["log_loss"],
-            -expert_metrics[name]["accuracy"],
-            expert_metrics[name]["brier"],
-            name,
-        )
 
-    best_name = min(
-        expert_metrics,
-        key=expert_rank,
-    )
+    groups = None if groups is None else np.asarray(groups, dtype=float)
+    market_p = market_probabilities
+    if market_p is None:
+        market_p = experts.get("market")
+    market_p = None if market_p is None else np.asarray(market_p, dtype=float)
+    # The competition objective needs a rival field (market prices) and seasons
+    # to aggregate over. Without either, fall back to the log-loss ordering
+    # rather than inventing a field.
+    use_comp = bool(objective == "p_first" and market_p is not None and groups is not None)
+
+    def comp(probabilities, rows=selection_rows):
+        if not use_comp:
+            return None
+        return comp_placement_metrics(probabilities, market_p, y, groups, rows=rows)
+
+    expert_comp = {name: comp(probabilities) for name, probabilities in experts.items()}
+
+    def rank_key(name, metric_source=expert_metrics, comp_source=expert_comp):
+        entry = metric_source[name]
+        placement = comp_source.get(name)
+        if use_comp and placement is not None:
+            return (-placement["mean_p_first"], -entry["accuracy"], entry["log_loss"], name)
+        return (entry["log_loss"], -entry["accuracy"], entry["brier"], name)
+
+    def stability_rank(name):
+        entry = expert_metrics[name]
+        return (entry["log_loss"], -entry["accuracy"], entry["brier"], name)
+
+    best_name = min(expert_metrics, key=rank_key)
     best = expert_metrics[best_name]
+    # The bar and the fallback are now the same object. Judging the pool against
+    # a comparator we are not allowed to deploy meant a narrow miss against the
+    # market shipped a third choice that was worse than either.
+    #
+    # The target is ranked on log loss rather than on P(first): it is the safety
+    # default, and P(first) is too noisy per season to choose one. See
+    # strongest_deployable_expert for what happens when it is not.
     fallback_candidates = fallback_names or list(expert_metrics)
-    fallback_name = min(fallback_candidates, key=expert_rank)
+    fallback_name = min(fallback_candidates, key=stability_rank)
     fallback = expert_metrics[fallback_name]
-    recent_stability = []
+    best_deployable = expert_metrics[fallback_name]
+    best_deployable_comp = expert_comp.get(fallback_name)
+
+    recent_group_rows = []
     if groups is not None:
-        groups = np.asarray(groups, dtype=float)
         available_groups = np.unique(groups[selection_rows & np.isfinite(groups)])
         for group in available_groups[-max(1, int(recent_groups)) :]:
             group_rows = selection_rows & (groups == group)
-            if not group_rows.any():
-                continue
-            group_pool = metrics(nested, group_rows)
+            if group_rows.any():
+                recent_group_rows.append((float(group), group_rows))
+
+    def group_guard(probabilities):
+        """Per-season non-regression against the best deployable expert.
+
+        The old rule asked a convex blend to strictly beat its own best
+        component in every recent season, which roughly two hundred games at a
+        time is close to a coin flip. This asks only that it does not fall
+        materially behind, using the same tolerances the release gate applies.
+        """
+        results = []
+        for group, group_rows in recent_group_rows:
+            group_pool = metrics(probabilities, group_rows)
             group_experts = {
-                name: metrics(probabilities, group_rows)
-                for name, probabilities in experts.items()
+                name: metrics(values, group_rows) for name, values in experts.items()
+            }
+            group_deployable = {
+                name: group_experts[name]
+                for name in (fallback_names or list(group_experts))
             }
             group_best_name = min(
-                group_experts,
+                group_deployable,
                 key=lambda name: (
-                    group_experts[name]["log_loss"],
-                    -group_experts[name]["accuracy"],
-                    group_experts[name]["brier"],
+                    group_deployable[name]["log_loss"],
+                    -group_deployable[name]["accuracy"],
+                    group_deployable[name]["brier"],
                     name,
                 ),
             )
-            group_best = group_experts[group_best_name]
-            recent_stability.append(
+            acceptance = acceptance_against_experts(
+                group_pool,
+                {group_best_name: group_deployable[group_best_name]},
+                accuracy_tolerance=accuracy_tolerance,
+                loss_tolerance=brier_tolerance,
+            )
+            results.append(
                 {
-                    "group": float(group),
+                    "group": group,
                     "pool": group_pool,
-                    "best_expert": {"name": group_best_name, **group_best},
-                    "passed": bool(
-                        group_pool["log_loss"] < group_best["log_loss"]
-                        and group_pool["accuracy"]
-                        >= group_best["accuracy"] - float(accuracy_tolerance)
-                        and group_pool["brier"]
-                        <= group_best["brier"] + float(brier_tolerance)
-                    ),
+                    "best_expert": {"name": group_best_name, **group_deployable[group_best_name]},
+                    "passed": bool(acceptance["passed"]),
                 }
             )
-    keep_learned = (
-        pool_metrics["log_loss"] < best["log_loss"] - float(min_log_loss_improvement)
-        and pool_metrics["accuracy"] >= best["accuracy"] - float(accuracy_tolerance)
-        and pool_metrics["brier"] <= best["brier"] + float(brier_tolerance)
-        and all(item["passed"] for item in recent_stability)
-    )
-    if not keep_learned:
+        return results
+
+    # A one-hot pool has no fitted parameters, so its held-out prediction on any
+    # row is simply that expert's own probability. That makes the zero rung
+    # always constructible, including from a legacy single-array call, and
+    # guarantees the search always has the status quo available.
+    if 0.0 not in nested_path:
+        nested_path[0.0] = experts[fallback_name]
+
+    path = []
+    for shrinkage in sorted(nested_path):
+        rung = nested_path[shrinkage]
+        rung_metrics = metrics(rung)
+        rung_comp = comp(rung)
+        stability = group_guard(rung)
+        calibration_ok = acceptance_against_experts(
+            rung_metrics,
+            {fallback_name: best_deployable},
+            accuracy_tolerance=accuracy_tolerance,
+            loss_tolerance=brier_tolerance,
+        )
+        comp_ok = True
+        if use_comp and rung_comp is not None and best_deployable_comp is not None:
+            comp_ok = rung_comp["mean_p_first"] >= (
+                best_deployable_comp["mean_p_first"] - float(min_log_loss_improvement)
+            )
+        # Zero shrinkage is the deployed status quo and is always available, so
+        # the search can never end with nothing to fall back to.
+        admissible = shrinkage == 0.0 or bool(
+            calibration_ok["passed"]
+            and comp_ok
+            and all(item["passed"] for item in stability)
+        )
+        path.append(
+            {
+                "shrinkage": float(shrinkage),
+                "pool": rung_metrics,
+                "comp": rung_comp,
+                "recent_group_stability": stability,
+                "calibration_guard": calibration_ok,
+                "admissible": admissible,
+            }
+        )
+
+    admissible_rungs = [row for row in path if row["admissible"]]
+
+    def selection_key(row):
+        placement = row["comp"]
+        primary = -placement["mean_p_first"] if (use_comp and placement) else row["pool"]["log_loss"]
+        # Ties go to the smaller shrinkage: when the evidence cannot separate
+        # two rungs, move less.
+        return (primary, row["shrinkage"], row["pool"]["log_loss"])
+
+    chosen = min(admissible_rungs, key=selection_key)
+    selected_shrinkage = float(chosen["shrinkage"])
+    keep_learned = selected_shrinkage == 1.0
+
+    if selected_shrinkage == 0.0:
         pool.select_expert(fallback_name)
+    elif not keep_learned and learned_weights is not None:
+        pool.blend_toward_expert(fallback_name, learned_weights, selected_shrinkage)
+
+    if keep_learned:
+        selected = "learned"
+    elif selected_shrinkage == 0.0:
+        selected = fallback_name
+    else:
+        selected = "shrunk"
 
     fallback_reason = None
-    if not keep_learned:
+    if selected_shrinkage < 1.0:
         fallback_reason = (
             "learned_pool_rejected_use_strongest_non_market_expert"
             if "market" in experts
@@ -927,14 +1312,33 @@ def select_market_pool(
         )
 
     return {
-        "selected": "learned" if keep_learned else fallback_name,
+        "selected": selected,
+        "selected_shrinkage": selected_shrinkage,
+        "shrinkage_grid": [float(value) for value in sorted(nested_path)],
+        "shrinkage_target": fallback_name,
+        "objective": "p_first" if use_comp else "log_loss",
+        "learned_weights": (
+            None
+            if learned_weights is None
+            else {
+                name: float(weight)
+                for name, weight in zip(getattr(pool, "expert_names_", ()), learned_weights)
+            }
+        ),
+        "path": path,
         "selection_rows": int(selection_rows.sum()),
         "reason": "nested_loso_gate",
         "pool": pool_metrics,
+        "pool_comp": comp(nested),
         "best_expert": {
             "name": best_name,
             **best,
         },
+        "best_deployable_expert": {
+            "name": fallback_name,
+            **best_deployable,
+        },
+        "expert_comp": expert_comp,
         "fallback_applied": bool(not keep_learned),
         "fallback_expert": {
             "name": fallback_name,
@@ -942,7 +1346,10 @@ def select_market_pool(
         },
         "fallback_reason": fallback_reason,
         "expert_metrics": expert_metrics,
-        "recent_group_stability": recent_stability,
+        # Keeps its long-standing meaning: how the *learned* pool held up season
+        # by season. Per-rung stability lives in `path`, so this stays readable
+        # as "why the full mixture was or was not kept".
+        "recent_group_stability": path[-1]["recent_group_stability"],
         "min_log_loss_improvement": float(min_log_loss_improvement),
         "accuracy_tolerance": float(accuracy_tolerance),
         "brier_tolerance": float(brier_tolerance),
@@ -960,21 +1367,32 @@ def select_no_market_pool(
     min_log_loss_improvement=0.005,
     accuracy_tolerance=0.01,
     brier_tolerance=0.005,
+    objective="p_first",
+    market_probabilities=None,
 ):
     """Select the counterfactual A/B/C pool without weakening Tier-B safety.
 
     A learned mixture is eligible only when its fully nested log loss strictly
-    beats Tier B. Eligible mixtures then face the same strongest-expert and
-    recent-season stability gate as the market pool. If that second gate
-    rejects the learned weights, the simplex artifact becomes a one-hot
-    weighting of the strongest A/B/C expert.
+    beats Tier B. Eligible mixtures then face the same shrinkage-path selection
+    as the market pool, so a mixture that narrowly fails is throttled toward the
+    strongest A/B/C expert rather than discarded for it.
+
+    The market never appears as an expert here, but it is still what the rival
+    field tips, so `market_probabilities` is accepted purely to score the
+    competition objective.
     """
     y = np.asarray(y, dtype=int)
-    nested = (
-        None
-        if nested_pool_predictions is None
-        else np.asarray(nested_pool_predictions, dtype=float)
-    )
+    if isinstance(nested_pool_predictions, dict):
+        nested_path = {
+            float(shrinkage): np.asarray(predictions, dtype=float)
+            for shrinkage, predictions in nested_pool_predictions.items()
+            if np.isfinite(np.asarray(predictions, dtype=float)).any()
+        }
+        nested = nested_path[max(nested_path)] if nested_path else None
+    elif nested_pool_predictions is None:
+        nested = None
+    else:
+        nested = np.asarray(nested_pool_predictions, dtype=float)
     experts = {
         name: np.asarray(probabilities, dtype=float)
         for name, probabilities in expert_probabilities.items()
@@ -1036,7 +1454,7 @@ def select_no_market_pool(
 
     selection = select_market_pool(
         pool,
-        nested,
+        nested_pool_predictions,
         y,
         experts,
         groups=groups,
@@ -1044,6 +1462,8 @@ def select_no_market_pool(
         min_log_loss_improvement=min_log_loss_improvement,
         accuracy_tolerance=accuracy_tolerance,
         brier_tolerance=brier_tolerance,
+        objective=objective,
+        market_probabilities=market_probabilities,
     )
     return {
         **selection,
@@ -1058,11 +1478,36 @@ def fit_selected_pool_calibrator(
     expert_probabilities,
     y,
     learned_calibrator,
+    loso_path_predictions=None,
 ):
-    """Apply the identical post-selection temperature policy everywhere."""
+    """Apply the identical post-selection temperature policy everywhere.
+
+    Given the shrinkage path, the deployed temperature is always fitted on the
+    held-out predictions of the weights actually being deployed. That is one
+    rule for every rung, and it is behaviour-preserving at the status quo: a
+    one-hot pool has no fitted parameters, so its held-out prediction on any row
+    is just that expert's own probability, which makes the fit numerically
+    identical to the in-sample fit used below.
+    """
+    if loso_path_predictions is not None and "selected_shrinkage" in selection:
+        shrinkage = float(selection["selected_shrinkage"])
+        rung = loso_path_predictions.get(shrinkage)
+        if rung is not None:
+            rung = np.asarray(rung, dtype=float)
+            finite = np.isfinite(rung)
+            if finite.sum() >= 50:
+                return TemperatureCalibrator().fit(
+                    rung[finite], np.asarray(y, dtype=int)[finite]
+                )
+
     if selection.get("selected") == "learned":
         return learned_calibrator
     selected = selection.get("selected")
+    if selected == "shrunk":
+        # A shrunk pool without usable path predictions: the learned
+        # temperature is the closest honest match, and it was fitted on the
+        # same LOSO rows.
+        return learned_calibrator
     if selected not in expert_probabilities:
         raise ValueError(f"selected pool expert is unavailable: {selected}")
     return TemperatureCalibrator().fit(expert_probabilities[selected], y)
@@ -1073,6 +1518,7 @@ def fit_selected_market_calibrator(
     expert_probabilities,
     y,
     learned_calibrator,
+    loso_path_predictions=None,
 ):
     """Backward-compatible name for the shared pool calibration policy."""
     return fit_selected_pool_calibrator(
@@ -1080,6 +1526,7 @@ def fit_selected_market_calibrator(
         expert_probabilities,
         y,
         learned_calibrator,
+        loso_path_predictions=loso_path_predictions,
     )
 
 

@@ -21,6 +21,7 @@ from pipeline.common.use_predictions.email_render import (
     _joker_reader_lines,
     _market_coverage_notice,
     _prediction_winner,
+    tip_probability,
 )
 from pipeline.common.use_predictions.joker import get_joker_round_recommendation
 from pipeline.common.use_predictions.scoreboard import (
@@ -135,8 +136,7 @@ def _tips_card(predictions):
     rows = []
     for _, row in predictions.iterrows():
         winner = _prediction_winner(row)
-        is_home_tip = row.get("home_team_result") == "Win"
-        tip_prob = row["home_team_win_prob"] if is_home_tip else row["home_team_lose_prob"]
+        tip_prob = tip_probability(row)
         rows.append(
             "<tr>"
             f"<td>{html.escape(str(row['team_home']))} vs {html.escape(str(row['team_away']))}</td>"

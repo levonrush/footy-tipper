@@ -30,14 +30,15 @@ def _build_db(db_path, rows, predictions):
         CREATE TABLE predictions_table (
             game_id INTEGER PRIMARY KEY,
             home_team_result TEXT,
-            home_team_win_prob REAL
+            home_team_win_prob REAL,
+            home_team_lose_prob REAL
         );
         """
     )
     con.executemany(
         "INSERT INTO footy_tipping_data VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows
     )
-    con.executemany("INSERT INTO predictions_table VALUES (?, ?, ?)", predictions)
+    con.executemany("INSERT INTO predictions_table VALUES (?, ?, ?, ?)", predictions)
     con.commit()
     con.close()
 
@@ -63,12 +64,13 @@ class ScoreboardTests(unittest.TestCase):
             # Pre-game rows never count.
             (5, "Pre Game", 2026, 3, "Round 3", "I", "J", None, None, 1.80, 2.00),
         ]
+        # Coherent triples: win + lose + draw == 1.
         predictions = [
-            (1, "Win", 0.70),
-            (2, "Loss", 0.40),
-            (3, "Win", 0.60),
-            (4, "Win", 0.55),
-            (5, "Win", 0.65),
+            (1, "Win", 0.70, 0.27),
+            (2, "Loss", 0.40, 0.57),
+            (3, "Win", 0.60, 0.37),
+            (4, "Win", 0.55, 0.42),
+            (5, "Win", 0.65, 0.32),
         ]
         _build_db(self.db_path, rows, predictions)
 
@@ -89,7 +91,7 @@ class ScoreboardTests(unittest.TestCase):
 
     def test_no_settled_games_returns_none(self):
         rows = [(1, "Pre Game", 2026, 1, "Round 1", "A", "B", None, None, 1.5, 2.6)]
-        predictions = [(1, "Win", 0.7)]
+        predictions = [(1, "Win", 0.7, 0.27)]
         _build_db(self.db_path, rows, predictions)
         self.assertIsNone(get_season_scoreboard(self.db_path))
         self.assertTrue(get_season_results(self.db_path).empty)
@@ -100,7 +102,7 @@ class ScoreboardTests(unittest.TestCase):
             (1, "Final", 2026, 1, "Round 1", "A", "B", 24, 12, 1.50, 2.60),
             (2, "Final", 2026, 2, "Round 2", "C", "D", 10, 20, 1.70, 2.20),
         ]
-        predictions = [(1, "Win", 0.70), (2, "Loss", 0.40)]
+        predictions = [(1, "Win", 0.70, 0.27), (2, "Loss", 0.40, 0.57)]
         _build_db(self.db_path, rows, predictions)
 
         results = get_season_results(self.db_path)
@@ -109,9 +111,43 @@ class ScoreboardTests(unittest.TestCase):
         self.assertEqual(int(results.iloc[0]["round_id"]), 2)
         self.assertEqual(results.iloc[0]["tipped_team"], "D")
         self.assertTrue(bool(results.iloc[0]["tip_correct"]))
-        self.assertAlmostEqual(float(results.iloc[0]["tip_prob"]), 0.60, places=6)
+        # Two-way: 0.57 / (0.40 + 0.57), not the stored 1 - 0.40.
+        self.assertAlmostEqual(float(results.iloc[0]["tip_prob"]), 0.57 / 0.97, places=6)
         self.assertEqual(results.iloc[1]["tipped_team"], "A")
         self.assertTrue(bool(results.iloc[1]["tip_correct"]))
+
+    def test_home_and_away_tip_confidence_are_symmetric(self):
+        """The same numbers must not read differently depending on the tip side.
+
+        Reading away confidence as `1 - home_team_win_prob` folds the whole draw
+        mass into the away side, so a mirrored pair would sum to more than one.
+        """
+        rows = [
+            (1, "Final", 2026, 1, "Round 1", "A", "B", 24, 12, 1.50, 2.60),
+            (2, "Final", 2026, 1, "Round 1", "C", "D", 24, 12, 1.50, 2.60),
+        ]
+        predictions = [(1, "Win", 0.58, 0.39), (2, "Loss", 0.58, 0.39)]
+        _build_db(self.db_path, rows, predictions)
+
+        results = get_season_results(self.db_path).set_index("game_id")
+        home_tip = float(results.loc[1, "tip_prob"])
+        away_tip = float(results.loc[2, "tip_prob"])
+        self.assertAlmostEqual(home_tip + away_tip, 1.0, places=9)
+        self.assertAlmostEqual(home_tip, 0.58 / 0.97, places=9)
+
+    def test_missing_tip_side_falls_back_to_comparing_both_probabilities(self):
+        """`win > 0.5` would hand this game to the away team; `win > lose` does not.
+
+        A conditional of 0.51 with a 4% draw stores as 0.4896 / 0.4704: home is
+        clearly favoured, but the stored home probability sits below a half.
+        """
+        rows = [(1, "Final", 2026, 1, "Round 1", "A", "B", 24, 12, 1.50, 2.60)]
+        predictions = [(1, None, 0.4896, 0.4704)]
+        _build_db(self.db_path, rows, predictions)
+
+        scoreboard = get_season_scoreboard(self.db_path)
+        # Home is tipped and home won, so the tip lands.
+        self.assertEqual(scoreboard["season_correct"], 1)
 
 
 if __name__ == "__main__":

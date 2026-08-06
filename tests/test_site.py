@@ -19,7 +19,7 @@ def _make_project_root(tmp_dir):
     return root
 
 
-def _build_db(db_path, with_pregame=True):
+def _build_db(db_path, with_pregame=True, pregame_prediction=None):
     con = sqlite3.connect(str(db_path))
     con.executescript(
         """
@@ -65,7 +65,8 @@ def _build_db(db_path, with_pregame=True):
             (2, "Pre Game", 2026, 15, "Round 15", "Storm", 1, 1.3, "Titans", 12, 3.6, None, None, 2.0, 1)
         )
         predictions.append(
-            (2, "Win", 0.81, 0.17, 0.02, 4.8, "Moderate evidence", 28, 12, 15)
+            pregame_prediction
+            or (2, "Win", 0.81, 0.17, 0.02, 4.8, "Moderate evidence", 28, 12, 15)
         )
     con.executemany(
         "INSERT INTO footy_tipping_data VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -105,6 +106,28 @@ class SiteGenerationTests(unittest.TestCase):
             results = (root / "docs" / "site" / "results.html").read_text()
             self.assertIn("Season results", results)
             self.assertIn("Knights", results)
+
+    def test_confidence_excludes_the_draw(self):
+        """0.58 win / 0.39 lose / 0.03 draw is a 60% tip, not a 58% one.
+
+        The stored win probability carries the (1 - draw) factor; publishing it
+        raw understates every tip and disagrees with the CLI, which prints the
+        conditional.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = _make_project_root(tmp_dir)
+            db_path = root / "data" / "db.sqlite"
+            _build_db(
+                db_path,
+                pregame_prediction=(
+                    2, "Win", 0.58, 0.39, 0.03, 1.5, "Anecdotal evidence", 24, 20, 4
+                ),
+            )
+
+            generate_site(db_path, root)
+            page = (root / "docs" / "site" / "rounds" / "2026-round-15.html").read_text()
+            self.assertIn(">60%<", page)
+            self.assertNotIn(">58%<", page)
 
     def test_offseason_site_still_generates(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

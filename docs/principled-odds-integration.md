@@ -61,15 +61,22 @@ The market pool uses:
 - `logit(tier_c)`
 - `logit(market)`
 
-The learned market pool is retained only when fully nested season-out
-predictions show material log-loss improvement over the strongest individual
-comparator on the same market-covered rows, remain within the accuracy and
-Brier tolerances, and pass the recent-season stability checks. The raw market
-is included in that demanding comparison. If the gate rejects the learned
-weights, however, the production fallback is a one-hot selection of the
-strongest Tier A/B/C expert, with a matching direction-preserving calibrator.
-If nested evidence is unavailable, Tier B is the safe default. Neither case
-becomes a raw market-only winner tip.
+How much of the learned pool ships is selected along a shrinkage path from the
+learned weights to a one-hot weighting of the strongest deployable Tier A/B/C
+expert, using fully nested season-out predictions on market-covered rows. Rungs
+are ranked by mean per-season P(finish first) against a simulated rival field
+that tips the market favourite; log loss and Brier are a guard, requiring each
+rung to stay within the release tolerances of the best deployable expert both
+pooled and per recent season. Zero shrinkage is always admissible, is identical
+to the one-hot fallback, and wins ties, so the conservative answer is always
+available. If nested evidence is unavailable, Tier B is the safe default.
+
+The comparison bar and the fallback are the same expert. Judging the pool
+against a comparator that cannot be deployed, while drawing the fallback from a
+set that excludes it, meant a narrow miss against the market shipped a third
+option worse than either. The raw market is still reported as the best expert
+when it wins, and is still never deployed as a market-only winner tip: at every
+rung its deployed weight is at most its learned weight.
 
 The no-market pool uses the first three inputs and is trained
 counterfactually by masking market data on every OOF row. It is selected only
@@ -100,6 +107,14 @@ After inference, the decision layer compares the calibrated probability with the
 ```text
 expected_value = probability * decimal_odds - 1
 ```
+
+`probability` here is two-way, `win / (win + lose)`, matching the two-way
+decimal quote it is compared against. `predictions_table` stores a three-way
+triple, so the stored win probability carries a `(1 - draw_prob)` factor;
+pricing against that understated every edge by the draw mass, which is roughly
+the size of the edge threshold itself. Every published number, in the email,
+on the site, in the CLI and in staking, now uses the two-way convention, which
+is also the quantity the model is calibrated and scored on.
 
 Positive edge must clear the configured threshold. A Kelly-derived fraction is then reduced and bounded by minimum/maximum stake controls; `normalized` mode reports fractions, while `bankroll` mode can also report `stake_amount`.
 

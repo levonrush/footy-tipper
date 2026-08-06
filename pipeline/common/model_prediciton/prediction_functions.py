@@ -15,6 +15,13 @@ from pipeline.common.odds.validity import valid_decimal_odds
 # Fixed base so every run over the same fixtures produces the same tips.
 GAME_SEED_BASE = 20100308
 
+# Share of eighty-minute ties that survive golden point and are recorded as
+# draws. The simulation's raw tie rate (about 3.9%) matches the pre-golden-point
+# era, so it is the extra-time period that was missing, not the tie estimate.
+# Calibrated against the realised NRL draw rate: 14 in 3577 games since 2009
+# (0.39%), 7 in 2170 since 2016 (0.32%), against a 3.9% simulated tie rate.
+GOLDEN_POINT_UNRESOLVED_SHARE = 0.10
+
 
 def rng_for_game(game_id, salt=0):
     """Deterministic per-game RNG so re-runs never flip a tip."""
@@ -484,11 +491,27 @@ def simulate_game(
     away_wins = int((margins < 0).sum())
     draws = int((margins == 0).sum())
 
+    # A tie after eighty minutes is not a drawn game: golden point resolves
+    # nearly all of them. Send the tied mass to extra time, split by the
+    # game's own non-draw strength, and keep only the small share that
+    # survives it.
+    home_wins_eff = float(home_wins)
+    away_wins_eff = float(away_wins)
+    draws_eff = float(draws)
+    if draws:
+        unresolved = draws * GOLDEN_POINT_UNRESOLVED_SHARE
+        resolved = draws - unresolved
+        decided = home_wins + away_wins
+        p_home_extra_time = (home_wins / decided) if decided else 0.5
+        home_wins_eff += resolved * p_home_extra_time
+        away_wins_eff += resolved * (1.0 - p_home_extra_time)
+        draws_eff = unresolved
+
     total_games = float(n_simulations)
     probabilities = {
-        "home_win_prob": home_wins / total_games,
-        "away_win_prob": away_wins / total_games,
-        "draw_prob": draws / total_games,
+        "home_win_prob": home_wins_eff / total_games,
+        "away_win_prob": away_wins_eff / total_games,
+        "draw_prob": draws_eff / total_games,
         # Median margin is a far more stable point estimate than the margin of
         # the modal exact scoreline.
         "median_margin": int(round(float(np.median(margins)))),
