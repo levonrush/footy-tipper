@@ -580,6 +580,33 @@ def _pool_probability_results(results):
         ),
     }
 
+    # The competition view: what each candidate would actually have won.
+    # Seasons are scored separately and then averaged, because P(first)
+    # saturates and pooling would wash out exactly the effect that matters.
+    # One fold is one season; fall back to the fold index when a caller has not
+    # labelled the year.
+    pooled_groups = np.concatenate(
+        [
+            np.full(len(res["y_test"]), float(res.get("year", index)))
+            for index, res in enumerate(results)
+        ]
+    )
+    comp_candidates = {
+        "deployed": pooled_p,
+        "no_market_counterfactual": pooled_no_market_p,
+        "tier_a": pooled_tier_a,
+        "tier_b": pooled_tier_b,
+        "tier_c": pooled_tier_c,
+        "market": pooled_market,
+    }
+    competition = {}
+    for name, probabilities in comp_candidates.items():
+        placement = calib.comp_placement_metrics(
+            probabilities, pooled_market, pooled_y, pooled_groups
+        )
+        if placement is not None:
+            competition[name] = placement
+
     return {
         **operational,
         "market_regime": actual_market,
@@ -594,6 +621,7 @@ def _pool_probability_results(results):
         "no_market_regime_expert_metrics": no_market_regime_experts,
         "no_market_counterfactual_expert_metrics": (no_market_counterfactual_experts),
         "acceptance": acceptance,
+        "competition": competition,
         "margin_distribution": _pool_margin_distributions(results),
     }
 
@@ -1666,6 +1694,25 @@ def main():
     if pooled_bets:
         summary_rows.append(
             ("Flat-stake ROI", f"{100.0 * pooled_profit / pooled_bets:+.1f}%  ({pooled_bets} bets)")
+        )
+    # The headline: what each candidate would have won, not how well it was
+    # calibrated. Deployed first, then the comparators worth arguing with.
+    competition = probability_pooled.get("competition") or {}
+    for label, name in (
+        ("Deployed", "deployed"),
+        ("Tier C alone", "tier_c"),
+        ("Market favourite", "market"),
+    ):
+        placement = competition.get(name)
+        if not placement:
+            continue
+        summary_rows.append(
+            (
+                f"P(win comp): {label}",
+                f"{placement['mean_p_first']:.3f} mean/season, "
+                f"rank {placement['mean_expected_rank']:.1f}, "
+                f"{placement['tips_correct']}/{placement['games']} tips",
+            )
         )
     summary_rows.append(
         ("Acceptance gate", "PASS" if acceptance["passed"] else "FAIL")
