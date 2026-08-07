@@ -61,26 +61,29 @@ The market pool uses:
 - `logit(tier_c)`
 - `logit(market)`
 
-How much of the learned pool ships is selected along a shrinkage path from the
-learned weights to a one-hot weighting of the strongest deployable Tier A/B/C
-expert, using fully nested season-out predictions on market-covered rows. Rungs
-are ranked on log loss, parsimoniously: the smallest shrinkage whose log loss
-falls within the improvement threshold of the best admissible rung wins. A rung
-is admissible only if it stays within the release tolerances of the best
-deployable expert both pooled and per recent season. Zero shrinkage is always
-admissible and is identical to the one-hot fallback, so the conservative answer
-is always available. If nested evidence is unavailable, Tier B is the safe
-default.
+The learned market pool is retained only when fully nested season-out
+predictions show material log-loss improvement over the strongest individual
+comparator on the same market-covered rows, remain within the accuracy and
+Brier tolerances, and pass the recent-season stability checks. The raw market is
+included in that demanding comparison. If the gate rejects the learned weights,
+the production fallback is a one-hot selection of the strongest Tier A/B/C
+expert, with a matching direction-preserving calibrator. If nested evidence is
+unavailable, Tier B is the safe default. Neither case becomes a raw market-only
+winner tip.
 
-Competition placement is recorded for every rung but does not select. See
-`docs/modeling-techniques.md` for why that objective was tried and withdrawn.
+On current data the gate selects Tier C alone and the market carries zero
+weight. That was checked rather than assumed: a shrinkage path between the
+learned weights and the one-hot fallback was built and tested under three
+selection rules, and every rule that admitted market weight produced a model
+worse out of sample than Tier C on both tipping accuracy and competition
+placement. The market's own tipping accuracy fell from about 71% before 2024 to
+about 62% after, while the rival field still tips it, so borrowing from the
+market now costs accuracy and separation from the field at the same time. The
+detail, including the numbers, is in `docs/modeling-techniques.md`; the code is
+recoverable from history if the market regains its edge.
 
-The comparison bar and the fallback are the same expert. Judging the pool
-against a comparator that cannot be deployed, while drawing the fallback from a
-set that excludes it, meant a narrow miss against the market shipped a third
-option worse than either. The raw market is still reported as the best expert
-when it wins, and is still never deployed as a market-only winner tip: at every
-rung its deployed weight is at most its learned weight.
+Competition placement is recorded in the evaluation report for the deployed
+model and every expert, but it does not select.
 
 The no-market pool uses the first three inputs and is trained
 counterfactually by masking market data on every OOF row. It is selected only

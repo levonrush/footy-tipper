@@ -46,43 +46,63 @@ Two constrained logit pools combine:
 - OOF Tier-C probability
 - genuine market conditional probability in the market-covered pool only
 
-Pool weights are nonnegative, sum to one, and have no intercept.
+Pool weights are nonnegative, sum to one, and have no intercept. The learned
+market pool is retained only when fully nested season-out predictions provide
+material log-loss improvement over the strongest individual comparator on the
+same covered rows, stay within the accuracy and Brier tolerances, and pass
+recent-season stability checks. The raw market participates in that comparison,
+but a rejected pool becomes a one-hot selection of the strongest Tier A/B/C
+model expert rather than a raw market-only winner forecast. Tier B is the safe
+default when nested evidence is unavailable. The manifest records
+`learned_weights` for both regimes, so a rejected pool can still be inspected
+for what it had learned.
 
-How much of the learned pool is deployed is chosen along a shrinkage path
-between two endpoints: the learned weights, and a one-hot weighting of the
-strongest deployable Tier A/B/C expert. Every rung is
-`normalize(s * learned + (1 - s) * onehot(fallback))` for `s` in
-`{0, 0.25, 0.5, 0.75, 1}`, so it is still a simplex and still deployable under
-the same artifact contract. This exists because "the learned mixture did not
+On current data that gate selects Tier C alone, giving the market zero weight,
+and a run of experiments in August 2026 established that this is the right
+answer rather than an artifact of the gate's shape.
+
+### A shrinkage path, tried and withdrawn
+
+The gate's failure mode looks wrong on inspection: "the learned mixture did not
 clearly beat the best expert" is a weaker claim than "the best expert alone is
-the right model", and collapsing straight to a corner treated them as the same.
+the right model", and collapsing straight to a corner of the simplex treats
+them as the same. The comparison also used to be asymmetric, judging the pool
+against a bar that included the market while drawing the fallback from a set
+that excluded it, so a narrow miss against the market shipped a third choice
+worse than either.
 
-Rungs are ranked on nested season-out log loss, and the rule is parsimonious:
-take the smallest shrinkage whose log loss falls within the improvement
-threshold of the best admissible rung. A rung is admissible only if it stays
-within the release tolerances of the best deployable expert, both pooled and in
-each recent season. Zero shrinkage is always admissible and is bitwise
-identical to the one-hot fallback, so the safe choice is always reachable. Tier
-B remains the default when nested evidence is unavailable. The shrinkage target
-is ranked on log loss too.
+The fix tried was a shrinkage path, `normalize(s * learned + (1 - s) *
+onehot(fallback))` for `s` in `{0, 0.25, 0.5, 0.75, 1}`, with the bar and the
+fallback made the same expert. Three walk-forward runs rejected it:
 
-Competition placement, mean per-season P(finish first) against a rival field
-that tips the market favourite, is computed and recorded for every rung and
-every expert, but it does not select. It was tried as the objective and
-withdrawn. Two walk-forward runs on near-identical data chose different rungs
-for the same fold, once landing on the full market-heavy pool, which cost seven
-tips on the held-out season and failed the release gate. The statistic is close
-to bimodal per season, so a handful of seasons swings the mean, and the market's
-own tipping accuracy fell roughly nine points after 2023, which lets a
-market-heavy rung win an average taken over seasons that no longer resemble the
-one being predicted. It is a good scoreboard and a poor objective. The
-`objective="p_first"` path and its recent-window guard remain available for
-experiments and are covered by tests, but nothing ships on them.
+| rung objective | walk-forward outcome |
+| --- | --- |
+| mean per-season P(finish first) | acceptance FAIL; one fold took the full pool, 7 tips worse |
+| P(first) plus a recent-window guard | selects zero shrinkage in every fold |
+| log loss, parsimonious | acceptance FAIL; 8 tips worse, 0.23 worse on P(first) |
 
-Two properties of the objective are deliberate. Within one realized season,
-maximising P(first) is exactly equivalent to maximising tips correct, because
-rival scores do not depend on our tips. Deviating from the field for its own
-sake buys nothing at selection time, and the in-season case for it lives in the
+Every rule that admitted market weight produced a model worse out of sample
+than Tier C alone, on tipping accuracy and on competition placement together.
+The cause is regime change rather than noise. Nested evidence is dominated by
+2010 to 2023, when the market tipped about 71%; from 2024 it tips about 62%,
+and the rival field tips the market, so borrowing from it costs both accuracy
+and separation from the field at once. Held out over 2024 to 2026: Tier C 381
+of 587 tips with P(first) 0.564, the market 368 of 587 with P(first) 0.0005.
+
+The path, the asymmetry fix and the competition scorer are recoverable from
+history around commits `079f999` through `b8b3d02`. They are worth revisiting
+if the market regains its edge; they are not worth carrying while it has not.
+
+### Competition placement as a scoreboard
+
+`comp_placement_metrics` scores any forecaster against a simulated rival field
+that tips the market favourite, and the evaluation report carries it for the
+deployed model and every expert. It does not select anything.
+
+Two properties of it are worth knowing. Within one realized season, maximising
+P(first) is exactly equivalent to maximising tips correct, because rival scores
+do not depend on our tips. Deviating from the field for its own sake buys
+nothing at selection time, and the in-season case for it lives in the
 competition-strategy layer, which knows the live points gap. Across seasons it
 is not the same as pooled accuracy: P(first) saturates, so clearing the field
 in a strong season is worth more than the same average accuracy spread evenly.
@@ -99,24 +119,15 @@ Tier C's good seasons are ones where it clears a weakened field. No
 within-season monotonicity is broken by this; the whole effect is composition
 across seasons.
 
-The raw market participates in the comparison and is reported as the best
-expert when it wins, but it is never deployed as the model on its own. What
-shrinkage changes is that market evidence is now throttled rather than
-discarded outright when the learned pool falls short.
-
 The no-market pool is trained on counterfactually masked OOF rows and is
 retained only when it beats Tier B in season-out log loss.
 Positive-temperature, no-intercept calibration is fitted to the selected
 leave-one-season-out path, so 50% stays neutral and calibration cannot reverse
 a tip.
 
-The manifest records `learned_weights`, `selected_shrinkage`,
-`shrinkage_target` and the full scored path for both regimes, so the deployed
-weights can always be traced back to what was learned and why it was moved.
-
 At inference, genuinely missing H2H odds route to the no-market artifact or
 the manifest-declared Tier-B fallback. Market-covered games use the
-manifest-recorded pool at whatever shrinkage was selected.
+manifest-recorded learned pool or its selected Tier A/B/C expert fallback.
 Compatibility guards prevent older artifacts from reversing unanimous
 Tier/market evidence.
 
@@ -137,7 +148,7 @@ Score simulation uses a bivariate Poisson shared component `lambda3`. When OOF r
 | --- | --- |
 | `home_model.pkl`, `away_model.pkl` | Tier-B score pipelines |
 | `binary_model.pkl` | Tier-C classifier |
-| `stacker.pkl` | selected constrained market-covered logit pool: learned weights, a shrunk mixture, or a one-hot Tier A/B/C fallback |
+| `stacker.pkl` | selected constrained market-covered logit pool: learned weights or a one-hot Tier A/B/C fallback |
 | `win_prob_calibrator.pkl` | positive-temperature calibrator for the selected market-covered path |
 | `stacker_no_market.pkl` | constrained Tier A/B/C no-market pool, when selected |
 | `win_prob_calibrator_no_market.pkl` | positive-temperature no-market calibrator |
