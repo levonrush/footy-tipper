@@ -37,8 +37,11 @@ flowchart TB
 
   subgraph CLOUD[Serialized GitHub Actions runtime and delivery]
     direction TB
-    TRIGGER[/15-minute cron or exact manual mode/]
-    GATE{11am Sydney gate}
+    GH_CLOCK[/GitHub off-boundary polls<br/>11:07 through 14:37/]
+    GOOGLE_CLOCK[/Apps Script five-minute clock<br/>30-minute recovery slots/]
+    WATCHDOG_GUARD{Actor guard passes?<br/>watchdog=true only}
+    MANUAL[/Exact manual mode<br/>live includes confirmed round/]
+    GATE{Drive-backed Sydney gate<br/>live · refresh · skip}
     SKIP([Skip])
     PULL([Pull runtime and active release])
     RUNTIME_DB[(Runner runtime DB<br/>predictions · ledgers)]
@@ -54,8 +57,13 @@ flowchart TB
     RECONCILE([Mark Drive sent then<br/>reconcile DB ledger])
     PUSH([Push runtime DB and schedule only])
     SITE([Publish generated site])
+    ALERT([Create or update assigned<br/>automation-alert issue])
 
-    TRIGGER --> GATE
+    GH_CLOCK --> GATE
+    GOOGLE_CLOCK --> WATCHDOG_GUARD
+    WATCHDOG_GUARD -->|yes| GATE
+    WATCHDOG_GUARD -->|no| ALERT
+    MANUAL --> PULL
     GATE -->|skip| SKIP
     GATE -->|live or stale refresh| PULL
     PULL --> RUNTIME_DB
@@ -77,17 +85,20 @@ flowchart TB
     RECONCILE --> RUNTIME_DB
     RUNTIME_DB --> PUSH
     PUSH --> SITE
+    GATE -.->|automated failure| ALERT
+    PREDICT -.->|automated failure| ALERT
+    RECONCILE -->|successful live closes| ALERT
   end
 
   POINTER --> PULL
   DRIVE_RELEASES --> PULL
   DRIVE_RUNTIME --> PULL
-  OP -->|tips/advanced live| TRIGGER
+  OP -->|tips/advanced commands| MANUAL
   CLAIM --> DELIVERY_STATE
   DELIVERY_STATE --> CLAIM
   RECONCILE --> DELIVERY_STATE
   PUSH --> DRIVE_RUNTIME
-  REFRESH -.-> TRIGGER
+  REFRESH -.-> MANUAL
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
   classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
@@ -95,11 +106,11 @@ flowchart TB
   classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
 
-  class OP,TRIGGER,SMTP,MODEL_CHECK source;
-  class PREFLIGHT,UPLOAD,REQUEST_CHECK,ACTIVATE,REFRESH,KEEP,SKIP,PULL,TEST,PREDICT,PREPARE,NO_CLAIM,RECONCILE,PUSH,SITE process;
+  class OP,GH_CLOCK,GOOGLE_CLOCK,MANUAL,SMTP,MODEL_CHECK source;
+  class PREFLIGHT,UPLOAD,REQUEST_CHECK,ACTIVATE,REFRESH,KEEP,SKIP,PULL,TEST,PREDICT,PREPARE,NO_CLAIM,RECONCILE,PUSH,SITE,ALERT process;
   class TRAIN_DB,DRIVE_RELEASES,POINTER,DRIVE_RUNTIME,DELIVERY_STATE,RUNTIME_DB data;
   class TRAIN model;
-  class VALIDATE,REDOWNLOAD,CHECK_RESULT,GATE,CHECK,MODE,CLAIM,BLOCK decision;
+  class VALIDATE,REDOWNLOAD,CHECK_RESULT,WATCHDOG_GUARD,GATE,CHECK,MODE,CLAIM,BLOCK decision;
 
   style LOCAL fill:#F8FAFC,stroke:#F59E0B,stroke-width:2px
   style CLOUD fill:#F8FAFC,stroke:#0369A1,stroke-width:2px

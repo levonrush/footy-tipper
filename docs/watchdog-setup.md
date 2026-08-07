@@ -12,7 +12,32 @@ The Apps Script never predicts or sends email. It can only dispatch
 schedule and chooses `live`, `refresh`, or `skip`. The normal concurrency lock,
 Drive marker, SQLite ledger, odds checks, and SMTP rules remain authoritative.
 
-## One-time setup
+![Two independent hosted clocks feeding the guarded prediction and delivery gate](diagrams/delivery-watchdog.svg)
+
+[Editable Mermaid source](diagrams/delivery-watchdog.mmd)
+
+## Production deployment
+
+The Google watchdog was installed and verified on **7 August 2026**:
+
+- the repository variable is `FOOTY_TIPPER_WATCHDOG_ACTOR=levonrush`;
+- `installWatchdog` validated the restricted token and created exactly one
+  five-minute `watchdogTick` trigger;
+- the guarded installation probe returned `skip`, with prediction, delivery,
+  runtime push, and site publication all skipped;
+- the first independent automatic heartbeat also returned `skip` and left
+  round 24 unsent with no unresolved delivery marker;
+- implementation shipped in [PR #41](https://github.com/levonrush/footy-tipper/pull/41)
+  and the pinned `clasp` deployment commands were corrected in
+  [PR #42](https://github.com/levonrush/footy-tipper/pull/42).
+
+The verified automatic heartbeat is
+[Actions run 31140048581](https://github.com/levonrush/footy-tipper/actions/runs/31140048581).
+Normal weekly operation requires no manual command. Act only on an Apps Script
+failure notification, an open `automation-alert` issue, or a credential
+exposure/revocation.
+
+## One-time setup or full rebuild
 
 The repository owner must perform only the secret-handling and Google consent
 steps. Never paste the token into chat, a terminal command, source code, or a
@@ -131,6 +156,10 @@ notification when an installed trigger continues to fail.
 
 An automated GitHub gate or prediction failure creates or updates one assigned
 issue labelled `automation-alert`. The next successful live run closes it.
+
+The issue is evidence and an action queue, not a resend control. Do not close it
+to force a green state; fix the linked failure and let a successful live run
+reconcile it.
 
 Always begin delivery recovery with:
 

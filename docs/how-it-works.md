@@ -64,6 +64,14 @@ Lineup ingestion owns `lineup_article_snapshots`, `lineup_entries`, and `lineup_
 
 [Editable Mermaid source](diagrams/model-stack.mmd)
 
+The calibrated probability and displayed scoreline are one coherent object, but
+Tier C is not allowed to rewrite every score forecast. Only when the score
+model tips the opposite side does inference move the expected score means along
+a total-preserving path to the calibrated probability. Simulation then combines
+side-specific negative-binomial dispersion (or Poisson fallback) with the
+shared `lambda3` component. The displayed scoreline splits the median total
+around the median margin and explicitly keeps the tipped side in front.
+
 A complete current release contains:
 
 | Artifact | Purpose |
@@ -107,7 +115,15 @@ Inference combines the active model release with current prepared rows and upser
 
 Scheduled and human-triggered live sends share one serialized GitHub Actions workflow. It first validates the sender credentials, token, Google Sheet access, and frozen recipient envelope, then claims a season/round marker in Drive immediately before SMTP. This external marker protects the gap between successful email delivery and a later DB/runtime push. A pending marker is deliberately treated as uncertain and blocks automatic resend; an ambiguous or partially refused SMTP result leaves it pending. Full success reconciles the marker with `email_sends` and applies an eligible joker transition. Test mode sends one recipient but mutates none of those production stores.
 
-The gate polls every 15 minutes and opens at 11:00 `Australia/Sydney` on the first-game day, subject to GitHub scheduling delay and the post-kickoff grace window.
+Production scheduling has two independent hosted clocks. GitHub polls at targeted off-boundary Sydney times from 11:07 through 14:37. Google Apps Script wakes every five minutes and dispatches at most once in each 30-minute recovery slot from 11:22 through 14:52. Both clocks request the same Drive-backed gate, which returns only `live`, `refresh`, or `skip`; neither clock can directly request a live send. The workflow accepts a watchdog request only when its actor exactly matches `FOOTY_TIPPER_WATCHDOG_ACTOR` and no manual round confirmation is supplied.
+
+Overlapping triggers remain safe because stateful prediction/delivery is serialized and the Drive marker plus `email_sends` enforce one live season/round. Missing or malformed schedule state becomes `refresh` so recoverable state is rebuilt. Automated gate/prediction failure creates or updates one assigned `automation-alert` issue; only a later successful live run closes it.
+
+![Independent Google and GitHub clocks feeding the guarded delivery gate](diagrams/delivery-watchdog.svg)
+
+[Editable Mermaid source](diagrams/delivery-watchdog.mmd)
+
+See [Independent delivery watchdog](watchdog-setup.md) for the deployed state, credential boundary, verification, incident handling, and rollback.
 
 ![Immutable local publication, Actions gate, runtime sync, and delivery safety](diagrams/operations-state.svg)
 
@@ -131,3 +147,4 @@ The Python nrl.com/odds path cut over on `main` in PR #34. R deliberately keeps 
 - Required active model missing/invalid: fail; never hosted auto-train or legacy-archive guess.
 - Model update failure before activation: previous release remains active.
 - Live delivery ambiguity: preserve the pending (uncertain) state and block retry.
+- Either hosted clock unavailable: the other continues independently; alerts and status determine whether operator action is required.

@@ -38,12 +38,14 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `training-receipt.json` is written last and records release provenance, versions, training scope, sizes, and hashes.
   - GitHub Actions must not train or auto-train.
 - Inference:
-  - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, simulates outcomes with bivariate Poisson (`lambda3`), and upserts into `predictions_table`.
+  - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, reconciles score means only when their tip conflicts with the calibrated tip, simulates negative-binomial/Poisson marginals with shared `lambda3`, derives the displayed scoreline from median margin/total, and upserts into `predictions_table`.
 - Distribution:
   - `footy-tipper tips test|live` dispatches the exact Actions mode; technical local delivery is under `advanced delivery`.
   - The delivery implementation reads the prediction view, computes EV-based value picks with Kelly-derived staking, and handles upload/email via `pipeline/common/use_predictions/` modules (joker, staking, scoreboard, email_copy, email_render, distribution, site).
   - Every human production-live path routes through the serialized GitHub Actions workflow. Before claiming a Drive-backed per-round marker, the run validates the sender, token, Google Sheet access, and frozen recipient envelope.
   - `pending` deliberately means uncertain and blocks another automatic send. Full SMTP success reconciles the marker with the SQLite ledger; a partial refusal leaves the marker pending for human reconciliation.
+  - Scheduling has two independent hosted clocks: targeted off-boundary GitHub polls and a DST-aware Google Apps Script watchdog. The watchdog may dispatch only `predict.yml` with `watchdog=true`; the actor-guarded workflow remains responsible for choosing `live`, `refresh`, or `skip`.
+  - Automated gate/prediction failures reconcile one assigned GitHub issue labelled `automation-alert`; the next successful live run closes it.
 - Production feeds:
   - The default `FOOTY_TIPPER_FEED_SOURCE=python` path invokes `pipeline/common/nrl_data/` and odds ingestion before R preparation. R reads the resulting `feed_cache_*` tables.
   - `FOOTY_TIPPER_FEED_SOURCE=feed` restores the credentialled XML path as an explicit rollback.
@@ -52,7 +54,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 
 ## Critical Runtime Config
 - Season controls:
-  - `FOOTY_TIPPER_START_YEAR` (default: `2010`)
+  - `FOOTY_TIPPER_START_YEAR` (default: `2008`)
   - `FOOTY_TIPPER_END_YEAR` (default: current year)
   - `FOOTY_TIPPER_INCLUDE_PERFORMANCE` (default: `true`)
 - Lineup controls:
@@ -124,6 +126,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Delivery safety:
   - Test mode must not mutate runtime DB/site/send ledger/joker/delivery marker.
   - Live human dispatch requires exact typed `SEND ROUND N`; no non-interactive bypass.
+  - A watchdog dispatch is gate-only, must not include `confirmed_round`, and fails closed unless `github.actor` exactly matches `FOOTY_TIPPER_WATCHDOG_ACTOR`.
   - False/failed email results return non-zero.
   - A pending (therefore uncertain) Drive marker blocks duplicate delivery until reconciled with SMTP evidence and `email_sends`.
 - Lineup-safe execution:

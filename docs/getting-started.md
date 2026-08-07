@@ -98,9 +98,12 @@ footy-tipper tips refresh
 
 Scheduled production uses two independent clocks. GitHub starts off-boundary
 Sydney-time polls at 11:07 on the day of a round's first game; the Google Apps
-Script watchdog requests the same gate from approximately 11:27 if GitHub is
-late. Duplicate-prevention state makes overlapping retries safe. Complete the one-time
-[watchdog setup](watchdog-setup.md) before relying on the fallback.
+Script watchdog wakes every five minutes and requests the same gate once per
+30-minute recovery slot from approximately 11:27 if GitHub is late.
+Duplicate-prevention state makes overlapping retries safe. The production
+watchdog was installed and verified on 7 August 2026; normal weekly use
+requires no operator action. See the [watchdog runbook](watchdog-setup.md) only
+for status checks, alerts, credential replacement, or rollback.
 
 ## A manual live send
 

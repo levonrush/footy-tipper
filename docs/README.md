@@ -7,7 +7,7 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 1. [Getting started](getting-started.md) — prerequisites, Conda setup, workflow-specific secrets, and the first safe run.
 2. [CLI reference](cli-reference.md) — the guided/everyday interface, exact advanced tree, safety confirmations, and machine boundary.
 3. [Operations and reliability](operations-reliability.md) — immutable model releases, Actions runtime state, delivery markers, schedules, backups, and incident runbooks.
-4. [Independent watchdog setup](watchdog-setup.md) - one-time Google Apps Script setup, verification, credential replacement, and rollback.
+4. [Independent watchdog operations](watchdog-setup.md) — deployed Google Apps Script fallback, verification, credential replacement, alerts, and rollback.
 
 ## I need to understand it
 
@@ -32,4 +32,4 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 
 ## Diagrams
 
-Editable Mermaid sources and checked-in SVG previews live in [the diagram catalogue](diagrams/README.md). Shapes and labels carry meaning; colour is supplementary.
+Editable Mermaid sources and checked-in SVG previews live in [the diagram catalogue](diagrams/README.md), including the dedicated [dual-clock delivery watchdog flow](diagrams/delivery-watchdog.mmd). Shapes and labels carry meaning; colour is supplementary.

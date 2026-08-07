@@ -1,0 +1,85 @@
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":40},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"13px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
+flowchart TB
+  SCHEDULE[(Drive schedule.json<br/>next actionable round)]
+  DELIVERY_STATE[(Drive round marker<br/>and SQLite email_sends)]
+  SMTP[/SMTP production delivery/]
+  ALERT[/One assigned GitHub issue<br/>label: automation-alert/]
+
+  subgraph PRIMARY[Primary hosted clock — GitHub Actions]
+    direction LR
+    GH_CLOCK([Off-boundary Sydney polls<br/>11:07 through 14:37])
+  end
+
+  subgraph FALLBACK[Independent hosted clock — Google Apps Script]
+    direction TB
+    GOOGLE_CLOCK([Five-minute installed trigger])
+    SLOT{Sydney recovery slot?<br/>11:22 through 14:52}
+    LAST_SLOT[(LAST_SUCCESSFUL_<br/>SLOT)]
+    TOKEN[(Script Property<br/>GITHUB_TOKEN only)]
+    DISPATCH([Dispatch predict.yml<br/>watchdog=true only])
+    NO_DISPATCH([No dispatch])
+
+    GOOGLE_CLOCK --> SLOT
+    LAST_SLOT --> SLOT
+    SLOT -->|outside window or already sent| NO_DISPATCH
+    SLOT -->|eligible| DISPATCH
+    TOKEN --> DISPATCH
+    DISPATCH -->|accepted| LAST_SLOT
+  end
+
+  subgraph WORKFLOW[Shared predict.yml safety boundary]
+    direction TB
+    GUARD{Watchdog actor matches<br/>repository variable?<br/>No confirmed_round?}
+    GATE{Drive-backed schedule gate<br/>live · refresh · skip}
+    SKIP([Stop after gate<br/>no production mutation])
+    LOCK([Serialized prediction/delivery<br/>concurrency group])
+    PREDICT([Refresh data · infer · decide])
+    MODE{Gate mode}
+    REFRESH([Push runtime and publish site<br/>no email])
+    PREPARE([Validate sender · token · Sheet<br/>freeze recipients])
+    CLAIM{Round claimable?}
+    BLOCK([Block duplicate or uncertain send])
+    EMAIL([SMTP attempt])
+    RECONCILE([Mark sent · reconcile ledger<br/>push runtime · publish site])
+    FAIL([Automated gate or prediction failure])
+
+    GUARD -->|yes| GATE
+    GUARD -->|no| FAIL
+    GATE -->|skip| SKIP
+    GATE -->|live or refresh| LOCK
+    LOCK --> PREDICT --> MODE
+    MODE -->|refresh| REFRESH
+    MODE -->|live| PREPARE --> CLAIM
+    CLAIM -->|no| BLOCK
+    CLAIM -->|yes: pending marker| EMAIL
+    EMAIL -->|full success| RECONCILE
+    EMAIL -->|partial · refused · ambiguous| BLOCK
+    GATE -.->|failure| FAIL
+    PREDICT -.->|failure| FAIL
+  end
+
+  GH_CLOCK --> GATE
+  DISPATCH --> GUARD
+  SCHEDULE --> GATE
+  DELIVERY_STATE --> CLAIM
+  CLAIM --> DELIVERY_STATE
+  EMAIL --> SMTP
+  RECONCILE --> DELIVERY_STATE
+  FAIL -->|create or update| ALERT
+  RECONCILE -->|successful live closes| ALERT
+
+  classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
+  classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
+  classDef data fill:#CCFBF1,stroke:#0F766E,color:#0F172A,stroke-width:2px;
+  classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
+  classDef credential fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
+
+  class SMTP,ALERT source;
+  class GH_CLOCK,GOOGLE_CLOCK,DISPATCH,NO_DISPATCH,SKIP,LOCK,PREDICT,REFRESH,PREPARE,EMAIL,RECONCILE,FAIL process;
+  class SCHEDULE,DELIVERY_STATE,LAST_SLOT data;
+  class TOKEN credential;
+  class SLOT,GUARD,GATE,MODE,CLAIM,BLOCK decision;
+
+  style PRIMARY fill:#F8FAFC,stroke:#0369A1,stroke-width:2px
+  style FALLBACK fill:#F8FAFC,stroke:#F59E0B,stroke-width:2px
+  style WORKFLOW fill:#F8FAFC,stroke:#0F766E,stroke-width:2px
