@@ -25,7 +25,7 @@ on:
         required: false
         type: string
       watchdog:
-        description: "Internal only: request the schedule gate as the configured watchdog app"
+        description: "Internal only: request the schedule gate as the configured watchdog source"
         required: false
         type: boolean
         default: false
@@ -76,7 +76,7 @@ jobs:
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$WATCHDOG_REQUEST" = "true" ]; then
             if [ -z "$WATCHDOG_ACTOR" ] || [ "$ACTOR" != "$WATCHDOG_ACTOR" ]; then
-              echo "Watchdog dispatch refused: actor is not the configured watchdog app." >&2
+              echo "Watchdog dispatch refused: actor is not the configured watchdog source." >&2
               exit 2
             fi
             if [ -n "$CONFIRMED_ROUND" ]; then

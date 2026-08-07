@@ -39,7 +39,7 @@ Python ingests the nrl.com draw and match centres, derives ladder/performance ca
 
 Local hardware owns model training. `footy-tipper update-model` uses the normal 100-candidate search, keeps the Mac awake, validates the result, publishes an immutable release to Google Drive, asks GitHub Actions to load that exact release in the production image, activates it, and requests a no-email refresh. It prevents two local updates from running together and terminates the trainer cleanly on Ctrl-C. If interrupted, rerun the same command; its journal revalidates evidence before resuming safe completed stages. GitHub Actions remains enabled while this happens; Docker Desktop is not required locally.
 
-GitHub Actions owns prediction and delivery. Targeted off-boundary polls become eligible at 11:00 `Australia/Sydney` on the calendar day of the round's first game, while an independent Cloudflare watchdog requests the same safe gate if GitHub scheduling is delayed. Actions pulls the active model release and mutable runtime database, but it never trains or silently falls back to training.
+GitHub Actions owns prediction and delivery. Targeted off-boundary polls become eligible at 11:00 `Australia/Sydney` on the calendar day of the round's first game, while an independent Google Apps Script watchdog requests the same safe gate if GitHub scheduling is delayed. Actions pulls the active model release and mutable runtime database, but it never trains or silently falls back to training.
 
 Every human live-send command also dispatches that same serialized Actions workflow. The live run validates its sender credentials, service-account token, Google Sheet access, and recipient list before claiming the round's pending marker. A partial SMTP refusal leaves that marker pending/uncertain, so the system cannot automatically send the round again.
 
@@ -66,7 +66,7 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - [Architecture](docs/how-it-works.md) — data, models, state, and delivery ownership.
 - [Models and evidence](docs/modeling-techniques.md) — Tier A/B/C, calibration, simulation, and limitations.
 - [Operations](docs/operations-reliability.md) — model releases, Actions, delivery safety, reruns, and recovery.
-- [Watchdog setup](docs/watchdog-setup.md) - the one-time independent scheduler deployment, verification, and rollback.
+- [Watchdog setup](docs/watchdog-setup.md) - the one-time Google Apps Script deployment, verification, and rollback.
 - [Research and history](docs/research-and-history.md) — research-to-production status and the complete Medium series.
 
 ## Boundaries worth remembering

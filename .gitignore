@@ -77,9 +77,7 @@ dist/
 .ruff_cache/
 .ipynb_checkpoints/
 node_modules/
-.wrangler/
-.dev.vars
-.dev.vars.*
+watchdog/.clasp.json
 
 # Virtual environments
 .venv/
