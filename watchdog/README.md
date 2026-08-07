@@ -1,18 +1,13 @@
 # Delivery watchdog
 
-This Cloudflare Worker is the independent clock for scheduled production tips.
-It never predicts or sends email itself. During the Sydney recovery window it
-authenticates as a repository-scoped GitHub App and dispatches `predict.yml`
-with the guarded `watchdog` input. The GitHub workflow then reads the normal
-Drive schedule and chooses only `live`, `refresh`, or `skip`.
-
-The Worker runs at minutes 27 and 57 of every UTC hour, but dispatches only
-between 11:00 and 14:59 `Australia/Sydney`. The timezone check handles AEST and
-AEDT. GitHub remains the primary clock at separate minute offsets.
+This directory contains the Google Apps Script backup clock for scheduled
+production tips. The script never predicts or sends email itself. During the
+Sydney recovery window it dispatches `predict.yml` with only the guarded
+`watchdog` input; GitHub then reads the normal Drive schedule.
 
 ## Local verification
 
-Requires Node.js 22 or newer.
+Requires Node.js 20 or newer.
 
 ```bash
 npm ci --ignore-scripts
@@ -21,29 +16,26 @@ npm test
 npm audit --audit-level=high
 ```
 
-`wrangler.jsonc` deliberately contains placeholders for the GitHub App and
-installation IDs. Replace those two non-secret values during the one-time
-production setup. Never add the private key to that file, `.dev.vars`, a shell
-history entry, or Git.
+The tests execute the deployable Apps Script source with mocked Google
+services. They cover AEST/AEDT, recovery boundaries, successful-slot
+idempotency, retries, error redaction, exact dispatch payload, actor
+validation, trigger replacement, and missing credentials.
 
-## Production configuration
+## Deployment
 
-The deployed Worker requires:
+`@google/clasp` is pinned as development tooling. After Google authorization:
 
-| Binding | Type | Purpose |
-| --- | --- | --- |
-| `GITHUB_OWNER` | plain variable | `levonrush` |
-| `GITHUB_REPO` | plain variable | `footy-tipper` |
-| `GITHUB_WORKFLOW_FILE` | plain variable | `predict.yml` |
-| `GITHUB_REF` | plain variable | `main` |
-| `GITHUB_APP_ID` | plain variable | numeric GitHub App ID |
-| `GITHUB_INSTALLATION_ID` | plain variable | selected-repository installation ID |
-| `GITHUB_APP_PRIVATE_KEY` | encrypted secret | non-expiring GitHub App private key |
+```bash
+npm run login
+npm run create
+npm run push
+npm run open
+```
 
-The GitHub App must be installed only on `footy-tipper` with repository
-`Actions: Read and write`; metadata read access is implicit. It needs no
-webhook, user authorization, contents permission, SMTP credential, Google
-credential, or recipient data.
+The generated `.clasp.json` is ignored. Store the repository-scoped GitHub
+token only as the Apps Script Property `GITHUB_TOKEN`; never place it in this
+directory or a command line.
 
 See [watchdog setup and recovery](../docs/watchdog-setup.md) for the complete
-one-time deployment and rollback procedure.
+one-time authorization, verification, credential replacement, and rollback
+procedure.

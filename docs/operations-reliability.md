@@ -74,8 +74,9 @@ Use `footy-tipper status --offline` only when remote checks are unavailable. Tre
 
 [`predict.yml`](../.github/workflows/predict.yml) uses targeted, off-boundary
 Sydney-time polls beginning at 11:07 and continuing through 14:37. An
-independent Cloudflare Worker requests the same guarded gate at 11:27, 11:57,
-and every 30 minutes through 14:57. The gate derives the first fixture date in
+independent Google Apps Script clock requests the same guarded gate in
+30-minute recovery slots, beginning around 11:27 and continuing through
+approximately 14:57. The gate derives the first fixture date in
 `Australia/Sydney` and returns:
 
 - `live`: at the first available gate on or after 11:00 Sydney on that date, through the existing post-kickoff grace period;
@@ -85,14 +86,15 @@ and every 30 minutes through 14:57. The gate derives the first fixture date in
 The ledger and delivery marker prevent duplicates. An expired unsent round
 progresses to the next actionable round. `zoneinfo` handles AEST/AEDT and UTC
 date boundaries. A missing or unreadable published schedule requests a refresh
-instead of silently skipping. GitHub and Cloudflare are independent clocks;
+instead of silently skipping. GitHub and Google Apps Script are independent clocks;
 the post-kickoff grace window remains the final recovery boundary.
 
-The watchdog uses a GitHub App installed only on this repository with Actions
-write permission. It can set only the actor-guarded `watchdog` input; the
-workflow then runs the schedule gate. Bot actors cannot enter manual
-`test`, `refresh`, or `live`, and human live dispatch still requires the exact
-round confirmation. See [watchdog setup](watchdog-setup.md).
+The watchdog uses a non-expiring fine-grained token restricted to this
+repository with Actions write permission. The token is stored only in Google
+Apps Script Properties. The script sends only the actor-guarded `watchdog`
+input, and the workflow then runs the schedule gate. Bot actors cannot enter
+manual `test`, `refresh`, or `live`, and human live dispatch still requires the
+exact round confirmation. See [watchdog setup](watchdog-setup.md).
 
 An automated gate or prediction failure creates or updates one assigned issue
 labelled `automation-alert`. A later successful live run closes it. This alert

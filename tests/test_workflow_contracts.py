@@ -7,6 +7,8 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 PREDICT_WORKFLOW = WORKFLOW_DIR / "predict.yml"
 MODEL_CHECK_WORKFLOW = WORKFLOW_DIR / "model-check.yml"
 SMOKE_WORKFLOW = WORKFLOW_DIR / "smoke-checks.yml"
+WATCHDOG_SOURCE = REPO_ROOT / "watchdog" / "src" / "Code.js"
+WATCHDOG_MANIFEST = REPO_ROOT / "watchdog" / "src" / "appsscript.json"
 DOCKERIGNORE = REPO_ROOT / ".dockerignore"
 COMPOSE_FILE = REPO_ROOT / "compose.yml"
 POST_MERGE_CUTOVER = REPO_ROOT / "pipeline" / "ops" / "post_merge_cutover.sh"
@@ -68,12 +70,12 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('--confirmed-round "$CONFIRMED_ROUND"', workflow_text)
         self.assertIn("confirmed_round is valid only for LIVE.", workflow_text)
 
-    def test_watchdog_can_only_request_the_gate_as_configured_bot(self):
+    def test_watchdog_can_only_request_the_gate_as_configured_source(self):
         workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("watchdog:", workflow_text)
         self.assertIn("FOOTY_TIPPER_WATCHDOG_ACTOR", workflow_text)
         self.assertIn(
-            "Watchdog dispatch refused: actor is not the configured watchdog app.",
+            "Watchdog dispatch refused: actor is not the configured watchdog source.",
             workflow_text,
         )
         self.assertIn(
@@ -164,6 +166,17 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("npm run check", workflow_text)
         self.assertIn("npm test", workflow_text)
         self.assertIn("npm audit --audit-level=high", workflow_text)
+
+    def test_watchdog_is_apps_script_and_dispatches_only_the_guarded_gate(self):
+        source = WATCHDOG_SOURCE.read_text(encoding="utf-8")
+        manifest = WATCHDOG_MANIFEST.read_text(encoding="utf-8")
+        self.assertIn('timeZone": "Australia/Sydney"', manifest)
+        self.assertIn(".everyMinutes(5)", source)
+        self.assertIn('inputs: { watchdog: true }', source)
+        self.assertIn('tokenProperty: "GITHUB_TOKEN"', source)
+        self.assertIn('lastSlotProperty: "LAST_SUCCESSFUL_SLOT"', source)
+        self.assertNotIn("Cloudflare", source)
+        self.assertFalse((REPO_ROOT / "watchdog" / "wrangler.jsonc").exists())
 
     def test_unsafe_legacy_job_launchers_are_removed(self):
         self.assertFalse(COMPOSE_FILE.exists())

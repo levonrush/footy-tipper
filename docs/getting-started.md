@@ -97,9 +97,9 @@ footy-tipper tips refresh
 - `tips refresh` dispatches the exact no-email refresh mode and waits. Use it after a model update or when current inputs need another pass.
 
 Scheduled production uses two independent clocks. GitHub starts off-boundary
-Sydney-time polls at 11:07 on the day of a round's first game; the Cloudflare
-watchdog requests the same gate from 11:27 if GitHub is late. Duplicate-prevention
-state makes overlapping retries safe. Complete the one-time
+Sydney-time polls at 11:07 on the day of a round's first game; the Google Apps
+Script watchdog requests the same gate from approximately 11:27 if GitHub is
+late. Duplicate-prevention state makes overlapping retries safe. Complete the one-time
 [watchdog setup](watchdog-setup.md) before relying on the fallback.
 
 ## A manual live send

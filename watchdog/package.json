@@ -4,18 +4,20 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   },
   "scripts": {
-    "check": "node --check src/index.js",
+    "check": "node --check src/Code.js && node -e \"JSON.parse(require('fs').readFileSync('src/appsscript.json', 'utf8'))\"",
     "test": "node --test",
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev --test-scheduled"
+    "login": "clasp login",
+    "create": "clasp create --type standalone --title \"Footy Tipper Delivery Watchdog\" --rootDir src",
+    "push": "clasp push",
+    "open": "clasp open"
   },
   "devDependencies": {
-    "wrangler": "4.119.0"
+    "@google/clasp": "3.3.0"
   },
   "overrides": {
-    "undici": "7.29.0"
+    "uuid": "11.1.1"
   }
 }
