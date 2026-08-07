@@ -64,6 +64,14 @@ Lineup ingestion owns `lineup_article_snapshots`, `lineup_entries`, and `lineup_
 
 [Editable Mermaid source](diagrams/model-stack.mmd)
 
+The calibrated probability and displayed scoreline are one coherent object, but
+Tier C is not allowed to rewrite every score forecast. Only when the score
+model tips the opposite side does inference move the expected score means along
+a total-preserving path to the calibrated probability. Simulation then combines
+side-specific negative-binomial dispersion (or Poisson fallback) with the
+shared `lambda3` component. The displayed scoreline splits the median total
+around the median margin and explicitly keeps the tipped side in front.
+
 A complete current release contains:
 
 | Artifact | Purpose |

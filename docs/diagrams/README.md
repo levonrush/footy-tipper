@@ -9,7 +9,7 @@ This directory is the canonical home for editable Mermaid architecture sources a
 | Operator CLI hierarchy | [source](operator-cli.mmd) | [preview](operator-cli.svg) |
 | Current production architecture | [source](current-production.mmd) | [preview](current-production.svg) |
 | Dual-clock delivery watchdog, guarded gate, and alert lifecycle | [source](delivery-watchdog.mmd) | [preview](delivery-watchdog.svg) |
-| Model, market, calibration, margin, and simulation | [source](model-stack.mmd) | [preview](model-stack.svg) |
+| Model, market, calibration, score reconciliation, simulation, and display | [source](model-stack.mmd) | [preview](model-stack.svg) |
 | Versioned lineup ingestion and as-of selection | [source](lineup-as-of.mmd) | [preview](lineup-as-of.svg) |
 | Immutable model publication, Actions runtime state, and delivery safety | [source](operations-state.mmd) | [preview](operations-state.svg) |
 | Python production feeds and legacy XML rollback | [source](feed-migration.mmd) | [preview](feed-migration.svg) |

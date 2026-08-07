@@ -38,7 +38,7 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `training-receipt.json` is written last and records release provenance, versions, training scope, sizes, and hashes.
   - GitHub Actions must not train or auto-train.
 - Inference:
-  - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, simulates outcomes with bivariate Poisson (`lambda3`), and upserts into `predictions_table`.
+  - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, reconciles score means only when their tip conflicts with the calibrated tip, simulates negative-binomial/Poisson marginals with shared `lambda3`, derives the displayed scoreline from median margin/total, and upserts into `predictions_table`.
 - Distribution:
   - `footy-tipper tips test|live` dispatches the exact Actions mode; technical local delivery is under `advanced delivery`.
   - The delivery implementation reads the prediction view, computes EV-based value picks with Kelly-derived staking, and handles upload/email via `pipeline/common/use_predictions/` modules (joker, staking, scoreboard, email_copy, email_render, distribution, site).
@@ -54,7 +54,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 
 ## Critical Runtime Config
 - Season controls:
-  - `FOOTY_TIPPER_START_YEAR` (default: `2010`)
+  - `FOOTY_TIPPER_START_YEAR` (default: `2008`)
   - `FOOTY_TIPPER_END_YEAR` (default: current year)
   - `FOOTY_TIPPER_INCLUDE_PERFORMANCE` (default: `true`)
 - Lineup controls:
