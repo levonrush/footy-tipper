@@ -1,15 +1,18 @@
 name: Predict
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('Predict manual ({0})', inputs.mode) || 'Predict scheduled gate' }}
+run-name: ${{ inputs.watchdog && 'Predict watchdog gate' || (github.event_name == 'workflow_dispatch' && format('Predict manual ({0})', inputs.mode) || 'Predict scheduled gate') }}
 
-# 15-minute gate: reads schedule.json from Drive and runs the full predict job
-# at the first poll after 11am Sydney on the first-game day of the next
-# unsent round. Manual dispatch bypasses the gate. The Actions-only runner has
-# an exact mode allowlist: test emails only FOOTY_TIPPER_TEST_EMAIL and never
-# publishes runtime/site state, refresh never emails, and live is explicit.
+# Targeted Sydney-time gate: reads schedule.json from Drive and runs the full
+# predict job at the first available poll after 11am on the first-game day of
+# the next unsent round. A separately hosted watchdog may request the same gate
+# through an actor-guarded input. Manual dispatch bypasses the gate and keeps
+# the exact mode/round confirmation contract.
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "7,22,37,52 11 * * *"
+      timezone: "Australia/Sydney"
+    - cron: "7,37 12-14 * * *"
+      timezone: "Australia/Sydney"
   workflow_dispatch:
     inputs:
       mode:
@@ -21,6 +24,11 @@ on:
         description: "Manual LIVE only: the round number you explicitly confirmed"
         required: false
         type: string
+      watchdog:
+        description: "Internal only: request the schedule gate as the configured watchdog app"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   gate:
@@ -32,9 +40,9 @@ jobs:
       mode: ${{ steps.decide.outputs.mode }}
       reason: ${{ steps.decide.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -59,11 +67,30 @@ jobs:
       - name: Gate decision
         id: decide
         env:
+          ACTOR: ${{ github.actor }}
           CONFIRMED_ROUND: ${{ inputs.confirmed_round }}
           DISPATCH_MODE: ${{ inputs.mode }}
           EVENT_NAME: ${{ github.event_name }}
+          WATCHDOG_ACTOR: ${{ vars.FOOTY_TIPPER_WATCHDOG_ACTOR }}
+          WATCHDOG_REQUEST: ${{ inputs.watchdog }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$WATCHDOG_REQUEST" = "true" ]; then
+            if [ -z "$WATCHDOG_ACTOR" ] || [ "$ACTOR" != "$WATCHDOG_ACTOR" ]; then
+              echo "Watchdog dispatch refused: actor is not the configured watchdog app." >&2
+              exit 2
+            fi
+            if [ -n "$CONFIRMED_ROUND" ]; then
+              echo "Watchdog dispatch must not provide confirmed_round." >&2
+              exit 2
+            fi
+            python -m pipeline.ops.actions_runner gate
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            case "$ACTOR" in
+              *"[bot]")
+                echo "Bot actors may only use the guarded watchdog gate." >&2
+                exit 2
+                ;;
+            esac
             if [ "$DISPATCH_MODE" = "live" ]; then
               case "$CONFIRMED_ROUND" in
                 ''|*[!0-9]*)
@@ -98,7 +125,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Materialise secrets
         env:
@@ -148,3 +175,106 @@ jobs:
       - name: Publish site
         if: success() && needs.gate.outputs.mode != 'test'
         run: python -m pipeline.ops.actions_runner site-publish
+
+  delivery-alert:
+    needs: [gate, predict]
+    if: >-
+      always() &&
+      (github.event_name == 'schedule' || inputs.watchdog == true) &&
+      (
+        needs.gate.result == 'failure' ||
+        needs.predict.result == 'failure' ||
+        (needs.gate.outputs.mode == 'live' && needs.predict.result == 'success')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Reconcile automation alert
+        uses: actions/github-script@v9
+        env:
+          ALERT_TITLE: "[footy-tipper] Automated delivery needs attention"
+          GATE_MODE: ${{ needs.gate.outputs.mode }}
+          GATE_REASON: ${{ needs.gate.outputs.reason }}
+          GATE_RESULT: ${{ needs.gate.result }}
+          PREDICT_RESULT: ${{ needs.predict.result }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = process.env.ALERT_TITLE;
+            const label = "automation-alert";
+            const failed =
+              process.env.GATE_RESULT === "failure" ||
+              process.env.PREDICT_RESULT === "failure";
+
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: label,
+                color: "b60205",
+                description: "Automatic prediction or delivery needs operator attention",
+              });
+            }
+
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: "open", labels: label, per_page: 100 },
+            );
+            const existing = issues.find(
+              (issue) => !issue.pull_request && issue.title === title,
+            );
+            const runUrl =
+              `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            if (failed) {
+              const body = [
+                "An automated prediction/delivery run failed.",
+                "",
+                `- Run: ${runUrl}`,
+                `- Event: ${context.eventName}`,
+                `- Actor: ${context.actor}`,
+                `- Gate result: ${process.env.GATE_RESULT || "unknown"}`,
+                `- Gate mode: ${process.env.GATE_MODE || "unknown"}`,
+                `- Gate reason: ${process.env.GATE_REASON || "unavailable"}`,
+                `- Prediction result: ${process.env.PREDICT_RESULT || "unknown"}`,
+                "",
+                "Run `footy-tipper status` before attempting any recovery. A pending delivery marker must be reconciled, never resent automatically.",
+              ].join("\n");
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: existing.number,
+                  body,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner,
+                  repo,
+                  title,
+                  body,
+                  labels: [label],
+                  assignees: [owner],
+                });
+              }
+            } else if (existing) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body: `A successful live run cleared this alert: ${runUrl}`,
+              });
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: existing.number,
+                state: "closed",
+                state_reason: "completed",
+              });
+            }

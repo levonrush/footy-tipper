@@ -173,6 +173,38 @@ class ActionsRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "unsupported mode"):
                 actions_runner.main(["gate"])
 
+    def test_malformed_schedule_requests_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "github-output"
+
+            def invalid_download(_service, _file_id, path):
+                Path(path).write_text("{not-json", encoding="utf-8")
+
+            with mock.patch.object(
+                actions_runner.state_sync, "drive_service", return_value=object()
+            ), mock.patch.object(
+                actions_runner.state_sync,
+                "_existing_state_folder",
+                return_value="state",
+            ), mock.patch.object(
+                actions_runner.state_sync,
+                "find_file_id",
+                return_value="schedule-id",
+            ), mock.patch.object(
+                actions_runner.state_sync,
+                "download_to",
+                side_effect=invalid_download,
+            ), mock.patch.dict(
+                os.environ,
+                {"GITHUB_OUTPUT": str(output)},
+            ):
+                result = actions_runner.main(["gate"])
+                text = output.read_text(encoding="utf-8")
+
+        self.assertEqual(result, 0)
+        self.assertIn("mode=refresh\n", text)
+        self.assertIn("reason=runtime schedule is missing", text)
+
 
 class RuntimePredictionTests(unittest.TestCase):
     def _patched_pipeline(self, ensure_models=True, send_result=0):

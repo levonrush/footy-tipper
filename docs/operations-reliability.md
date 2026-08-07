@@ -72,13 +72,32 @@ Use `footy-tipper status --offline` only when remote checks are unavailable. Tre
 
 ## Scheduled prediction
 
-[`predict.yml`](../.github/workflows/predict.yml) polls every 15 minutes. The gate derives the first fixture date in `Australia/Sydney` and returns:
+[`predict.yml`](../.github/workflows/predict.yml) uses targeted, off-boundary
+Sydney-time polls beginning at 11:07 and continuing through 14:37. An
+independent Cloudflare Worker requests the same guarded gate at 11:27, 11:57,
+and every 30 minutes through 14:57. The gate derives the first fixture date in
+`Australia/Sydney` and returns:
 
 - `live`: at the first available gate on or after 11:00 Sydney on that date, through the existing post-kickoff grace period;
 - `refresh`: when published runtime state is stale;
 - `skip`: before the target, after an expired round, or when there is no actionable round.
 
-The ledger and delivery marker prevent duplicates. An expired unsent round progresses to the next actionable round. `zoneinfo` handles AEST/AEDT and UTC date boundaries. GitHub cron can be delayed; the 15-minute poll and grace window are recovery mechanisms, not an exact-time guarantee.
+The ledger and delivery marker prevent duplicates. An expired unsent round
+progresses to the next actionable round. `zoneinfo` handles AEST/AEDT and UTC
+date boundaries. A missing or unreadable published schedule requests a refresh
+instead of silently skipping. GitHub and Cloudflare are independent clocks;
+the post-kickoff grace window remains the final recovery boundary.
+
+The watchdog uses a GitHub App installed only on this repository with Actions
+write permission. It can set only the actor-guarded `watchdog` input; the
+workflow then runs the schedule gate. Bot actors cannot enter manual
+`test`, `refresh`, or `live`, and human live dispatch still requires the exact
+round confirmation. See [watchdog setup](watchdog-setup.md).
+
+An automated gate or prediction failure creates or updates one assigned issue
+labelled `automation-alert`. A later successful live run closes it. This alert
+does not weaken the pending-marker rule: ambiguous SMTP still requires human
+reconciliation.
 
 Actions uses the machine-only `pipeline.ops.actions_runner` interface. Its prediction mode is an exact allowlist of `test`, `refresh`, and `live`; an unknown value fails. There is no wildcard branch that can become live. Every mode refuses auto-training.
 

@@ -46,7 +46,13 @@ def _run_gate(root: pathlib.Path) -> int:
             with tempfile.TemporaryDirectory() as tmp:
                 schedule_path = pathlib.Path(tmp) / state_sync.SCHEDULE_FILE
                 state_sync.download_to(service, schedule_id, schedule_path)
-                schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
+                try:
+                    schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+                    state_sync._log(
+                        "Published schedule.json is unreadable; requesting a refresh."
+                    )
+                    schedule = None
 
     mode, reason = state_sync.gate_decision(schedule)
     if mode not in {"live", "refresh", "skip"}:

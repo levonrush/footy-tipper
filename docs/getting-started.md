@@ -96,7 +96,11 @@ footy-tipper tips refresh
 - `tips test` dispatches the exact GitHub Actions test mode and waits for the result. It sends only to the configured test recipient and does not change the production send ledger, joker state, runtime database, or site.
 - `tips refresh` dispatches the exact no-email refresh mode and waits. Use it after a model update or when current inputs need another pass.
 
-Scheduled production polls every 15 minutes. On the day of a round's first game, the first available poll at or after 11:00 `Australia/Sydney` becomes eligible. GitHub can delay cron jobs slightly; duplicate-prevention state makes retries safe.
+Scheduled production uses two independent clocks. GitHub starts off-boundary
+Sydney-time polls at 11:07 on the day of a round's first game; the Cloudflare
+watchdog requests the same gate from 11:27 if GitHub is late. Duplicate-prevention
+state makes overlapping retries safe. Complete the one-time
+[watchdog setup](watchdog-setup.md) before relying on the fallback.
 
 ## A manual live send
 

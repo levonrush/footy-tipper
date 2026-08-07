@@ -514,10 +514,10 @@ class GateDecisionTests(unittest.TestCase):
             "upcoming_rounds": rounds,
         }
 
-    def test_missing_schedule_skips(self):
+    def test_missing_schedule_refreshes(self):
         mode, reason = state_sync.gate_decision(None, now=1_000_000)
-        self.assertEqual(mode, "skip")
-        self.assertIn("not seeded", reason)
+        self.assertEqual(mode, "refresh")
+        self.assertIn("rebuilding", reason)
 
     def test_aest_target_is_11am_sydney(self):
         kickoff = _epoch(2026, 7, 16, 19, 30, tz=SYDNEY)

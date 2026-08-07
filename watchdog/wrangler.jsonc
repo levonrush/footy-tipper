@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "footy-tipper-delivery-watchdog",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-06",
+  "workers_dev": false,
+  "triggers": {
+    "crons": [
+      "27,57 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "GITHUB_OWNER": "levonrush",
+    "GITHUB_REPO": "footy-tipper",
+    "GITHUB_WORKFLOW_FILE": "predict.yml",
+    "GITHUB_REF": "main",
+    "GITHUB_APP_ID": "REPLACE_WITH_GITHUB_APP_ID",
+    "GITHUB_INSTALLATION_ID": "REPLACE_WITH_GITHUB_INSTALLATION_ID"
+  },
+  "secrets": {
+    "required": [
+      "GITHUB_APP_PRIVATE_KEY"
+    ]
+  }
+}

@@ -76,6 +76,10 @@ dist/
 .mypy_cache/
 .ruff_cache/
 .ipynb_checkpoints/
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
 
 # Virtual environments
 .venv/

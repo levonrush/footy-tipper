@@ -536,7 +536,7 @@ def gate_decision(schedule, now=None, grace_hours=GRACE_HOURS,
     """
     now = time.time() if now is None else now
     if not schedule:
-        return "skip", "runtime is not seeded: schedule.json is missing from Drive"
+        return "refresh", "runtime schedule is missing; rebuilding fixtures and schedule"
 
     grace = grace_hours * 3600
     for entry in schedule.get("upcoming_rounds", []):
@@ -1117,7 +1117,11 @@ def run_gate(root) -> int:
             with tempfile.TemporaryDirectory() as tmp:
                 schedule_path = pathlib.Path(tmp) / SCHEDULE_FILE
                 download_to(service, schedule_id, schedule_path)
-                schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
+                try:
+                    schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError, TypeError):
+                    _log("Published schedule.json is unreadable; requesting a refresh.")
+                    schedule = None
 
     mode, reason = gate_decision(schedule)
     _log(f"Gate decision: {mode} ({reason})")

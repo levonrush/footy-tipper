@@ -6,6 +6,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 PREDICT_WORKFLOW = WORKFLOW_DIR / "predict.yml"
 MODEL_CHECK_WORKFLOW = WORKFLOW_DIR / "model-check.yml"
+SMOKE_WORKFLOW = WORKFLOW_DIR / "smoke-checks.yml"
 DOCKERIGNORE = REPO_ROOT / ".dockerignore"
 COMPOSE_FILE = REPO_ROOT / "compose.yml"
 POST_MERGE_CUTOVER = REPO_ROOT / "pipeline" / "ops" / "post_merge_cutover.sh"
@@ -50,12 +51,49 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotRegex(workflow_text, r"(?m)^\s*\*\)\s+")
         self.assertNotIn("--skip-auto-train", workflow_text)
 
+    def test_predict_uses_targeted_off_boundary_sydney_schedule(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('cron: "7,22,37,52 11 * * *"', workflow_text)
+        self.assertIn('cron: "7,37 12-14 * * *"', workflow_text)
+        self.assertEqual(
+            workflow_text.count('timezone: "Australia/Sydney"'),
+            2,
+        )
+        self.assertNotIn('cron: "*/15 * * * *"', workflow_text)
+
     def test_manual_live_is_bound_to_a_confirmed_round(self):
         workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("confirmed_round:", workflow_text)
         self.assertIn("Manual LIVE requires a numeric confirmed_round.", workflow_text)
         self.assertIn('--confirmed-round "$CONFIRMED_ROUND"', workflow_text)
         self.assertIn("confirmed_round is valid only for LIVE.", workflow_text)
+
+    def test_watchdog_can_only_request_the_gate_as_configured_bot(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("watchdog:", workflow_text)
+        self.assertIn("FOOTY_TIPPER_WATCHDOG_ACTOR", workflow_text)
+        self.assertIn(
+            "Watchdog dispatch refused: actor is not the configured watchdog app.",
+            workflow_text,
+        )
+        self.assertIn(
+            "Bot actors may only use the guarded watchdog gate.",
+            workflow_text,
+        )
+        self.assertIn("Watchdog dispatch must not provide confirmed_round.", workflow_text)
+        self.assertIn("pipeline.ops.actions_runner gate", workflow_text)
+
+    def test_all_prediction_sources_share_the_state_concurrency_lock(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("group: footy-tipper-state", workflow_text)
+        self.assertIn("cancel-in-progress: false", workflow_text)
+
+    def test_automated_failures_reconcile_one_operator_alert(self):
+        workflow_text = PREDICT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("delivery-alert:", workflow_text)
+        self.assertIn("issues: write", workflow_text)
+        self.assertIn("automation-alert", workflow_text)
+        self.assertIn("state_reason: \"completed\"", workflow_text)
 
     def test_model_check_workflow_is_validation_only(self):
         workflow_text = MODEL_CHECK_WORKFLOW.read_text(encoding="utf-8")
@@ -117,6 +155,15 @@ class WorkflowContractTests(unittest.TestCase):
             for path in _workflow_paths()
         )
         self.assertNotRegex(workflow_text, r"gh workflow enable ")
+
+    def test_smoke_checks_cover_the_independent_watchdog(self):
+        workflow_text = SMOKE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("working-directory: watchdog", workflow_text)
+        self.assertIn("node-version: \"24\"", workflow_text)
+        self.assertIn("npm ci --ignore-scripts", workflow_text)
+        self.assertIn("npm run check", workflow_text)
+        self.assertIn("npm test", workflow_text)
+        self.assertIn("npm audit --audit-level=high", workflow_text)
 
     def test_unsafe_legacy_job_launchers_are_removed(self):
         self.assertFalse(COMPOSE_FILE.exists())
