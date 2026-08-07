@@ -1,7 +1,8 @@
 %%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":40},"themeVariables":{"fontFamily":"Inter, Arial, sans-serif","fontSize":"13px","primaryTextColor":"#0F172A","lineColor":"#475569","background":"transparent"}}}%%
 flowchart TB
   OP[/Operator/]
-  ACTIONS[/GitHub Actions<br/>serialized prediction/delivery · production-image checks/]
+  ACTIONS[/GitHub Actions<br/>prediction/delivery · production-image checks/]
+  GOOGLE_CLOCK[/Google Apps Script watchdog<br/>five-minute clock · 30-minute slots/]
   NRL[/nrl.com match data/]
   ODDS[/Historical and live odds/]
   LINEUP_SOURCE[/Team Lists and Late Mail/]
@@ -29,6 +30,7 @@ flowchart TB
   MARKER[(Delivery marker<br/>pending = uncertain · sent)]
   EMAIL([Email delivery])
   BLOCK([Fail run<br/>keep pending/uncertain])
+  ALERT([Create or update assigned<br/>automation-alert issue])
   SYNC([Push runtime DB and schedule only])
   SITE([Generate site])
 
@@ -37,6 +39,7 @@ flowchart TB
   CLI -->|tips commands and advanced live aliases| ACTIONS
   ACTIONS --> MACHINE
   MACHINE --> GATE
+  GOOGLE_CLOCK -->|guarded watchdog=true| ACTIONS
   NRL --> INGEST
   ODDS --> INGEST
   LINEUP_SOURCE --> INGEST
@@ -54,6 +57,7 @@ flowchart TB
   MACHINE --> INGEST
   PREP --> RUNTIME_DB
   GATE -->|live or refresh| INFER
+  GATE -.->|automated failure| ALERT
   RELEASE --> INFER
   RUNTIME_DB --> INFER
   INFER --> DECIDE
@@ -68,11 +72,13 @@ flowchart TB
   SMTP -->|live success marks sent| MARKER
   SMTP -->|live partial · refused · ambiguous| BLOCK
   BLOCK -->|remains| MARKER
+  BLOCK -.->|automated failure| ALERT
   MARKER -->|sent then reconcile ledger| RUNTIME_DB
   RUNTIME_DB --> SYNC
   SYNC --> RUNTIME_STATE
   MODE -->|refresh or live| SITE
   SITE --> PAGES
+  MARKER -->|successful live closes| ALERT
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
   classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
@@ -80,8 +86,8 @@ flowchart TB
   classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
 
-  class OP,ACTIONS,NRL,ODDS,LINEUP_SOURCE,SMTP,PAGES source;
-  class CLI,MACHINE,INGEST,PREP,INFER,DECIDE,PREP_EMAIL,NO_CLAIM,EMAIL,BLOCK,SYNC,SITE process;
+  class OP,ACTIONS,GOOGLE_CLOCK,NRL,ODDS,LINEUP_SOURCE,SMTP,PAGES source;
+  class CLI,MACHINE,INGEST,PREP,INFER,DECIDE,PREP_EMAIL,NO_CLAIM,EMAIL,BLOCK,ALERT,SYNC,SITE process;
   class TRAIN_DB,RUNTIME_DB,RUNTIME_STATE,POINTER,MARKER data;
   class TRAIN,RELEASE model;
   class VERIFY,MODEL_CHECK,GATE,MODE decision;

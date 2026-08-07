@@ -72,6 +72,10 @@ Use `footy-tipper status --offline` only when remote checks are unavailable. Tre
 
 ## Scheduled prediction
 
+![Two independent hosted clocks feeding one guarded prediction and delivery gate](diagrams/delivery-watchdog.svg)
+
+[Editable Mermaid source](diagrams/delivery-watchdog.mmd)
+
 [`predict.yml`](../.github/workflows/predict.yml) uses targeted, off-boundary
 Sydney-time polls beginning at 11:07 and continuing through 14:37. An
 independent Google Apps Script clock requests the same guarded gate in
@@ -100,6 +104,12 @@ An automated gate or prediction failure creates or updates one assigned issue
 labelled `automation-alert`. A later successful live run closes it. This alert
 does not weaken the pending-marker rule: ambiguous SMTP still requires human
 reconciliation.
+
+Normal weekly operator work is therefore **none**. Google reports installed
+trigger failures to the Apps Script owner, GitHub records every guarded
+heartbeat, and the repository issue is the durable action queue for an
+automated failure. Do not create a live dispatch merely because one clock was
+late; check `footy-tipper status`, the latest workflow run, and the alert issue.
 
 Actions uses the machine-only `pipeline.ops.actions_runner` interface. Its prediction mode is an exact allowlist of `test`, `refresh`, and `live`; an unknown value fails. There is no wildcard branch that can become live. Every mode refuses auto-training.
 
@@ -206,6 +216,27 @@ Fix the named source/configuration problem and rerun. The old release is still a
 
 Credential, token, Google Sheet, and recipient validation happens before the marker claim. The failure message should confirm that no marker was created and no email was sent. After verifying the marker is absent and no DB ledger row exists, fix the named configuration issue and let the next eligible run retry.
 
+### The watchdog heartbeat is missing or failing
+
+GitHub scheduling remains active while the Google clock is investigated. In
+Apps Script, run `watchdogStatus`; the expected result is `configured=true` and
+`triggerCount=1`. Check **Executions** for the named HTTP status without copying
+the token or response data anywhere.
+
+If the token was revoked, replace only the `GITHUB_TOKEN` Script Property with
+another repository-scoped fine-grained token granting Actions write, confirm
+the production gate currently reports `skip`, and run `probeWatchdog`. If the
+trigger is absent, rerun `installWatchdog`; it replaces only this watchdog's
+trigger. Follow the complete [watchdog runbook](watchdog-setup.md).
+
+### An automation-alert issue is open
+
+Begin with `footy-tipper status` and the Actions run linked from the issue.
+Resolve the named gate, prediction, data, credential, or delivery failure. Do
+not close the issue as proof of recovery and do not retry a pending SMTP
+outcome. The workflow updates the same issue for later failures and closes it
+only after a successful live run.
+
 ### SMTP may have succeeded
 
 Treat the message as sent until proven otherwise. The pending marker should block retries, including after a partial-recipient refusal. Check mailbox/provider evidence, then reconcile both Drive and SQLite before considering another live dispatch.
@@ -254,6 +285,8 @@ footy-tipper advanced site publish
 
 - `footy-tipper status` explanation and active release ID
 - latest Actions run mode, gate decision, and reason
+- exactly one Apps Script `watchdogTick` trigger and its latest successful slot
+- open `automation-alert` issue, if any
 - model receipt, archive hashes, and GitHub Actions production-image check
 - next season/round selected by `prediction_table.sql`
 - delivery marker and `email_sends` agreement
@@ -264,4 +297,4 @@ footy-tipper advanced site publish
 
 ## Security
 
-Never commit `secrets.env`, `service-account-token.json`, passwords, API keys, model-update logs, or rendered email output containing private data. Preserve [`.gitignore`](../.gitignore), review public Actions logs, redact secrets in human/JSON errors, and use the least credentials required for each action.
+Never commit `secrets.env`, `service-account-token.json`, passwords, API keys, model-update logs, or rendered email output containing private data. The watchdog's repository-scoped GitHub token belongs only in the Apps Script `GITHUB_TOKEN` property; SMTP, Drive, recipient, model, and content-generation credentials remain in GitHub. Preserve [`.gitignore`](../.gitignore), review public Actions logs, redact secrets in human/JSON errors, and use the least credentials required for each action.

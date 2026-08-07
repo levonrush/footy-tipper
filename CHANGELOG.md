@@ -5,11 +5,18 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- A second hosted scheduling clock using Google Apps Script, a guarded
+  `watchdog=true` workflow input, repository-scoped token boundary, automatic
+  failure issue, dedicated operations runbook, and dual-clock Mermaid diagram.
 - Distributional scoring for the margin (`pipeline/common/model_training/distributional_metrics.py`): CRPS on ensemble samples, randomised PIT for the discrete outcome, and coverage returned welded to interval width. Wired into the nested evaluation and persisted in `reports/eval-*.json`, scored against a normal approximation, an empirical replay of past errors, and the market line. Nothing previously scored the score distribution, so `lambda3`, the negative-binomial dispersion, and the market score blends were unfalsifiable.
 - `research/phd-methods-transfer.ipynb` documenting which PhD methods were ported, which were rejected, and the results, generated with embedded outputs by `research/build_phd_transfer_notebook.py`.
 - Scoring for the *displayed* scoreline, which no metric reached before: the evaluation now replays the importance-reweighting the constraint-native solve replaced, on identical per-game seeds, and reports margin, per-side score, and total MAE plus a seed-matched margin CRPS for both. Recorded under `margin_distribution.reconciliation`. Supported by `crps_weighted_ensemble`, which scores a weighted ensemble on the same scale as an unweighted one.
 
 ### Changed
+- Scheduled delivery now uses targeted off-boundary GitHub polls plus
+  independent DST-aware Google recovery slots. Both clocks ask the same
+  Drive-backed gate, and existing concurrency, marker, ledger, odds, and SMTP
+  protections remain authoritative.
 - The calibrated win probability and the simulated scoreline are now one object. Score means are solved along a total-preserving ray so the simulated distribution's own win probability is the calibrated one, replacing the post-hoc importance reweighting and removing the mirroring fallback for a side the simulation could not produce.
 - The displayed scoreline is the median of the simulation, not its mode. `simulate_game` already returned `median_margin` and the display discarded it in favour of the most common exact scoreline, which is a high-variance statistic on a two-dimensional discrete distribution. The new `pf.scoreline_from_samples` splits the median total around the median margin, and pushes a zero or wrong-signed margin one point onto the tipped side so the scoreline can never contradict the tip. Worth 3.4 points of total MAE and about a point of per-side score MAE on the 2024 to 2026 holdout.
 - Reconciliation now runs only where it is needed. `simulate_game(reconcile="on_conflict")` moves the score means onto the calibrated probability only where the score model would otherwise put the other side in front; the requirement is non-contradiction, and most games already satisfy it. Reconciling regardless handed every scoreline to Tier C, which models no scores, and cost 0.37 points of margin MAE for nothing.
