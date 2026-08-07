@@ -11,8 +11,8 @@
     "test": "node --test",
     "login": "clasp login",
     "create": "clasp create --type standalone --title \"Footy Tipper Delivery Watchdog\" --rootDir src",
-    "push": "clasp push",
-    "open": "clasp open"
+    "push": "clasp push --force",
+    "open": "clasp open-script"
   },
   "devDependencies": {
     "@google/clasp": "3.3.0"
