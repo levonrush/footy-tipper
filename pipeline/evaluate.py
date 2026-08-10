@@ -1168,6 +1168,92 @@ def _evaluate_season(
     return result
 
 
+def _write_explain_report(
+    collectors,
+    *,
+    data,
+    selected,
+    genuine_oof,
+    non_draw,
+    y_full,
+    tier_c_cond_oof,
+    market_cond,
+    home_mu_oof,
+    away_mu_oof,
+    project_root,
+    models_dir,
+    config,
+):
+    """Score the captured out-of-fold attributions and write the artifact.
+
+    Restricted to genuinely out-of-fold rows, so the honest analyses never see
+    a season the fold models trained on. Never raises: a diagnostics artifact
+    must not be able to fail the evaluation that produced it.
+    """
+    try:
+        from pipeline.common.explain import cohort as xcohort
+        from pipeline.common.explain import report as xreport
+        from pipeline.common.explain import trace as xtrace
+
+        rows = (
+            genuine_oof
+            & collectors["home"].captured
+            & collectors["away"].captured
+            & collectors["binary"].captured
+        )
+        if rows.sum() < 50:
+            print(f"Explain report skipped: only {int(rows.sum())} out-of-fold rows.")
+            return
+
+        stack = xtrace.load_probability_stack(models_dir)
+        multiplier = stack.chain_multiplier or 1.0
+        home_score = data["team_final_score_home"].to_numpy(dtype=float)[rows]
+        away_score = data["team_final_score_away"].to_numpy(dtype=float)[rows]
+
+        split_counts = {}
+        for collector in collectors.values():
+            for name, count in collector.split_counts.items():
+                split_counts[name] = split_counts.get(name, 0) + count
+
+        inputs = xcohort.CohortInputs(
+            source=xcohort.SOURCE_NESTED_OOF,
+            feature_names=collectors["binary"].feature_names,
+            prob_logit=multiplier * collectors["binary"].values[rows],
+            prob_base=multiplier * collectors["binary"].base_value[rows],
+            home_log_mu=collectors["home"].values[rows],
+            away_log_mu=collectors["away"].values[rows],
+            home_base=collectors["home"].base_value[rows],
+            away_base=collectors["away"].base_value[rows],
+            p_model=tier_c_cond_oof[rows],
+            y=y_full[rows],
+            non_draw=non_draw[rows],
+            mu_home=np.maximum(home_mu_oof[rows], 1e-6),
+            mu_away=np.maximum(away_mu_oof[rows], 1e-6),
+            actual_margin=home_score - away_score,
+            market_prob=market_cond[rows],
+            split_counts=split_counts,
+            frame=data.loc[rows].reset_index(drop=True),
+            meta={
+                "games": int(rows.sum()),
+                "predictor_count": len(selected),
+                "chain_multiplier": float(multiplier),
+                "stack": stack.describe(),
+            },
+        )
+
+        results = xcohort.run_analyses(inputs, "all")
+        path = xreport.write_explain_report(
+            xreport.build_explain_report(
+                results, source=inputs.source, config=config
+            ),
+            project_root,
+        )
+        if path is not None:
+            print(f"Explain report written to {path}")
+    except Exception as exc:
+        print(f"Explain report skipped ({exc}).")
+
+
 def _git_sha(project_root):
     try:
         out = subprocess.run(
@@ -1396,18 +1482,43 @@ def main():
         > data["team_final_score_away"].to_numpy(dtype=float)
     ).astype(int)
 
+    # Opt-in honest attribution. The collectors ride the folds that are already
+    # being fitted, so this adds one pred_contrib call per fold and no training.
+    explain_enabled = os.getenv("FOOTY_TIPPER_EVAL_EXPLAIN", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }
+    collectors = {}
+    if explain_enabled:
+        try:
+            from pipeline.common.explain import cohort as xcohort
+
+            collectors = {
+                name: xcohort.FoldCollector(home_model[:-1], len(data))
+                for name in ("home", "away", "binary")
+            }
+        except Exception as exc:
+            print(f"Explain capture disabled ({exc}).")
+            collectors = {}
+
     console.emit_progress("generating expanding-window out-of-fold predictions (slow)")
     print("Generating expanding-window OOF predictions (this is the slow part)...")
     home_mu_oof, home_mask = mf.generate_oof_score_predictions(
-        data, selected, home_model, "team_final_score_home", return_mask=True
+        data, selected, home_model, "team_final_score_home", return_mask=True,
+        on_fold=collectors.get("home"),
     )
     away_mu_oof, away_mask = mf.generate_oof_score_predictions(
-        data, selected, away_model, "team_final_score_away", return_mask=True
+        data, selected, away_model, "team_final_score_away", return_mask=True,
+        on_fold=collectors.get("away"),
     )
     best_params = dict(home_model.named_steps["hyperparamtuning"].best_params_)
     preprocessor_steps = home_model[:-1]
     tier_c_oof, binary_mask = mf.generate_oof_binary_predictions(
-        data, non_draw, selected, preprocessor_steps, best_params, return_mask=True
+        data, non_draw, selected, preprocessor_steps, best_params, return_mask=True,
+        on_fold=collectors.get("binary"),
     )
     tier_c_cond_oof = np.clip(tier_c_oof, 1e-6, 1 - 1e-6)
     genuine_oof = home_mask & away_mask & binary_mask
@@ -1750,6 +1861,23 @@ def main():
     report_path = _write_report(_build_report(results, pooled, config), project_root)
     if report_path is not None:
         print(f"\nReport written to {report_path}")
+
+    if collectors:
+        _write_explain_report(
+            collectors,
+            data=data,
+            selected=selected,
+            genuine_oof=genuine_oof,
+            non_draw=non_draw,
+            y_full=y_full,
+            tier_c_cond_oof=tier_c_cond_oof,
+            market_cond=market_cond,
+            home_mu_oof=home_mu_oof,
+            away_mu_oof=away_mu_oof,
+            project_root=project_root,
+            models_dir=models_dir,
+            config=config,
+        )
 
     if acceptance["passed"]:
         print("\nEvaluation complete.")

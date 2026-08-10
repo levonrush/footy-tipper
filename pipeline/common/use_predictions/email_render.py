@@ -277,6 +277,19 @@ def _scoreboard_text_line(scoreboard):
     return line + "."
 
 
+def _why_text(row) -> str:
+    """The stored one-line reason for a tip, or "" when there is not one.
+
+    Absent whenever inference ran before explanations existed, or the
+    explanation write failed. Both render exactly as the email did before.
+    """
+    value = row.get("why_line") if hasattr(row, "get") else None
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in {"", "nan", "none"} else text
+
+
 def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None, scoreboard=None):
     first_game = _first_game_callout(predictions)
     market_notice = _market_coverage_notice(predictions)
@@ -311,6 +324,9 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
             f"score {_format_predicted_score_numbers(row)}, "
             f"margin {_format_predicted_margin(row)})"
         )
+        why = _why_text(row)
+        if why:
+            lines.append(f"  why: {why}")
 
     lines.append("")
     if tipper_picks.empty:
@@ -408,6 +424,16 @@ def _render_html_email(
             badge_bg, badge_color = "#fef9c3", "#854d0e"
         else:
             badge_bg, badge_color = "#fee2e2", "#b91c1c"
+        # The why line rides inside the existing Tip cell rather than becoming a
+        # fifth column: the header row and the table widths stay exactly as they
+        # were, so a round without explanations renders identically.
+        why = _why_text(row)
+        why_html = (
+            "<div style=\"margin-top:3px; font-weight:400; font-size:12px; "
+            f"line-height:1.4; color:#6b7280;\">{html.escape(why)}</div>"
+            if why
+            else ""
+        )
         match_rows.append(
             f"<tr style=\"background:{row_bg};\">"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#111827; "
@@ -416,7 +442,7 @@ def _render_html_email(
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#0f766e; "
             "font-family:Arial, sans-serif; font-size:15px; font-weight:700; width:32%;\">"
-            f"<div>{html.escape(str(winner))}</div>"
+            f"<div>{html.escape(str(winner))}</div>{why_html}"
             "</td>"
             "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; width:16%;\">"
             f"<span style=\"display:inline-block; padding:3px 7px; border-radius:12px; "

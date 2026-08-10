@@ -147,7 +147,30 @@ def get_predictions(db_path, project_root):
     predictions = pd.read_sql_query(query, con)
     con.close()
     predictions = _sanitize_market_freshness(predictions, db_path)
-    return _sort_predictions_for_display(predictions)
+    predictions = _sort_predictions_for_display(predictions)
+    return _merge_why_lines(predictions, db_path)
+
+
+def _merge_why_lines(predictions, db_path):
+    """Attach the stored one-line explanation per game, if there is one.
+
+    Joined here in pandas rather than in prediction_table.sql on purpose: the
+    published view stays the ten-column contract its test pins, and a missing
+    or broken explanations table costs the email a sentence, not a send.
+    """
+    if predictions.empty or "game_id" not in predictions.columns:
+        return predictions
+    try:
+        from pipeline.common.explain import store as explain_store
+
+        lookup = explain_store.why_lines(db_path, predictions["game_id"].tolist())
+    except Exception:
+        return predictions
+    if not lookup:
+        return predictions
+    predictions = predictions.copy()
+    predictions["why_line"] = predictions["game_id"].map(lookup)
+    return predictions
 
 # The 'upload_df_to_drive' function uploads a pandas DataFrame as a CSV file to Google Drive.
 def upload_df_to_drive(df, json_path, parent_folder_id, filename):

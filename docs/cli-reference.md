@@ -127,7 +127,8 @@ footy-tipper advanced
 ├── local-run {preview|test|live}
 ├── delivery {preview|test|live}
 ├── cloud {pull-runtime|push-runtime|schedule|gate}
-└── site {build|publish}
+├── site {build|publish}
+└── explain {round|cohort|report}
 ```
 
 Run `--help` at any branch or leaf for technical flags:
@@ -159,7 +160,7 @@ footy-tipper advanced model evaluate --help
 | --- | --- |
 | `train` | Technical local training only. It may stage artifacts but does not activate a production release. |
 | `infer` | Load a selected/local artifact set and upsert predictions. Technical auto-training, where supported, must be an explicit flag here only. |
-| `evaluate` | Run nested season-out evaluation and write evidence under `reports/`. |
+| `evaluate` | Run nested season-out evaluation and write evidence under `reports/`. `--explain` additionally captures out-of-fold feature attribution to `reports/explain-latest.json`. |
 | `verify` | Validate artifact completeness, loading, manifest/receipt metadata, sizes, and hashes. |
 | `list` | List immutable model releases and identify the active one. |
 | `activate` | Recheck a selected release locally and in the hosted production image, then point production at it. A malformed old pointer is archived before an explicitly confirmed repair. |
@@ -200,6 +201,25 @@ No human-facing command sends production SMTP directly from the Mac. This keeps 
 
 - `build` writes generated pages under `docs/site/`.
 - `publish` intentionally publishes that generated output and therefore changes external Git/Pages state.
+
+### `advanced explain`
+
+Read-only. Nothing here writes to the database or changes a tip.
+
+| Command | Contract |
+| --- | --- |
+| `round` | Per-game drivers for the published round, read from `prediction_explanations`. `--trace` prints the exact arithmetic that produced the number, so it can be checked by hand. `--by feature` drops from family labels to raw predictors. |
+| `cohort` | Attribute the deployed models across all history and print the family, dead-weight and coverage analyses. Fast, and in-sample: it answers what the model uses, not whether that helps. `--write-report` saves `reports/explain-latest.json`. |
+| `report` | Render a stored report, whether written by `cohort` or by the honest `evaluate --explain` capture. |
+
+Two of the analyses only mean something out of fold, because in-sample contributions overstate every family's apparent edge:
+
+- `disagreement`: where the model departs from the market, which family supplied the departure, and whether the model or the market was right on those games.
+- `confident-wrong`: which families push hardest when a confident tip is wrong, plus the worst individual calls and what drove them.
+
+Both print an in-sample warning banner unless the report came from `advanced model evaluate --explain`.
+
+Explanations are written by inference alongside the tips and stored in `prediction_explanations`, a sibling of `predictions_table` rather than extra columns on it. The email and site read a one-line `why` from that table through a left join in pandas, so a missing or broken explanations table costs a sentence rather than a send. Set `FOOTY_TIPPER_EXPLAIN=false` to skip the write.
 
 ## Retired top-level commands
 

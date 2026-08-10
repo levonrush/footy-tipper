@@ -298,6 +298,11 @@ if probability_routes["consensus_guarded"]:
 
 margin_blend = manifest.get("margin_blend")
 total_blend = manifest.get("total_blend")
+# Snapshot before the market blend overwrites them, so explanations can show
+# what the models alone said versus what the market moved it to.
+tier_blended_mu_home = np.array(blended_mu_home, dtype=float, copy=True)
+tier_blended_mu_away = np.array(blended_mu_away, dtype=float, copy=True)
+score_market_diagnostics = {}
 try:
     blended_mu_home, blended_mu_away, score_market_diagnostics = (
         apply_market_score_mean_blends(
@@ -324,7 +329,7 @@ except Exception as exc:
 # Both chosen on the held-out margin scorecard, not by preference: see
 # `margin_distribution.reconciliation` in reports/eval-latest.json, which scores
 # every combination of these two switches on the same per-game seeds.
-outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
+outcomes, margins, sim_diagnostics = pf.predict_match_outcome_and_scoreline_with_bayes(
     inference_data=inference_data,
     mu_home=blended_mu_home,
     mu_away=blended_mu_away,
@@ -334,6 +339,7 @@ outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(
     dispersion_away=dispersion_away,
     reconcile="on_conflict",
     display="median",
+    return_diagnostics=True,
 )
 outcome_df = pd.merge(outcomes, margins, on="game_id")
 
@@ -343,6 +349,57 @@ pf.save_predictions_to_db(
     project_root / "pipeline/common/sql/create_table.sql",
     project_root / "pipeline/common/sql/insert_into_table.sql",
 )
+
+# Per-prediction explanations. Written after the tips are safely persisted and
+# wrapped so that any failure here leaves the round exactly as it would have
+# been: these are diagnostics, and diagnostics never break a send.
+if os.getenv("FOOTY_TIPPER_EXPLAIN", "true").strip().lower() not in {"0", "false", "no", "n", "off"}:
+    try:
+        from pipeline.common.explain import game as xgame
+        from pipeline.common.explain import store as xstore
+        from pipeline.common.explain import trace as xtrace
+
+        explanations = xgame.explain_games(
+            inference_data=inference_data,
+            predictors=predictors,
+            stack=xtrace.ProbabilityStack(
+                manifest=manifest,
+                stacker=stacker,
+                calibrator=calibrator,
+                stacker_no_market=stacker_no_market,
+                calibrator_no_market=calibrator_no_market,
+                binary_model=binary_model,
+            ),
+            home_model=home_model,
+            away_model=away_model,
+            tier_a=tier_a_cond,
+            tier_b=tier_b_cond,
+            tier_c=tier_c_cond,
+            market=market_cond,
+            valid_market=valid_market,
+            routes=probability_routes,
+            published_cond=calibrated_cond,
+            mu_model_home=home_model_mu,
+            mu_model_away=away_model_mu,
+            mu_blended_home=tier_blended_mu_home,
+            mu_blended_away=tier_blended_mu_away,
+            mu_final_home=blended_mu_home,
+            mu_final_away=blended_mu_away,
+            blend_weight_home=blend_weight_home,
+            blend_weight_away=blend_weight_away,
+            score_market_diagnostics=score_market_diagnostics,
+            sim_diagnostics=sim_diagnostics,
+            outcomes=outcome_df,
+        )
+        written = xstore.save_explanations(
+            explanations,
+            db_path,
+            project_root,
+            model_release=manifest.get("release"),
+        )
+        print(f"Explanations written for {written} game(s).")
+    except Exception as exc:
+        print(f"Explanations skipped ({exc}).")
 
 # Log tips summary (primary) and edge summary (secondary).
 try:

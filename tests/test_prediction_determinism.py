@@ -42,6 +42,55 @@ class DeterminismTests(unittest.TestCase):
         second = run()
         pd.testing.assert_frame_equal(first, second)
 
+    def test_diagnostics_do_not_change_the_prediction(self):
+        """Explainability rides out of the simulation that already ran.
+
+        If asking for diagnostics could re-simulate or reseed, a tip could move
+        depending on whether explanations were switched on. It must not.
+        """
+        frame = pd.DataFrame(
+            [
+                {"game_id": 31, "mu_h": 24.0, "mu_a": 18.0},
+                {"game_id": 32, "mu_h": 16.0, "mu_a": 17.5},
+            ]
+        )
+        kwargs = dict(
+            inference_data=frame,
+            mu_home=frame["mu_h"].to_numpy(),
+            mu_away=frame["mu_a"].to_numpy(),
+            lambda3=2.0,
+            n_simulations=20000,
+            calibrated_home_win_conditional=np.array([0.62, 0.44]),
+        )
+
+        outcomes, margins = pf.predict_match_outcome_and_scoreline_with_bayes(**kwargs)
+        with_diag, margins_diag, diagnostics = (
+            pf.predict_match_outcome_and_scoreline_with_bayes(
+                **kwargs, return_diagnostics=True
+            )
+        )
+
+        pd.testing.assert_frame_equal(outcomes, with_diag)
+        pd.testing.assert_frame_equal(margins, margins_diag)
+
+        self.assertEqual(list(diagnostics["game_id"]), [31, 32])
+        self.assertEqual(
+            set(diagnostics.columns),
+            {"game_id", "reconciled", "mu_home_used", "mu_away_used", "sim_draw_prob"},
+        )
+        # The reported means are the ones actually simulated.
+        np.testing.assert_allclose(diagnostics["mu_home_used"], frame["mu_h"])
+
+    def test_diagnostics_frame_is_empty_for_an_empty_round(self):
+        empty = pd.DataFrame(columns=["game_id"])
+        outcomes, margins, diagnostics = (
+            pf.predict_match_outcome_and_scoreline_with_bayes(
+                inference_data=empty, return_diagnostics=True
+            )
+        )
+        self.assertTrue(outcomes.empty and margins.empty and diagnostics.empty)
+        self.assertIn("reconciled", diagnostics.columns)
+
     def test_margin_is_median_of_simulations(self):
         probs, scoreline = pf.simulate_game(26, 14, n_simulations=50000, rng=pf.rng_for_game(3))
         self.assertIn("median_margin", probs)

@@ -878,6 +878,8 @@ def _advanced_model(args, *, root: pathlib.Path) -> int:
             raise RuntimeError("Model artifacts are missing; train a model first.")
         if args.seasons is not None:
             env["FOOTY_TIPPER_EVAL_SEASONS"] = str(args.seasons)
+        if getattr(args, "explain", False):
+            env["FOOTY_TIPPER_EVAL_EXPLAIN"] = "1"
         engine._run_evaluate(env, skip_prep=args.skip_prepare, root=root)
         return EXIT_OK
     raise InvocationError("Unknown advanced model command.")
@@ -943,6 +945,19 @@ def _advanced_site(args, *, root: pathlib.Path) -> int:
     return EXIT_OK
 
 
+def _advanced_explain(args, *, root: pathlib.Path) -> int:
+    from pipeline.common.explain import cli_views
+
+    db_path = root / "data" / "footy-tipper-db.sqlite"
+    if args.action == "round":
+        return cli_views.render_round(args, root=root, db_path=db_path)
+    if args.action == "cohort":
+        return cli_views.render_cohort(args, root=root, db_path=db_path)
+    if args.action == "report":
+        return cli_views.render_report(args, root=root)
+    raise InvocationError("Unknown advanced explain command.")
+
+
 def command_advanced(args, *, root: pathlib.Path) -> int:
     if args.advanced_command == "data":
         return _advanced_data(args, root=root)
@@ -956,6 +971,8 @@ def command_advanced(args, *, root: pathlib.Path) -> int:
         return _advanced_cloud(args, root=root)
     if args.advanced_command == "site":
         return _advanced_site(args, root=root)
+    if args.advanced_command == "explain":
+        return _advanced_explain(args, root=root)
     raise InvocationError("Unknown advanced command.")
 
 
@@ -1039,6 +1056,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_years(model_eval)
     model_eval.add_argument("--skip-prepare", action="store_true")
     model_eval.add_argument("--seasons", type=int)
+    model_eval.add_argument(
+        "--explain",
+        action="store_true",
+        help="Also capture out-of-fold feature attribution to reports/explain-latest.json.",
+    )
     model_sub.add_parser("verify", help="Verify the active published model.")
     model_list = model_sub.add_parser("list", help="List immutable model releases.")
     model_list.add_argument("--json", action="store_true")
@@ -1059,6 +1081,54 @@ def build_parser() -> argparse.ArgumentParser:
 
     site = advanced_sub.add_parser("site", help="Build or publish the static site.")
     site.add_argument("action", choices=("build", "publish"))
+
+    explain = advanced_sub.add_parser(
+        "explain", help="Show why the model thinks what it thinks."
+    )
+    explain_sub = explain.add_subparsers(
+        dest="action", required=True, parser_class=FriendlyParser
+    )
+
+    explain_round = explain_sub.add_parser(
+        "round", help="Per-game drivers for the published round."
+    )
+    explain_round.add_argument("--game-id", type=int)
+    explain_round.add_argument(
+        "--target", choices=("probability", "margin", "both"), default="both"
+    )
+    explain_round.add_argument("--by", choices=("family", "feature"), default="family")
+    explain_round.add_argument("--top", type=int, default=8)
+    explain_round.add_argument(
+        "--trace", action="store_true", help="Print the exact arithmetic chain."
+    )
+    explain_round.add_argument("--json", action="store_true")
+
+    explain_cohort = explain_sub.add_parser(
+        "cohort", help="Attribute the deployed models over all history."
+    )
+    _add_years(explain_cohort)
+    explain_cohort.add_argument(
+        "--analysis",
+        choices=("families", "dead", "coverage", "disagreement", "confident-wrong", "all"),
+        default="all",
+    )
+    explain_cohort.add_argument("--top", type=int, default=20)
+    explain_cohort.add_argument(
+        "--write-report", action="store_true", help="Also write reports/explain-latest.json."
+    )
+    explain_cohort.add_argument("--json", action="store_true")
+
+    explain_report = explain_sub.add_parser(
+        "report", help="Render a stored explain report."
+    )
+    explain_report.add_argument("--path", help="Report file (defaults to explain-latest.json).")
+    explain_report.add_argument(
+        "--analysis",
+        choices=("families", "dead", "coverage", "disagreement", "confident-wrong", "all"),
+        default="all",
+    )
+    explain_report.add_argument("--top", type=int, default=20)
+    explain_report.add_argument("--json", action="store_true")
     return parser
 
 

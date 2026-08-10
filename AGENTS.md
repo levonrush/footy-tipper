@@ -140,6 +140,7 @@ This file is for coding/automation agents working on `footy-tipper`.
   - latest `competition_year` with pre-game rows
   - minimum `round_id` within that season
 - `predictions_table` is upserted by `pipeline/common/sql/insert_into_table.sql`.
+- `prediction_explanations` is a sibling diagnostics table upserted by `pipeline/common/sql/insert_into_explanations_table.sql`. Keep it out of `prediction_table.sql`: the email and site left-join its `why_line` in pandas so a missing or broken explanations table costs a sentence, not a send. Its additive column migration lives once in `pipeline/common/explain/store.py`.
 
 ## Common Commands
 - Human/operator CLI:

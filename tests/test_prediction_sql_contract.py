@@ -119,6 +119,67 @@ class PredictionQueryContractTests(unittest.TestCase):
 
         self.assertEqual(rows, [])
 
+    def test_published_view_stays_the_predictions_contract(self):
+        """The view must not grow to depend on the explanations table.
+
+        Explanations are diagnostics: they are left-joined in pandas by
+        distribution.get_predictions so a missing or broken explanations table
+        costs the email a sentence rather than breaking the send. Pulling them
+        into this query would make the published view able to fail.
+        """
+        con = sqlite3.connect(":memory:")
+        _create_schema(con)
+        con.execute(
+            """
+            INSERT INTO footy_tipping_data (
+                game_id, game_state_name, competition_year, round_id, round_name,
+                team_home, position_home_ladder, team_head_to_head_odds_home,
+                team_away, position_away_ladder, team_head_to_head_odds_away,
+                start_time, game_number
+            ) VALUES (1, 'Pre Game', 2026, 5, 'Round 5', 'A', 1, 1.6, 'B', 2, 2.2, 0, 1)
+            """
+        )
+        con.execute(
+            """
+            INSERT INTO predictions_table (
+                game_id, home_team_result, home_team_win_prob, home_team_lose_prob
+            ) VALUES (1, 'Win', 0.6, 0.4)
+            """
+        )
+
+        cursor = con.execute(_read_prediction_query())
+        columns = {description[0] for description in cursor.description}
+        cursor.fetchall()
+        con.close()
+
+        query = _read_prediction_query().lower()
+        self.assertNotIn("prediction_explanations", query)
+        self.assertNotIn("why_line", columns)
+        self.assertEqual(
+            columns,
+            {
+                "game_id",
+                "home_team_result",
+                "team_home",
+                "position_home",
+                "team_head_to_head_odds_home",
+                "team_away",
+                "position_away",
+                "team_head_to_head_odds_away",
+                "home_team_win_prob",
+                "home_team_lose_prob",
+                "draw_prob",
+                "predicted_home_score",
+                "predicted_away_score",
+                "predicted_margin",
+                "bayes_factor",
+                "evidence_strength",
+                "round_id",
+                "competition_year",
+                "round_name",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

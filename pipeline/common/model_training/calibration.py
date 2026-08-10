@@ -1248,6 +1248,11 @@ def predict_probability_regimes(
         "tier_b": int((~valid_market).sum()),
         "consensus_guarded": 0,
     }
+    # Per-row companions to the counts above. Explainability needs to know which
+    # path a specific game took, because a guarded or Tier-B row is not
+    # explained by the binary model at all. Plain lists, not ndarrays: these
+    # end up inside evaluate's JSON report, which only strips top-level arrays.
+    row_route = ["tier_b"] * len(result)
 
     market_rows = np.flatnonzero(valid_market)
     if len(market_rows) and market_stacker is not None:
@@ -1274,6 +1279,8 @@ def predict_probability_regimes(
                 predicted = market_calibrator.predict(predicted)
             result[market_rows] = _clip_probs(predicted)
             routes["market"] = len(market_rows)
+            for row in market_rows:
+                row_route[row] = "market"
         except Exception:
             # A malformed/partial artifact must fail safe to Tier B.
             result[market_rows] = _clip_probs(tier_b[market_rows])
@@ -1298,6 +1305,8 @@ def predict_probability_regimes(
             result[no_market_rows] = _clip_probs(predicted)
             routes["no_market_pool"] = len(no_market_rows)
             routes["tier_b"] -= len(no_market_rows)
+            for row in no_market_rows:
+                row_route[row] = "no_market_pool"
         except Exception:
             result[no_market_rows] = _clip_probs(tier_b[no_market_rows])
 
@@ -1310,6 +1319,8 @@ def predict_probability_regimes(
         valid_market=valid_market,
     )
     routes["consensus_guarded"] = int(guarded.sum())
+    routes["row_route"] = row_route
+    routes["row_guarded"] = [bool(value) for value in guarded]
     return result, routes
 
 
