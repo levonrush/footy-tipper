@@ -21,6 +21,7 @@ from pipeline.common.use_predictions.email_render import (
     _joker_reader_lines,
     _market_coverage_notice,
     _prediction_winner,
+    _why_text,
     tip_probability,
 )
 from pipeline.common.use_predictions.joker import get_joker_round_recommendation
@@ -52,6 +53,17 @@ th { text-align: left; padding: 8px 10px; color: #64748b; font-size: 12px;
 td { padding: 9px 10px; border-bottom: 1px solid #f1f5f9; }
 tr:nth-child(even) td { background: #f8fafc; }
 .tip { color: #0f766e; font-weight: 700; }
+.why { display: block; margin-top: 3px; font-weight: 400; font-size: 12px; color: #64748b; }
+.why-block { margin: 0 0 10px; color: #334155; font-size: 14px; }
+.card h3 { margin: 16px 0 6px; font-size: 14px; color: #475569; text-transform: uppercase;
+           letter-spacing: 0.4px; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.barcell { width: 45%; }
+.bar { display: inline-block; height: 10px; border-radius: 3px; min-width: 2px; }
+.bar.pos { background: #0f766e; }
+.bar.neg { background: #b91c1c; }
+.flags { margin: 0 0 8px; font-size: 12px; color: #9a3412; }
+.chain { margin: 8px 0 0; font-size: 12px; color: #64748b; font-variant-numeric: tabular-nums; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; }
 .badge.hi  { background: #dcfce7; color: #15803d; }
 .badge.med { background: #fef9c3; color: #854d0e; }
@@ -98,7 +110,7 @@ def _page(title, subtitle, body, generated_note=True):
 <h1>Footy Tipper</h1>
 <p>{html.escape(subtitle)}</p>
 </header>
-<nav><a href="index.html">This Round</a><a href="results.html">Season Results</a></nav>
+<nav><a href="index.html">This Round</a><a href="results.html">Season Results</a><a href="explain.html">Why</a></nav>
 {body}
 <footer>{footer}</footer>
 </div>
@@ -137,10 +149,12 @@ def _tips_card(predictions):
     for _, row in predictions.iterrows():
         winner = _prediction_winner(row)
         tip_prob = tip_probability(row)
+        why = _why_text(row)
+        why_html = f'<span class="why">{html.escape(why)}</span>' if why else ""
         rows.append(
             "<tr>"
             f"<td>{html.escape(str(row['team_home']))} vs {html.escape(str(row['team_away']))}</td>"
-            f"<td class=\"tip\">{html.escape(str(winner))}</td>"
+            f"<td class=\"tip\">{html.escape(str(winner))}{why_html}</td>"
             f"<td><span class=\"badge {_badge_class(tip_prob)}\">{_format_probability(tip_prob)}</span></td>"
             f"<td>{html.escape(_format_predicted_score_numbers(row))}</td>"
             f"<td>{html.escape(_format_predicted_margin(row))}</td>"
@@ -226,6 +240,107 @@ def _results_card(results):
     )
 
 
+def _bar(points, scale):
+    """A CSS-only signed bar. No JS: these pages are served as static files."""
+    width = 0 if scale <= 0 else min(100, abs(points) / scale * 100.0)
+    css_class = "pos" if points >= 0 else "neg"
+    return f'<span class="bar {css_class}" style="width:{width:.0f}%"></span>'
+
+
+def _driver_rows(drivers, unit):
+    if not drivers:
+        return '<tr><td colspan="3">Nothing above the noise floor.</td></tr>'
+    scale = max(abs(d.points) for d in drivers) or 1.0
+    return "".join(
+        "<tr>"
+        f"<td>{html.escape(d.label)}</td>"
+        f"<td class=\"num\">{d.points:+.2f} {html.escape(unit)}</td>"
+        f'<td class="barcell">{_bar(d.points, scale)}</td>'
+        "</tr>"
+        for d in drivers
+    )
+
+
+def _explain_game_card(explanation):
+    probability = explanation.probability
+    score = explanation.score
+    chain = (
+        f"pooled logit {probability.pooled_logit:+.4f}"
+        f" &divide; T {probability.temperature:.4f}"
+        f" = {probability.calibrated_logit:+.4f}"
+        f" &rarr; {probability.published_cond:.1%}"
+    )
+    experts = "".join(
+        "<tr>"
+        f"<td>{html.escape(name)}</td>"
+        f"<td class=\"num\">{getattr(probability, name, float('nan')):.4f}</td>"
+        f"<td class=\"num\">{weight:.3f}</td>"
+        f"<td class=\"num\">{probability.expert_logit_terms.get(name, 0.0):+.4f}</td>"
+        "</tr>"
+        for name, weight in sorted(probability.weights.items())
+    )
+    flags = []
+    if probability.guard_fired:
+        flags.append("consensus guard fired")
+    if score.reconciled:
+        flags.append("scoreline reconciled")
+    if score.line_applied:
+        flags.append("market line applied")
+    if score.total_applied:
+        flags.append("market total applied")
+    flag_html = (
+        f'<p class="flags">{html.escape(", ".join(flags))}</p>' if flags else ""
+    )
+
+    return (
+        '<div class="card">'
+        f"<h2>{html.escape(explanation.team_home)} vs {html.escape(explanation.team_away)}</h2>"
+        f"<p><strong>{html.escape(explanation.tipped_team)}</strong> at "
+        f"{probability.published_cond:.0%} &middot; {score.displayed_home}-{score.displayed_away}</p>"
+        f"<p class=\"why-block\">{html.escape(explanation.why_line)}</p>"
+        f"{flag_html}"
+        "<h3>Probability drivers</h3>"
+        f"<table><tbody>{_driver_rows(explanation.prob_families, 'pts')}</tbody></table>"
+        "<h3>Margin drivers</h3>"
+        f"<table><tbody>{_driver_rows(explanation.margin_families, 'pt')}</tbody></table>"
+        "<h3>How the number was made</h3>"
+        "<table><thead><tr><th>Expert</th><th>Probability</th><th>Weight</th>"
+        "<th>Logit term</th></tr></thead>"
+        f"<tbody>{experts}</tbody></table>"
+        f'<p class="chain">{chain} &middot; decided by '
+        f"{html.escape(probability.attribution_source)} via the "
+        f"{html.escape(probability.route)} route</p>"
+        "</div>"
+    )
+
+
+def _explain_body(db_path, project_root):
+    """The Why page. Degrades to a single explanatory card when empty."""
+    try:
+        from pipeline.common.explain import store as explain_store
+
+        explanations = explain_store.load_game_explanations(db_path)
+    except Exception as exc:
+        explanations = []
+        print(f"Explain page data unavailable ({exc}).")
+
+    if not explanations:
+        return (
+            '<div class="card"><h2>Why</h2>'
+            "<p>No stored explanations yet. They are written alongside the tips "
+            "whenever inference runs.</p></div>"
+        )
+
+    intro = (
+        '<div class="card"><h2>Why the model thinks what it thinks</h2>'
+        "<p>Each tip is broken down into the feature families that moved it, in "
+        "percentage points of win probability and points of margin, signed "
+        "toward the tipped team. The expert table underneath shows how the "
+        "published number was actually assembled.</p></div>"
+    )
+    return intro + "".join(_explain_game_card(e) for e in explanations)
+
+
 def generate_site(db_path, project_root):
     """Render docs/site/ pages. Returns the list of files written."""
     project_root = Path(project_root)
@@ -274,6 +389,13 @@ def generate_site(db_path, project_root):
     results_path = site_dir / "results.html"
     results_path.write_text(_page("Footy Tipper — Season Results", subtitle, results_body), encoding="utf-8")
     written.append(results_path)
+
+    explain_path = site_dir / "explain.html"
+    explain_path.write_text(
+        _page("Footy Tipper — Why", subtitle, _explain_body(db_path, project_root)),
+        encoding="utf-8",
+    )
+    written.append(explain_path)
 
     for path in written:
         print(f"Site page written: {path.relative_to(project_root)}")

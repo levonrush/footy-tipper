@@ -109,3 +109,6 @@ logs/*
 
 # Timestamped eval reports (keep latest + named baselines)
 reports/eval-2*.json
+
+# Timestamped explainability reports (keep latest)
+reports/explain-2*.json

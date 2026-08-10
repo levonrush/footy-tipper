@@ -80,6 +80,89 @@ def _render_html(**overrides):
     return sf._render_html_email(**kwargs)
 
 
+def _render_plain(**overrides):
+    kwargs = dict(
+        predictions=_predictions(),
+        tipper_picks=pd.DataFrame(
+            columns=[
+                "team", "opponent", "price", "price_min", "edge",
+                "stake_fraction", "stake_amount",
+            ]
+        ),
+        folder_url=None,
+        subject="Subject",
+        opening="Opening paragraph.",
+        closing="Closing paragraph.",
+        joker_recommendation=_joker(),
+        news_hit=None,
+        scoreboard=_scoreboard(),
+    )
+    kwargs.update(overrides)
+    return sf._render_plain_email(**kwargs)
+
+
+WHY = "Storm favoured on ladder and season totals (+9 pts)."
+
+
+class WhyLineTests(unittest.TestCase):
+    """The explanation is additive: without it, the email is byte-identical."""
+
+    def test_email_is_unchanged_when_no_explanation_exists(self):
+        without_column = _render_html()
+        with_empty_column = _render_html(predictions=_predictions().assign(why_line=None))
+        self.assertEqual(without_column, with_empty_column)
+
+        plain_without = _render_plain()
+        plain_empty = _render_plain(predictions=_predictions().assign(why_line=""))
+        self.assertEqual(plain_without, plain_empty)
+
+    def test_why_line_appears_in_both_twins(self):
+        predictions = _predictions().assign(why_line=WHY)
+
+        html_out = _render_html(predictions=predictions)
+        plain_out = _render_plain(predictions=predictions)
+
+        self.assertIn(WHY.replace("(", "(").replace(")", ")"), plain_out)
+        self.assertIn("why: " + WHY, plain_out)
+        self.assertIn(WHY, html_out)
+
+    def test_why_line_does_not_add_a_column_to_the_table(self):
+        # It rides inside the existing Tip cell, so the header row is untouched.
+        headers = ["Fixture", "Tip", "Confidence", "H2H Odds"]
+        html_out = _render_html(predictions=_predictions().assign(why_line=WHY))
+        for header in headers:
+            self.assertIn(header, html_out)
+        self.assertEqual(html_out.count("<th "), len(headers))
+
+    def test_why_text_treats_missing_values_as_absent(self):
+        self.assertEqual(sf._why_text({"why_line": None}), "")
+        self.assertEqual(sf._why_text({"why_line": float("nan")}), "")
+        self.assertEqual(sf._why_text({"why_line": "  "}), "")
+        self.assertEqual(sf._why_text({}), "")
+        self.assertEqual(sf._why_text({"why_line": " ok "}), "ok")
+
+    def test_why_line_is_html_escaped(self):
+        predictions = _predictions().assign(why_line="Storm & <b>Titans</b>")
+        html_out = _render_html(predictions=predictions)
+        self.assertIn("Storm &amp; &lt;b&gt;Titans&lt;/b&gt;", html_out)
+        self.assertNotIn("<b>Titans</b>", html_out)
+
+    def test_why_line_is_kept_out_of_the_llm_copy_prompt(self):
+        # The deterministic sentence must not be paraphrased into something
+        # the model never said.
+        payload = _build_prompt_input(
+            _predictions().assign(why_line=WHY),
+            pd.DataFrame(
+                columns=[
+                    "team", "opponent", "price", "price_min", "edge",
+                    "stake_fraction", "stake_amount",
+                ]
+            ),
+        )
+        self.assertNotIn("why_line", str(payload))
+        self.assertNotIn(WHY, str(payload))
+
+
 class HtmlRenderTests(unittest.TestCase):
     def test_margin_is_derived_from_displayed_scoreline(self):
         predictions = _predictions()

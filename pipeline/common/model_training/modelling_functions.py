@@ -266,7 +266,7 @@ def train_and_select_best_model(data, predictors, outcome_var,
     return best_pipe
 
 
-def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var, return_mask=False):
+def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var, return_mask=False, on_fold=None):
     """Generate out-of-fold score predictions using expanding year windows.
 
     For each year Y (starting from the 2nd year in data), trains a LightGBM with
@@ -280,6 +280,11 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var,
     With `return_mask=True`, also returns a boolean array marking rows whose
     predictions are genuinely out-of-fold (first-year/failed-fold rows are
     in-sample fallbacks and should be excluded from meta-model training).
+
+    `on_fold(fold_model, X_test_t, test_mask, test_year)` is called after each
+    successful fold. It exists so explainability can capture genuinely
+    out-of-fold feature attributions without a second training pass; the
+    default of None leaves behaviour byte-identical.
     """
     years = sorted(
         pd.to_numeric(data["competition_year"], errors="coerce")
@@ -317,6 +322,8 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var,
             )
             fold_model.fit(X_train_t, y_train)
             oof_preds.loc[test_mask] = np.maximum(fold_model.predict(X_test_t), 1e-6)
+            if on_fold is not None:
+                on_fold(fold_model, X_test_t, test_mask.to_numpy(), test_year)
         except Exception as exc:
             print(f"OOF generation failed for year {test_year}: {exc}")
 
@@ -356,12 +363,14 @@ def train_binary_classifier(data, predictors, outcome_var, best_params, preproce
     return binary_pipeline
 
 
-def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocessor_steps, best_params, return_mask=False):
+def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocessor_steps, best_params, return_mask=False, on_fold=None):
     """Generate OOF binary win/loss predictions using an expanding year window.
 
     Mirrors generate_oof_score_predictions but trains a binary classifier on
     non-draw games only. Returns an array aligned to data.index with P(home win).
     With `return_mask=True`, also returns a boolean genuine-OOF row mask.
+
+    `on_fold` mirrors generate_oof_score_predictions: see its docstring.
     """
     years = sorted(
         pd.to_numeric(data["competition_year"], errors="coerce")
@@ -398,6 +407,8 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
             fold_clf = lgb.LGBMClassifier(objective='binary', n_jobs=1, verbose=-1, **best_params)
             fold_clf.fit(X_train_t, y_train)
             oof_preds.loc[test_mask] = fold_clf.predict_proba(X_test_t)[:, 1]
+            if on_fold is not None:
+                on_fold(fold_clf, X_test_t, test_mask, test_year)
         except Exception as exc:
             print(f"OOF binary generation failed for year {test_year}: {exc}")
 

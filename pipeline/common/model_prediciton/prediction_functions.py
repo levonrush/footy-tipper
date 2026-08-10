@@ -548,6 +548,15 @@ def map_bayes_factor_to_evidence(bayes_factor):
     return "Near lock"
 
 
+_DIAGNOSTIC_COLUMNS = [
+    "game_id",
+    "reconciled",
+    "mu_home_used",
+    "mu_away_used",
+    "sim_draw_prob",
+]
+
+
 def predict_match_outcome_and_scoreline_with_bayes(
     home_model=None,
     away_model=None,
@@ -562,6 +571,7 @@ def predict_match_outcome_and_scoreline_with_bayes(
     dispersion_away=None,
     reconcile="on_conflict",
     display="median",
+    return_diagnostics=False,
 ):
     """
     Predict match outcomes and scorelines.
@@ -573,6 +583,11 @@ def predict_match_outcome_and_scoreline_with_bayes(
     - pass inference_data with precomputed mu_home/mu_away arrays and optional
       calibrated_home_win_conditional. Market line and totals information must
       be applied to those score means before calling this function.
+
+    return_diagnostics adds a third frame describing how each scoreline was
+    produced (whether reconciliation moved the score means, and the means
+    actually simulated). It is opt-in and reads values out of the simulation
+    that already happened: it never re-simulates, so the tip cannot move.
     """
     if inference_data is None:
         raise ValueError("inference_data is required.")
@@ -592,6 +607,8 @@ def predict_match_outcome_and_scoreline_with_bayes(
         empty_margins = pd.DataFrame(
             columns=["game_id", "predicted_home_score", "predicted_away_score", "predicted_margin"]
         )
+        if return_diagnostics:
+            return empty_outcomes, empty_margins, pd.DataFrame(columns=_DIAGNOSTIC_COLUMNS)
         return empty_outcomes, empty_margins
 
     working = inference_data.copy().reset_index(drop=True)
@@ -659,6 +676,13 @@ def predict_match_outcome_and_scoreline_with_bayes(
                 "home_team_result": home_team_result,
                 "bayes_factor": bayes_factor,
                 "evidence_strength": evidence_strength,
+                # Diagnostics. outcome_df/margin_df are built by explicit
+                # column selection below, so these are invisible to callers
+                # that did not ask for them.
+                "reconciled": bool(probabilities.get("reconciled", False)),
+                "mu_home_used": float(row["home_goals_avg"]),
+                "mu_away_used": float(row["away_goals_avg"]),
+                "sim_draw_prob": float(probabilities["draw_prob"]),
             }
         )
 
@@ -675,6 +699,8 @@ def predict_match_outcome_and_scoreline_with_bayes(
         ]
     ]
     margin_df = results_df[["game_id", "predicted_home_score", "predicted_away_score", "predicted_margin"]]
+    if return_diagnostics:
+        return outcome_df, margin_df, results_df[_DIAGNOSTIC_COLUMNS]
     return outcome_df, margin_df
 
 

@@ -95,6 +95,7 @@ class SiteGenerationTests(unittest.TestCase):
                     "docs/site/index.html",
                     "docs/site/rounds/2026-round-15.html",
                     "docs/site/results.html",
+                    "docs/site/explain.html",
                 },
             )
 
@@ -106,6 +107,27 @@ class SiteGenerationTests(unittest.TestCase):
             results = (root / "docs" / "site" / "results.html").read_text()
             self.assertIn("Season results", results)
             self.assertIn("Knights", results)
+
+            # Every page carries the same three-item nav.
+            for name in ("index.html", "results.html", "explain.html"):
+                page = (root / "docs" / "site" / name).read_text()
+                for link in ("index.html", "results.html", "explain.html"):
+                    self.assertIn(f'href="{link}"', page)
+
+    def test_explain_page_renders_without_an_explanations_table(self):
+        """A database predating explanations must still build every page."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = _make_project_root(tmp_dir)
+            db_path = root / "data" / "db.sqlite"
+            _build_db(db_path)
+
+            generate_site(db_path, root)
+
+            page = (root / "docs" / "site" / "explain.html").read_text()
+            self.assertIn("No stored explanations yet", page)
+            # And the tip cell renders without a why line.
+            index = (root / "docs" / "site" / "index.html").read_text()
+            self.assertNotIn('class="why"', index)
 
     def test_confidence_excludes_the_draw(self):
         """0.58 win / 0.39 lose / 0.03 draw is a 60% tip, not a 58% one.
@@ -137,7 +159,14 @@ class SiteGenerationTests(unittest.TestCase):
 
             written = generate_site(db_path, root)
             names = {p.relative_to(root).as_posix() for p in written}
-            self.assertEqual(names, {"docs/site/index.html", "docs/site/results.html"})
+            self.assertEqual(
+                names,
+                {
+                    "docs/site/index.html",
+                    "docs/site/results.html",
+                    "docs/site/explain.html",
+                },
+            )
 
             index = (root / "docs" / "site" / "index.html").read_text()
             self.assertIn("No upcoming pre-game fixtures", index)

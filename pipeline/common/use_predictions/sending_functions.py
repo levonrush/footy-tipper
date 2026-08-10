@@ -65,6 +65,7 @@ from pipeline.common.use_predictions.email_render import (  # noqa: F401
     _render_html_email,
     _render_plain_email,
     _to_html_paragraphs,
+    _why_text,
 )
 from pipeline.common.use_predictions.joker import (  # noqa: F401
     _apply_joker_usage_state,

@@ -67,6 +67,22 @@ def _resolve_base_rates(df: pd.DataFrame, config: TierABaselineConfig) -> tuple[
     return base_home, base_away
 
 
+# The attack/defence ratings are the reason the baseline says what it says, so
+# they are returned alongside it. They are read before the post-match update
+# below, which keeps them leak-safe by construction.
+BASELINE_FEATURE_COLUMNS = [
+    "game_id",
+    "baseline_mu_home",
+    "baseline_mu_away",
+    "baseline_draw_prob",
+    "baseline_home_win_prob_conditional",
+    "tier_a_attack_home",
+    "tier_a_defence_home",
+    "tier_a_attack_away",
+    "tier_a_defence_away",
+]
+
+
 def compute_tier_a_baseline_features(df: pd.DataFrame, config: TierABaselineConfig | None = None) -> pd.DataFrame:
     """Compute leak-safe dynamic team-strength baseline features for each match row."""
     if config is None:
@@ -78,15 +94,7 @@ def compute_tier_a_baseline_features(df: pd.DataFrame, config: TierABaselineConf
         raise ValueError("Tier-A baseline requires columns: " + ", ".join(missing))
 
     if df.empty:
-        return pd.DataFrame(
-            columns=[
-                "game_id",
-                "baseline_mu_home",
-                "baseline_mu_away",
-                "baseline_draw_prob",
-                "baseline_home_win_prob_conditional",
-            ]
-        )
+        return pd.DataFrame(columns=BASELINE_FEATURE_COLUMNS)
 
     ordered = df.sort_values(SORT_COLS).reset_index(drop=True)
     base_home, base_away = _resolve_base_rates(ordered, config)
@@ -128,6 +136,10 @@ def compute_tier_a_baseline_features(df: pd.DataFrame, config: TierABaselineConf
                 "baseline_mu_away": mu_away,
                 "baseline_draw_prob": draw_prob,
                 "baseline_home_win_prob_conditional": home_win_conditional,
+                "tier_a_attack_home": attack_home,
+                "tier_a_defence_home": defence_home,
+                "tier_a_attack_away": attack_away,
+                "tier_a_defence_away": defence_away,
             }
         )
 

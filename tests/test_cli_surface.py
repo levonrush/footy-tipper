@@ -209,6 +209,10 @@ class OperatorCLITests(unittest.TestCase):
             ["advanced", "site", action]
             for action in ("build", "publish")
         ]
+        commands += [
+            ["advanced", "explain", action]
+            for action in ("cohort", "report")
+        ]
         parser = cli.build_parser()
         for command in commands:
             with self.subTest(command=command):
