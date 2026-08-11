@@ -100,6 +100,25 @@ Use leaf `--help` for the technical limits, sitemap, and strict flags. Those con
 
 This supports safe reruns: broad backfills do not multiply identical articles, and parser improvements can heal old sparse state.
 
+## Historical coverage is structurally limited
+
+Team-list features reach roughly a third of training games (1,133 of 3,593 as at 2026-08-11). This is expected, not a join defect, and the investigation below should not be repeated.
+
+`lineup_entries` holds about 201 fixtures per season back to 2008, but most of those rows come from `match_state = FullTime` match-centre pages (3,945 of 4,797 snapshots). For a completed match the match-centre parser keeps only jersey 1 to 17 non-replacement players, which is the side that actually played. That is post-match information, and the 2024 backfill stamped it with the CMS `updated` date rather than a publication date. The as-of cutoff is what keeps it out of training, so it is a leakage guard rather than a tunable coverage knob.
+
+Usable pre-kickoff coverage therefore depends entirely on how nrl.com published its round team-list articles in a given era, which changed over time:
+
+| Season | Median publish lead vs kickoff | Games covered |
+| --- | --- | --- |
+| 2012 | +35 h | 59.7% |
+| 2015, 2016 | -36 h (published mid-round) | 0.5%, 0.0% |
+| 2018 | +9 h | 32.8% |
+| 2022-2025 | +108 h | ~95% |
+
+Two checks confirmed the attribution is correct rather than a parsing bug. Comparing each article's named players against the played roster gives a mean Jaccard overlap of 0.85 to 1.00 against the round it is filed under, versus 0.71 to 0.92 against the following round, in every season. Pre-round articles also show *lower* overlap with played teams (2012: 0.849) than mid-round ones (2015: 0.956), which is the expected signature of late team changes. So `parse_round_id` files articles correctly, and the 2015 to 2017 "Updated Round N team lists" pages are genuinely retrospective.
+
+Do not relax `FOOTY_TIPPER_LINEUPS_AS_OF_HOURS_BEFORE_KICKOFF` to raise historical coverage. It would admit post-match rosters into training.
+
 ## Failure and coverage limits
 
 - Some Late Mail/commentary pages do not contain a full squad and may legitimately remain zero-entry snapshots.

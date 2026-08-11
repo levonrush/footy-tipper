@@ -166,6 +166,87 @@ def _empty_lineup_feature_frame(game_ids: pd.Series | list | None = None) -> pd.
     return pd.DataFrame(data, columns=LINEUP_FEATURE_COLUMNS)
 
 
+def _normalize_round_name(values) -> pd.Series:
+    series = values if isinstance(values, pd.Series) else pd.Series(values)
+    return series.fillna("").astype(str).str.strip().str.casefold()
+
+
+def _resolve_missing_round_ids(entries: pd.DataFrame, matches: pd.DataFrame) -> pd.DataFrame:
+    """Recover round_id from round_name so finals articles are not dropped.
+
+    parse_round_id only matches a numeric "Round N" in the article title, so
+    finals pages ("Finals Week 1", "Grand Final") store round_id = NULL and
+    every entry on them was being discarded by the dropna below. Finals rounds
+    do carry numeric ids in the fixture data, but which number depends on how
+    many regular rounds the season had, so the mapping is resolved per season
+    from round_name. Genuine non-competition articles (trials, World Club
+    Challenge) have no round_name and correctly stay NULL.
+    """
+    if entries.empty or "round_name" not in entries.columns:
+        return entries
+
+    missing = entries["round_id"].isna()
+    if not missing.any():
+        return entries
+    if not {"competition_year", "round_id", "round_name"}.issubset(matches.columns):
+        return entries
+
+    lookup = matches[["competition_year", "round_name", "round_id"]].copy()
+    lookup["competition_year"] = pd.to_numeric(lookup["competition_year"], errors="coerce")
+    lookup["round_id"] = pd.to_numeric(lookup["round_id"], errors="coerce")
+    lookup["_name"] = _normalize_round_name(lookup["round_name"])
+    lookup = lookup.dropna(subset=["competition_year", "round_id"])
+    lookup = lookup[lookup["_name"] != ""]
+    if lookup.empty:
+        return entries
+
+    round_by_name = {
+        (int(year), name): float(round_id)
+        for year, name, round_id in zip(
+            lookup["competition_year"], lookup["_name"], lookup["round_id"]
+        )
+    }
+
+    entries = entries.copy()
+    years = pd.to_numeric(entries["competition_year"], errors="coerce")
+    names = _normalize_round_name(entries["round_name"])
+    resolved = [
+        round_by_name.get((int(year), name)) if pd.notna(year) and name else None
+        for year, name in zip(years.where(missing), names.where(missing, ""))
+    ]
+    entries.loc[missing, "round_id"] = pd.Series(resolved, index=entries.index)[missing]
+    return entries
+
+
+def fill_lineup_feature_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Apply post-merge defaults for every lineup column, in place.
+
+    A left merge leaves NaN wherever the builder returned no row for a game.
+    Zero is the right default for counts and ratings, but not for
+    lineup_features_missing: a game the builder never saw has no lineup data,
+    so it must default to 1.0 the way _empty_lineup_feature_frame does. Filling
+    it with 0.0 would announce complete team lists for a game that has none.
+    """
+    for col in LINEUP_FEATURE_COLUMNS:
+        if col == "game_id" or col not in frame.columns:
+            continue
+        if col in {"lineup_home_players", "lineup_away_players"}:
+            frame[col] = frame[col].fillna("")
+        elif col == "lineup_features_missing":
+            frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(1.0)
+        else:
+            frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0.0)
+    return frame
+
+
+def lineup_coverage_fraction(frame: pd.DataFrame) -> float:
+    """Share of rows carrying team-list features on both sides."""
+    if "lineup_features_missing" not in frame.columns or frame.empty:
+        return 0.0
+    missing = pd.to_numeric(frame["lineup_features_missing"], errors="coerce").fillna(1.0)
+    return float((missing <= 0).mean())
+
+
 def load_lineup_entries(db_path: Path | str, years: list[int] | None = None) -> pd.DataFrame:
     db_file = Path(db_path)
     if not db_file.exists():
@@ -544,7 +625,16 @@ def _choose_snapshots_for_matches(matches: pd.DataFrame, entries_df: pd.DataFram
     entries = entries_df.copy()
     entries["competition_year"] = pd.to_numeric(entries["competition_year"], errors="coerce")
     entries["round_id"] = pd.to_numeric(entries["round_id"], errors="coerce")
+    entries = _resolve_missing_round_ids(entries, matches)
+    dropped = entries[entries["round_id"].isna()]
     entries = entries.dropna(subset=["competition_year", "round_id", "team_key", "snapshot_id"])
+    if not dropped.empty and "round_name" in dropped.columns:
+        # Silent drops here used to hide whole finals rounds. Trials and World
+        # Club Challenge articles have no round_name and belong to no round, so
+        # stay quiet about those and report only the ones worth chasing.
+        named = int((_normalize_round_name(dropped["round_name"]) != "").sum())
+        if named:
+            print(f"Lineup entries with an unmatched round name dropped: {named}")
     if entries.empty:
         return pd.DataFrame(columns=["game_id", "side", "team_key", "snapshot_id", "snapshot_time_utc"])
 
@@ -889,13 +979,37 @@ def _compute_lineup_history_features(selected_entries: pd.DataFrame, matches: pd
     prev_halves_by_team: dict[str, set[str]] = {}
     recent_named_by_team: defaultdict[str, list[set[str]]] = defaultdict(list)
     recent_spine_by_team: defaultdict[str, list[set[str]]] = defaultdict(list)
+    team_fixture_seq: defaultdict[str, int] = defaultdict(int)
+    last_covered_seq_by_team: dict[str, int] = {}
     records: list[dict] = []
 
     for row in long_rows.itertuples(index=False):
         key = (int(getattr(row, "game_id")), str(getattr(row, "side")))
+        team_key = str(getattr(row, "team_key"))
+
+        # Count every fixture, covered or not, so the gap check below can see
+        # them. Historical team-list coverage is patchy by era (see
+        # docs/lineup-integration.md), so consecutive *covered* games are often
+        # seasons apart.
+        team_fixture_seq[team_key] += 1
+        fixture_seq = team_fixture_seq[team_key]
+
         sets = player_sets.get(key)
         if not sets:
             continue
+
+        # "Retained since last week" only means anything against the team's
+        # immediately preceding fixture. If any were skipped, drop the carried
+        # lineup so these read as "no prior lineup" (0.0) rather than comparing,
+        # say, a 2018 side against a 2012 one.
+        previous_seq = last_covered_seq_by_team.get(team_key, fixture_seq - 1)
+        if fixture_seq - previous_seq > 1:
+            prev_named_by_team.pop(team_key, None)
+            prev_spine_by_team.pop(team_key, None)
+            prev_halves_by_team.pop(team_key, None)
+            recent_named_by_team.pop(team_key, None)
+            recent_spine_by_team.pop(team_key, None)
+        last_covered_seq_by_team[team_key] = fixture_seq
 
         groups = group_sets.get(
             key,
@@ -907,7 +1021,6 @@ def _compute_lineup_history_features(selected_entries: pd.DataFrame, matches: pd
                 "interchange": set(),
             },
         )
-        team_key = str(getattr(row, "team_key"))
         named_players = set(sets["named"])
         spine_players = set(sets["spine"])
         halves_players = set(groups["halves"])
@@ -1077,6 +1190,7 @@ def _build_snapshot_transition_features(matches: pd.DataFrame, entries_df: pd.Da
     entries = entries_df.copy()
     entries["competition_year"] = pd.to_numeric(entries["competition_year"], errors="coerce")
     entries["round_id"] = pd.to_numeric(entries["round_id"], errors="coerce")
+    entries = _resolve_missing_round_ids(entries, matches)
     entries = entries.dropna(subset=["competition_year", "round_id", "team_key", "snapshot_id", "player_ref"])
     if entries.empty:
         return pd.DataFrame(columns=["game_id"])

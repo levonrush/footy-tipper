@@ -156,7 +156,13 @@ If the update fails, do not manually move the pointer. The previous release rema
 - `FOOTY_TIPPER_LINEUPS_ENABLED=true`
 - `FOOTY_TIPPER_LINEUPS_STRICT=false`
 - `FOOTY_TIPPER_TUNE_ITER=100`
+- `FOOTY_TIPPER_NAN_PASSTHROUGH=false`
+- `FOOTY_TIPPER_TRAINING_SEED=20100308`
 - `FOOTY_TIPPER_TEST_EMAIL=levon_rush@hotmail.com` when not overridden
+
+`FOOTY_TIPPER_NAN_PASSTHROUGH` decides whether a missing predictor reaches LightGBM as `0.0` (the default) or as `NaN`, letting the booster learn an explicit missing branch. It mostly affects performance stats recorded for rules that did not exist in earlier seasons, such as captain's challenge and two-point field goals. The setting is read once when the training pipeline is built and baked into the saved model, so changing it only takes effect on the next train, and the value used is recorded as `nan_passthrough` in `model_manifest.json`.
+
+`FOOTY_TIPPER_TRAINING_SEED` seeds the Bayesian hyperparameter search and every LightGBM fit, so training the same data twice produces the same model. Before it existed, two runs on identical code differed by about 1.3 points of tipping accuracy, which was enough to flip the release acceptance gate between pass and fail. Keep it fixed when comparing two feature sets, or the comparison measures search noise rather than the change. The value used is recorded as `training_seed` in `model_manifest.json`.
 
 Performance data is a required training input when enabled and fails clearly if missing. Lineup ingestion is deliberately softer: it logs and continues unless strict mode is explicitly selected in the advanced toolbox.
 

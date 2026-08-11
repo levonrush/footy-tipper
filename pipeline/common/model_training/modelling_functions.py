@@ -150,6 +150,46 @@ def get_training_data(db_path, sql_file):
     return df
 
 
+TRAINING_SEED = 20100308
+
+
+def training_seed() -> int:
+    """Seed for every stochastic part of training.
+
+    Without this the Bayesian search explored a different set of candidates on
+    each run, so two trains on identical data produced different models. The
+    spread was large enough to flip the release acceptance gate: repeated runs
+    on the same code scored 63.1% and 64.4% accuracy, one failing the gate and
+    one passing it. Seeding makes a release reproducible and makes an A/B
+    comparison between two feature sets mean something.
+
+    Shares the default with GAME_SEED_BASE / COMP_SIM_SEED for consistency.
+    """
+    raw = os.getenv("FOOTY_TIPPER_TRAINING_SEED", str(TRAINING_SEED)).strip()
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return TRAINING_SEED
+
+
+def nan_passthrough_enabled() -> bool:
+    """Whether missing values reach LightGBM as NaN instead of 0.0.
+
+    Off by default. About 14% of numeric cells arrive NaN, overwhelmingly
+    performance stats for rules that did not exist yet (captain's challenge,
+    two-point field goals, set restarts). Zero-filling those states a measured
+    zero where the truth is "not recorded"; LightGBM can learn a missing
+    branch instead. Team-list features are unaffected either way because they
+    are already zero-filled upstream in lineups/features.py.
+    """
+    return os.getenv("FOOTY_TIPPER_NAN_PASSTHROUGH", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+    }
+
+
 def create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols):
     """
     Create a pipeline with:
@@ -167,12 +207,20 @@ def create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols)
     )
     steps.append(('one_hot', preprocessor))
 
+    # Resolved once here, not inside to_df, so the choice is baked into the
+    # fitted transformer. Reading the environment at transform time would let a
+    # model trained on NaN silently switch to zero-fill when served without the
+    # flag, which is precisely the train/serve skew the pickles exist to avoid.
+    nan_passthrough = nan_passthrough_enabled()
+
     # 2) After fitting preprocessor, wrap into DataFrame with sanitized names
     def to_df(X_array):
         cols = preprocessor.get_feature_names_out(preprocessor.feature_names_in_)
         df   = pd.DataFrame(X_array, columns=sanitize_feature_names(cols))
-        # coerce everything to numeric, turn errors into NaN, then fill with 0
-        df = df.apply(pd.to_numeric, errors='coerce').fillna(0.0)
+        # coerce everything to numeric, turning non-numeric into NaN
+        df = df.apply(pd.to_numeric, errors='coerce')
+        if not nan_passthrough:
+            df = df.fillna(0.0)
         return df
 
     steps.append(('to_df', FunctionTransformer(func=to_df, validate=False)))
@@ -193,6 +241,8 @@ def create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols)
         scoring=opt_metric,
         n_jobs=-1,
         verbose=1,
+        # Without this the search draws a different candidate sequence each run.
+        random_state=training_seed(),
         # Env override lets retrain-A/B cycles run fast without changing defaults.
         n_iter=int(os.getenv("FOOTY_TIPPER_TUNE_ITER", "100"))
     )
@@ -238,7 +288,9 @@ def score_regressor():
     """Build the score estimator used inside the parallel Bayesian search."""
     # BayesSearchCV parallelises fits, so each individual LightGBM fit must
     # stay single-threaded to avoid severe nested CPU oversubscription.
-    return lgb.LGBMRegressor(objective='poisson', n_jobs=1, verbose=-1)
+    return lgb.LGBMRegressor(
+        objective='poisson', n_jobs=1, verbose=-1, random_state=training_seed()
+    )
 
 
 def train_and_select_best_model(data, predictors, outcome_var,
@@ -352,7 +404,10 @@ def train_binary_classifier(data, predictors, outcome_var, best_params, preproce
 
     X_t = preprocessor_steps.transform(X)
 
-    clf = lgb.LGBMClassifier(objective='binary', n_jobs=1, verbose=-1, **best_params)
+    clf = lgb.LGBMClassifier(
+        objective='binary', n_jobs=1, verbose=-1,
+        random_state=training_seed(), **best_params
+    )
     clf.fit(X_t, y)
 
     # Wrap into a Pipeline so inference can call predict_proba on raw DataFrames.
@@ -404,7 +459,10 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
             X_train_t = preprocessor_steps.transform(X_train)
             X_test_t = preprocessor_steps.transform(X_test)
 
-            fold_clf = lgb.LGBMClassifier(objective='binary', n_jobs=1, verbose=-1, **best_params)
+            fold_clf = lgb.LGBMClassifier(
+                objective='binary', n_jobs=1, verbose=-1,
+                random_state=training_seed(), **best_params
+            )
             fold_clf.fit(X_train_t, y_train)
             oof_preds.loc[test_mask] = fold_clf.predict_proba(X_test_t)[:, 1]
             if on_fold is not None:
@@ -418,7 +476,10 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
     if nan_mask.any():
         try:
             X_all_t = preprocessor_steps.transform(data.loc[nd, predictors])
-            fallback_clf = lgb.LGBMClassifier(objective='binary', n_jobs=1, verbose=-1, **best_params)
+            fallback_clf = lgb.LGBMClassifier(
+                objective='binary', n_jobs=1, verbose=-1,
+                random_state=training_seed(), **best_params
+            )
             fallback_clf.fit(X_all_t, y_col[nd])
             fallback_preds = fallback_clf.predict_proba(preprocessor_steps.transform(data.loc[nan_mask, predictors]))[:, 1]
             oof_preds.loc[nan_mask] = fallback_preds

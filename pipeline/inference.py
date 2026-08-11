@@ -120,17 +120,9 @@ try:
     inference_lineup_features = context_lineup_features[context_lineup_features["game_id"].isin(inference_data["game_id"])]
     inference_data = inference_data.merge(inference_lineup_features, on="game_id", how="left")
 
-    for col in lf.LINEUP_FEATURE_COLUMNS:
-        if col == "game_id":
-            continue
-        if col in {"lineup_home_players", "lineup_away_players"}:
-            inference_data[col] = inference_data[col].fillna("")
-        else:
-            inference_data[col] = pd.to_numeric(inference_data[col], errors="coerce").fillna(0.0)
+    inference_data = lf.fill_lineup_feature_columns(inference_data)
 
-    lineup_coverage = 0.0
-    if "lineup_features_missing" in inference_data.columns and len(inference_data) > 0:
-        lineup_coverage = float((inference_data["lineup_features_missing"] <= 0).mean())
+    lineup_coverage = lf.lineup_coverage_fraction(inference_data)
     print(f"Lineup features merged for inference. Coverage={lineup_coverage:.1%}")
 except Exception as exc:
     import traceback

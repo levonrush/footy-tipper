@@ -791,15 +791,29 @@ def _load_training_frame(project_root, db_path, baseline_cfg=None):
         lineup_entries = lf.load_lineup_entries(db_path, years=years)
         lineup_features = lf.build_lineup_match_features(data, lineup_entries)
         data = data.merge(lineup_features, on="game_id", how="left")
-        for col in lf.LINEUP_FEATURE_COLUMNS:
-            if col == "game_id":
-                continue
-            if col in {"lineup_home_players", "lineup_away_players"}:
-                data[col] = data[col].fillna("")
-            else:
-                data[col] = pd.to_numeric(data[col], errors="coerce").fillna(0.0)
+        data = lf.fill_lineup_feature_columns(data)
+        print(f"Lineup features merged. Coverage={lf.lineup_coverage_fraction(data):.1%}")
     except Exception as exc:
-        print(f"Lineup feature merge skipped ({exc}).")
+        # Evaluation used to swallow this silently, which let a scorecard be
+        # produced from a fully zeroed lineup family with nothing on the console
+        # to say so. Match train.py/inference.py instead.
+        import traceback
+
+        traceback.print_exc()
+        if os.getenv("FOOTY_TIPPER_LINEUP_FEATURES_STRICT", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "y",
+        }:
+            raise RuntimeError(
+                "Lineup feature merge failed and FOOTY_TIPPER_LINEUP_FEATURES_STRICT is set."
+            ) from exc
+        print(
+            f"Lineup feature merge skipped ({exc}). "
+            "Evaluation will score WITHOUT lineup features. "
+            "Set FOOTY_TIPPER_LINEUP_FEATURES_STRICT=true to make this fatal."
+        )
 
     try:
         from pipeline.common.nrl_data import features as ctx

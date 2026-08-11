@@ -246,6 +246,144 @@ class LineupFeatureTests(unittest.TestCase):
         self.assertEqual(features.loc[301, "lineup_data_available_away"], 1.0)
         self.assertEqual(features.loc[301, "lineup_features_missing"], 0.0)
 
+    def test_post_kickoff_snapshot_is_never_selected_for_a_final_game(self):
+        """The as-of cutoff is the only guard against training on played sides.
+
+        Historical match-centre pages carry the actually-played 17 stamped with
+        the backfill date, so a snapshot dated after kickoff must never be
+        chosen for a completed match.
+        """
+        matches = pd.DataFrame(
+            [
+                {
+                    "game_id": 401,
+                    "competition_year": 2010,
+                    "round_id": 5,
+                    "game_number": 1,
+                    "game_state_name": "Final",
+                    "start_time": "2010-04-01T09:00:00Z",
+                    "team_home": "Knights",
+                    "team_away": "Cowboys",
+                }
+            ]
+        )
+        # Published years after the match, exactly like the 2024 backfill.
+        entries = pd.DataFrame(
+            _team_entries(1, 2010, 5, "knights", [("Kurt Gidley", 1, "Fullback", "backs")], "2024-09-07T12:29:36Z")
+            + _team_entries(1, 2010, 5, "cowboys", [("Matt Bowen", 1, "Fullback", "backs")], "2024-09-07T12:29:36Z")
+        )
+
+        features = build_lineup_match_features(matches, entries).set_index("game_id")
+
+        self.assertEqual(features.loc[401, "lineup_features_missing"], 1.0)
+        self.assertEqual(features.loc[401, "lineup_data_available_home"], 0.0)
+        self.assertEqual(features.loc[401, "lineup_data_available_away"], 0.0)
+
+    def test_finals_round_id_is_recovered_from_round_name(self):
+        """parse_round_id finds no number in "Finals Week 1", so entries arrive
+        with a NULL round_id and used to be dropped wholesale."""
+        matches = pd.DataFrame(
+            [
+                {
+                    "game_id": 501,
+                    "competition_year": 2026,
+                    "round_id": 28,
+                    "round_name": "Finals Week 1",
+                    "game_number": 1,
+                    "game_state_name": "Final",
+                    "start_time": "2026-09-05T09:00:00Z",
+                    "team_home": "Knights",
+                    "team_away": "Cowboys",
+                }
+            ]
+        )
+        entries = pd.DataFrame(
+            _team_entries(1, 2026, None, "knights", [("Kalyn Ponga", 1, "Fullback", "backs")], "2026-09-01T04:00:00Z")
+            + _team_entries(1, 2026, None, "cowboys", [("Scott Drinkwater", 1, "Fullback", "backs")], "2026-09-01T04:00:00Z")
+        )
+        entries["round_name"] = "Finals Week 1"
+
+        features = build_lineup_match_features(matches, entries).set_index("game_id")
+
+        self.assertEqual(features.loc[501, "lineup_features_missing"], 0.0)
+        self.assertEqual(features.loc[501, "lineup_data_available_home"], 1.0)
+
+    def test_continuity_resets_across_a_coverage_gap(self):
+        """Retention must compare against the previous fixture, not the
+        previous *covered* fixture, which can be seasons earlier."""
+        matches = pd.DataFrame(
+            [
+                {
+                    "game_id": 601,
+                    "competition_year": 2012,
+                    "round_id": 1,
+                    "game_number": 1,
+                    "game_state_name": "Final",
+                    "start_time": "2012-03-01T09:00:00Z",
+                    "team_home": "Knights",
+                    "team_away": "Cowboys",
+                },
+                {  # uncovered: no lineup entries for this round
+                    "game_id": 602,
+                    "competition_year": 2012,
+                    "round_id": 2,
+                    "game_number": 1,
+                    "game_state_name": "Final",
+                    "start_time": "2012-03-08T09:00:00Z",
+                    "team_home": "Knights",
+                    "team_away": "Broncos",
+                },
+                {
+                    "game_id": 603,
+                    "competition_year": 2012,
+                    "round_id": 3,
+                    "game_number": 1,
+                    "game_state_name": "Final",
+                    "start_time": "2012-03-15T09:00:00Z",
+                    "team_home": "Knights",
+                    "team_away": "Cowboys",
+                },
+            ]
+        )
+        squad = [("Kurt Gidley", 1, "Fullback", "backs"), ("Jarrod Mullen", 6, "Five-Eighth", "backs")]
+        entries = pd.DataFrame(
+            _team_entries(1, 2012, 1, "knights", squad, "2012-02-25T04:00:00Z")
+            + _team_entries(1, 2012, 1, "cowboys", squad, "2012-02-25T04:00:00Z")
+            + _team_entries(3, 2012, 3, "knights", squad, "2012-03-11T04:00:00Z")
+            + _team_entries(3, 2012, 3, "cowboys", squad, "2012-03-11T04:00:00Z")
+        )
+
+        features = build_lineup_match_features(matches, entries).set_index("game_id")
+
+        # Round 2 was skipped, so round 3 has no usable "last week" to compare
+        # against even though round 1 named an identical side.
+        self.assertEqual(features.loc[603, "lineup_starters_retained_ratio_home"], 0.0)
+        self.assertEqual(features.loc[603, "lineup_spine_same_as_prev_home"], 0.0)
+
+
+class LineupColumnFillTests(unittest.TestCase):
+    def test_merge_miss_defaults_to_missing_not_present(self):
+        """A left-merge miss must not announce complete team lists."""
+        from pipeline.common.lineups.features import (
+            fill_lineup_feature_columns,
+            lineup_coverage_fraction,
+        )
+
+        frame = pd.DataFrame(
+            {
+                "game_id": [1, 2],
+                "lineup_features_missing": [0.0, None],
+                "lineup_named_count_home": [17.0, None],
+                "lineup_home_players": ["a;b", None],
+            }
+        )
+        filled = fill_lineup_feature_columns(frame)
+
+        self.assertEqual(filled.loc[1, "lineup_features_missing"], 1.0)
+        self.assertEqual(filled.loc[1, "lineup_named_count_home"], 0.0)
+        self.assertEqual(filled.loc[1, "lineup_home_players"], "")
+        self.assertAlmostEqual(lineup_coverage_fraction(filled), 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()

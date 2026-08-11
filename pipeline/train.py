@@ -134,19 +134,9 @@ try:
     lineup_features = lf.build_lineup_match_features(training_data, lineup_entries)
     training_data = training_data.merge(lineup_features, on="game_id", how="left")
 
-    for col in lf.LINEUP_FEATURE_COLUMNS:
-        if col == "game_id":
-            continue
-        if col in {"lineup_home_players", "lineup_away_players"}:
-            training_data[col] = training_data[col].fillna("")
-        else:
-            training_data[col] = pd.to_numeric(
-                training_data[col], errors="coerce"
-            ).fillna(0.0)
+    training_data = lf.fill_lineup_feature_columns(training_data)
 
-    lineup_coverage = 0.0
-    if "lineup_features_missing" in training_data.columns and len(training_data) > 0:
-        lineup_coverage = float((training_data["lineup_features_missing"] <= 0).mean())
+    lineup_coverage = lf.lineup_coverage_fraction(training_data)
     print(f"Lineup features merged. Coverage={lineup_coverage:.1%}")
 except Exception as exc:
     import traceback
@@ -931,6 +921,11 @@ manifest = {
     "margin_blend": margin_blend,
     "total_blend": total_blend,
     "market_extra_version": calib.MARKET_EXTRA_VERSION,
+    # Baked into the fitted transformer, recorded here so the deployed feature
+    # space is auditable from the manifest alone.
+    "nan_passthrough": mf.nan_passthrough_enabled(),
+    # Recorded so a release can be reproduced exactly from this manifest.
+    "training_seed": mf.training_seed(),
     "probability_stack": {
         "schema_version": calib.PROBABILITY_STACK_VERSION,
         "market": {
