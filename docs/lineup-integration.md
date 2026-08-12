@@ -38,9 +38,13 @@ The cutoff is measured from `start_time_utc`, the true UTC kickoff. It used to
 be measured from `start_time`, which is venue-local wall clock serialised
 as-if-UTC, while article publish times are true UTC. Comparing the two shifted
 the cutoff by the venue's offset, so the documented 24 hour guard was really
-running at about 13 to 14 hours for Australian venues, and
-`lineup_source_age_hours` was inflated by the same amount. Anyone tuning the
-horizon should know the pre-fix numbers were measured against the shorter one.
+running at about 13 to 14 hours for Australian venues. Anyone tuning the horizon
+should know the pre-fix numbers were measured against the shorter one.
+
+`lineup_source_age_hours` is built on a separate path and **still** measures from
+`start_time`, so it carries the same inflation. It is a declared predictor, so
+correcting it changes a feature value under the already-shipped pickles. It is
+therefore deferred to land alongside a retrain rather than on its own.
 
 Historical backtests therefore do not use final lineups that were unavailable at the configured decision time. Within-week snapshot changes still inform churn and uncertainty features.
 

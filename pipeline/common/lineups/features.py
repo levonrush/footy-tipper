@@ -583,10 +583,15 @@ def _match_kickoff_utc(frame: pd.DataFrame) -> pd.Series:
     `start_time` is venue-local wall clock serialised as-if-UTC (see draw.py),
     while `source_published_at_utc` is true UTC. Building the as-of cutoff from
     `start_time` therefore shifted it by the venue's UTC offset: for Australian
-    venues the documented 24h guard was really running at about 13-14h, and
-    lineup_source_age_hours was inflated by the same amount. Prefer the true-UTC
-    column, and fall back to the local one only where it is missing so callers
-    passing a minimal frame still work.
+    venues the documented 24h guard was really running at about 13-14h. Prefer
+    the true-UTC column, and fall back to the local one only where it is missing
+    so callers passing a minimal frame still work.
+
+    This fixes the cutoff only. `lineup_source_age_hours` is computed separately
+    in _compute_side_metrics and still measures from `start_time`, so it carries
+    the same inflation. That is deliberate for now: it is a deployed predictor,
+    so correcting it changes a feature value under the shipped pickles and has to
+    land together with a retrain rather than on its own.
     """
     local_as_utc = _to_match_time(frame.get("start_time"))
     if "start_time_utc" not in frame.columns:
