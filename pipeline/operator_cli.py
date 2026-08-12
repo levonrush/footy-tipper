@@ -1025,7 +1025,9 @@ def build_parser() -> argparse.ArgumentParser:
     lineups.add_argument("--strict", action="store_true")
 
     nrl = data_sub.add_parser("nrl", help="Refresh, backfill, or validate nrl.com data.")
-    nrl.add_argument("action", choices=("refresh", "backfill", "validate"))
+    nrl.add_argument(
+        "action", choices=("refresh", "backfill", "rebuild-ladders", "validate")
+    )
     _add_years(nrl)
     nrl.add_argument("--season", type=int)
     nrl.add_argument("--max-pages", type=int)
@@ -1146,7 +1148,12 @@ def _retired_replacement(argv: list[str]) -> str | None:
             return "footy-tipper advanced local-run test"
         if "--skip-send" in argv or "--dry-run" in argv:
             return "footy-tipper advanced local-run preview"
-    if first == "nrl-data" and len(argv) > 1 and argv[1] in {"refresh", "backfill", "validate"}:
+    if first == "nrl-data" and len(argv) > 1 and argv[1] in {
+        "refresh",
+        "backfill",
+        "rebuild-ladders",
+        "validate",
+    }:
         return f"footy-tipper advanced data nrl {argv[1]}"
     if first == "odds" and len(argv) > 1 and argv[1] in {"live", "backfill"}:
         action = "refresh" if argv[1] == "live" else "backfill"

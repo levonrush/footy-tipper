@@ -18,8 +18,12 @@ include_performance = os.getenv("FOOTY_TIPPER_INCLUDE_PERFORMANCE", "true").stri
 sparse_min_support = int(os.getenv("FOOTY_TIPPER_SPARSE_MIN_SUPPORT", "30"))
 
 predictors = [
+    # Raw `crowd` is deliberately absent: attendance is only known after
+    # kickoff, so it is populated on every training row and NULL on every
+    # inference row (verified 3538/3593 vs 0/8), which both leaks and skews
+    # train against serve. `venue_avg_crowd` below is the leak-safe stand-in.
     "round_id", "round_name", "game_number", "game_state_name",
-    "start_time", "start_time_utc", "venue_name", "city", "crowd",
+    "start_time", "start_time_utc", "venue_name", "city",
     "broadcast_channel1", "broadcast_channel2", "broadcast_channel3",
     "team_home", "team_away", "competition_year", "position_home_ladder",
     "wins_home_ladder", "draws_home_ladder", "losses_home_ladder",

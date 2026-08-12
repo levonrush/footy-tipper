@@ -14,6 +14,7 @@ import pathlib
 import subprocess
 import sys
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import numpy as np
@@ -1436,35 +1437,52 @@ def main():
     # Optional honest Tier-A tuning: the grid only ever sees seasons strictly
     # before the earliest held-out season, so no test year informs the choice.
     baseline_cfg = None
-    if os.getenv("FOOTY_TIPPER_TUNE_TIER_A", "true").strip().lower() not in {
+    tune_tier_a = os.getenv("FOOTY_TIPPER_TUNE_TIER_A", "true").strip().lower() not in {
         "0",
         "false",
         "no",
         "n",
         "off",
-    }:
-        raw = mf.get_training_data(
-            db_path=db_path,
-            sql_file=project_root / "pipeline/common/sql/training_data.sql",
-        )
-        years_all = sorted(
-            pd.to_numeric(raw["competition_year"], errors="coerce")
-            .dropna()
-            .astype(int)
-            .unique()
-            .tolist()
-        )
-        if len(years_all) > n_seasons + 1:
-            cutoff = years_all[-n_seasons]
-            tune_df = raw[
-                pd.to_numeric(raw["competition_year"], errors="coerce") < cutoff
-            ]
+    }
+    raw = mf.get_training_data(
+        db_path=db_path,
+        sql_file=project_root / "pipeline/common/sql/training_data.sql",
+    )
+    years_all = sorted(
+        pd.to_numeric(raw["competition_year"], errors="coerce")
+        .dropna()
+        .astype(int)
+        .unique()
+        .tolist()
+    )
+    if len(years_all) > n_seasons + 1:
+        cutoff = years_all[-n_seasons]
+        tune_df = raw[pd.to_numeric(raw["competition_year"], errors="coerce") < cutoff]
+        if tune_tier_a:
             baseline_cfg, tier_a_grid = tb.tune_baseline_hyperparams(tune_df)
             if not tier_a_grid.empty:
                 print(
                     f"Tier-A tuned on seasons < {cutoff}: alpha={baseline_cfg.alpha:.2f}, "
                     f"carryover={baseline_cfg.carryover:.2f}"
                 )
+        if baseline_cfg is None:
+            baseline_cfg = tb.default_baseline_config_from_env()
+        # Tier-A's base rates default to the mean over whatever frame they are
+        # handed, which in evaluation is the whole corpus including the held-out
+        # seasons. Pin them to pre-holdout seasons for the same reason the
+        # alpha/carryover grid only sees them: a held-out season must not inform
+        # any part of the model that scores it.
+        finals = tune_df[tune_df["game_state_name"] == "Final"]
+        if not finals.empty:
+            baseline_cfg = replace(
+                baseline_cfg,
+                base_home=float(finals["team_final_score_home"].mean()),
+                base_away=float(finals["team_final_score_away"].mean()),
+            )
+            print(
+                f"Tier-A base rates pinned to seasons < {cutoff}: "
+                f"home={baseline_cfg.base_home:.2f}, away={baseline_cfg.base_away:.2f}"
+            )
 
     data, configured_predictors = _load_training_frame(
         project_root, db_path, baseline_cfg=baseline_cfg
@@ -1864,6 +1882,21 @@ def main():
         "selected_predictor_count": int(len(selected)),
         "git_sha": _git_sha(project_root),
         "manifest": _manifest_fingerprint(project_root, models_dir=models_dir),
+        # What is and is not held out, stated rather than implied. Fold weights,
+        # the one-hot encoder and Tier-A's base rates are all fold-local or
+        # pre-holdout. Hyperparameters and the predictor set are not: both come
+        # from a search over the whole corpus, because re-running a 100-candidate
+        # BayesSearchCV inside every fold is not affordable for a routine eval.
+        # The residual optimism is small (fold-to-fold search noise dwarfs the
+        # best-to-next-best gap) but it is not zero, so it is recorded here.
+        "holdout_discipline": {
+            "fold_weights": "fold_local",
+            "one_hot_encoder": "fold_local",
+            "tier_a_base_rates": "pre_holdout_seasons",
+            "tier_a_alpha_carryover": "pre_holdout_seasons",
+            "hyperparameters": "full_corpus_search",
+            "predictor_selection": "full_corpus_manifest",
+        },
         "env": {
             key: os.environ[key]
             for key in sorted(os.environ)

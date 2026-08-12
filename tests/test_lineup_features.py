@@ -279,6 +279,48 @@ class LineupFeatureTests(unittest.TestCase):
         self.assertEqual(features.loc[401, "lineup_data_available_home"], 0.0)
         self.assertEqual(features.loc[401, "lineup_data_available_away"], 0.0)
 
+    def test_as_of_cutoff_uses_true_utc_kickoff_not_venue_local(self):
+        """The cutoff must be measured from the real kickoff instant.
+
+        `start_time` is venue-local wall clock serialised as-if-UTC, while
+        article publish times are true UTC. Building the cutoff from
+        `start_time` shifted the guard by the venue's offset, so a documented
+        24h horizon ran at about 13h for Australian venues. A snapshot
+        published 18h before a Sydney kickoff is inside that broken window and
+        outside the real one, so it pins the direction of the fix.
+        """
+        true_kickoff = pd.Timestamp("2026-03-25T08:50:00Z")  # 19:50 Sydney
+        local_as_utc = true_kickoff + pd.Timedelta(hours=11)
+        published = true_kickoff - pd.Timedelta(hours=18)
+
+        def _matches(include_utc):
+            row = {
+                "game_id": 501,
+                "competition_year": 2026,
+                "round_id": 3,
+                "game_number": 1,
+                "game_state_name": "Final",
+                "start_time": local_as_utc.isoformat(),
+                "team_home": "Roosters",
+                "team_away": "Storm",
+            }
+            if include_utc:
+                row["start_time_utc"] = true_kickoff.isoformat()
+            return pd.DataFrame([row])
+
+        entries = pd.DataFrame(
+            _team_entries(1, 2026, 3, "roosters", [("James Tedesco", 1, "Fullback", "backs")], published.isoformat())
+            + _team_entries(1, 2026, 3, "storm", [("Ryan Papenhuyzen", 1, "Fullback", "backs")], published.isoformat())
+        )
+
+        with_utc = build_lineup_match_features(_matches(True), entries).set_index("game_id")
+        self.assertEqual(with_utc.loc[501, "lineup_features_missing"], 1.0)
+
+        # Without the true-UTC column the cutoff falls back to local-as-UTC,
+        # which is the permissive behaviour the fix removes.
+        without_utc = build_lineup_match_features(_matches(False), entries).set_index("game_id")
+        self.assertEqual(without_utc.loc[501, "lineup_features_missing"], 0.0)
+
     def test_finals_round_id_is_recovered_from_round_name(self):
         """parse_round_id finds no number in "Finals Week 1", so entries arrive
         with a NULL round_id and used to be dropped wholesale."""

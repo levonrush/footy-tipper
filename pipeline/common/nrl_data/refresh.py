@@ -28,7 +28,7 @@ from .draw import (
     fetch_season_draw,
     load_venue_timezones,
 )
-from .ladder import build_season_ladder
+from .ladder import build_season_ladder, is_regular_round
 from .match_centre import fetch_match_centre, parse_match_centre
 from .performance import (
     build_season_performance,
@@ -212,6 +212,107 @@ def rebuild_derived_caches(
         con, "feed_cache_performance", season, performance_rows, min_writable_year
     )
     _print(f"Rebuilt performance cache for {season}: {written} rows.")
+
+
+def load_cached_fixture_rows(con: sqlite3.Connection, season: int) -> list[dict]:
+    """One season's fixture rows straight from feed_cache_fixtures."""
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT * FROM feed_cache_fixtures WHERE competition_year = ? "
+            "ORDER BY round_id, game_number",
+            (int(season),),
+        ).fetchall()
+    finally:
+        con.row_factory = None
+    return [dict(row) for row in rows]
+
+
+def derive_bye_rows(fixture_rows: list[dict]) -> list[dict]:
+    """Byes implied by the cached draw.
+
+    The draw JSON carries byes explicitly, but they were never persisted, so a
+    rebuild from cache has to infer them. In a regular round a bye is exactly
+    "a team in this season's competition with no fixture", which is how the
+    ladder consumes them (`{"round_id": r, "team": t}`). Finals rounds are
+    excluded because a team missing from them has been eliminated, not byed.
+    """
+    teams: set[str] = set()
+    playing: dict[int, set[str]] = {}
+    round_names: dict[int, str | None] = {}
+    for fixture in fixture_rows:
+        round_id = int(float(fixture["round_id"]))
+        round_names.setdefault(round_id, fixture.get("round_name"))
+        for side in ("team_home", "team_away"):
+            team = fixture.get(side)
+            if team:
+                teams.add(team)
+                playing.setdefault(round_id, set()).add(team)
+
+    byes: list[dict] = []
+    for round_id in sorted(playing):
+        if not is_regular_round(round_names.get(round_id), round_id):
+            continue
+        for team in sorted(teams - playing[round_id]):
+            byes.append({"round_id": round_id, "team": team})
+    return byes
+
+
+def rebuild_ladder_cache(
+    db_path: str | Path,
+    start_year: int,
+    end_year: int,
+) -> dict:
+    """Re-derive feed_cache_ladders for past seasons from data already cached.
+
+    The historical XML feed stored END-OF-SEASON values in the form columns
+    (recent_form, season_form, current_streak, day_record, night_record,
+    players_used) on every round row, so a round-2 row leaked how the season
+    finished. Those columns are declared predictors, and refresh_season only
+    ever rewrites the current season, so the leaked values survived into
+    training. This re-derives them as-of-round with the same builder the live
+    path uses, making the historical corpus consistent with what inference
+    produces.
+
+    Needs no network: fixtures come from feed_cache_fixtures and scoring from
+    match_player_stats, both already ingested. feed_cache_performance is left
+    alone deliberately, see docs/data-source-migration.md.
+    """
+    start_year = int(start_year)
+    end_year = int(end_year)
+    started = store.utc_now_iso()
+
+    con = sqlite3.connect(str(db_path))
+    try:
+        store.ensure_tables(con)
+        seasons: dict[int, int] = {}
+        errors: list[str] = []
+        for season in range(start_year, end_year + 1):
+            fixture_rows = load_cached_fixture_rows(con, season)
+            if not fixture_rows:
+                errors.append(f"{season}: no cached fixtures, skipped")
+                continue
+            bye_rows = derive_bye_rows(fixture_rows)
+            ladder_rows = build_season_ladder(
+                fixture_rows, bye_rows, season, load_game_scoring(con, season)
+            )
+            written = replace_cache_year(
+                con, "feed_cache_ladders", season, ladder_rows, season
+            )
+            seasons[season] = written
+            _print(
+                f"Rebuilt ladder cache for {season}: {written} rows "
+                f"({len(bye_rows)} byes derived)."
+            )
+
+        status = "completed" if not errors else "completed_with_errors"
+        store.record_ingest_run(
+            con, "rebuild-ladders", started, status, start_year, end_year, 0, errors
+        )
+        con.commit()
+        return {"status": status, "seasons": seasons, "errors": errors}
+    finally:
+        con.close()
 
 
 def refresh_season(

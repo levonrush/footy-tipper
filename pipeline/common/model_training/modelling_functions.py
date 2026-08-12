@@ -190,30 +190,27 @@ def nan_passthrough_enabled() -> bool:
     }
 
 
-def create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols):
+def build_preprocessor_steps(cat_cols, nan_passthrough=None):
+    """The one_hot + to_df pair, as a list of (name, transformer) steps.
+
+    Shared by create_pipeline and fit_fold_preprocessor so the deployed encoder
+    and a per-fold encoder can never drift apart. `to_df` closes over the
+    ColumnTransformer built here, which is why a fold preprocessor has to be
+    constructed rather than cloned: a clone would carry a closure pointing at
+    the original transformer's fitted categories and mislabel its own columns.
     """
-    Create a pipeline with:
-      1) One-hot encoding
-      2) Wrapping array output into DataFrame with sanitized feature names
-      3) Scaling for MLPRegressor
-      4) Optional RFECV
-      5) Bayesian hyperparameter search
-    """
-    steps = []
-    # 1) One-hot encode categorical cols
     preprocessor = ColumnTransformer(
         transformers=[('encoder', OneHotEncoder(handle_unknown='ignore'), cat_cols)],
         remainder='passthrough'
     )
-    steps.append(('one_hot', preprocessor))
 
     # Resolved once here, not inside to_df, so the choice is baked into the
     # fitted transformer. Reading the environment at transform time would let a
     # model trained on NaN silently switch to zero-fill when served without the
     # flag, which is precisely the train/serve skew the pickles exist to avoid.
-    nan_passthrough = nan_passthrough_enabled()
+    if nan_passthrough is None:
+        nan_passthrough = nan_passthrough_enabled()
 
-    # 2) After fitting preprocessor, wrap into DataFrame with sanitized names
     def to_df(X_array):
         cols = preprocessor.get_feature_names_out(preprocessor.feature_names_in_)
         df   = pd.DataFrame(X_array, columns=sanitize_feature_names(cols))
@@ -223,7 +220,45 @@ def create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols)
             df = df.fillna(0.0)
         return df
 
-    steps.append(('to_df', FunctionTransformer(func=to_df, validate=False)))
+    return [
+        ('one_hot', preprocessor),
+        ('to_df', FunctionTransformer(func=to_df, validate=False)),
+    ]
+
+
+def fit_fold_preprocessor(fitted_preprocessor_steps, X_train):
+    """A preprocessor fitted on one fold's training rows only.
+
+    The expanding-window OOF loops used to transform every fold through the
+    preprocessor fitted on the whole corpus, so a fold predicting season Y was
+    encoded by an encoder that had already seen season Y's categories (a team,
+    venue or referee that debuts in Y). The fold weights were honest but the
+    encoding was not. Refitting per fold closes that, and costs one
+    OneHotEncoder fit.
+
+    Raw predictor columns are unchanged, so only the one-hot widths differ from
+    the corpus-wide encoder; attribution realigns on those per fold.
+    """
+    ct = fitted_preprocessor_steps.named_steps["one_hot"]
+    cat_cols = [str(col) for col in ct.transformers_[0][2]]
+    steps = build_preprocessor_steps(cat_cols)
+    fold_pre = Pipeline(steps)
+    fold_pre.fit(X_train)
+    return fold_pre
+
+
+def create_pipeline(estimator, search_spaces, use_rfe, cv, opt_metric, cat_cols):
+    """
+    Create a pipeline with:
+      1) One-hot encoding
+      2) Wrapping array output into DataFrame with sanitized feature names
+      3) Scaling for MLPRegressor
+      4) Optional RFECV
+      5) Bayesian hyperparameter search
+    """
+    # 1) One-hot encode categorical cols
+    # 2) After fitting preprocessor, wrap into DataFrame with sanitized names
+    steps = build_preprocessor_steps(cat_cols)
 
     # 3) Scale numeric features if using MLP
     if isinstance(estimator, MLPRegressor):
@@ -301,7 +336,14 @@ def train_and_select_best_model(data, predictors, outcome_var,
             'learning_rate': Real(0.01, 0.9, prior='log-uniform'),
             'max_depth': Integer(2, 20),
             'num_leaves': Integer(2, 100),
+            # LightGBM ignores bagging_fraction (subsample) unless bagging_freq
+            # (subsample_freq) is > 0, and it defaults to 0. Verified: two fits
+            # differing only in subsample are byte-identical without it. So this
+            # dimension was inert and the manifest's reported subsample was
+            # meaningless. subsample_freq=0 reproduces the old behaviour, so the
+            # search can still choose no bagging.
             'subsample': Real(0.1, 1.0),
+            'subsample_freq': Categorical([0, 1, 5]),
             'colsample_bytree': Real(0.1, 0.99),
             'reg_alpha': Real(0, 1),
             'reg_lambda': Real(0, 1)
@@ -366,8 +408,9 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var,
         X_test = data.loc[test_mask, predictors]
 
         try:
-            X_train_t = preprocessor_steps.transform(X_train)
-            X_test_t = preprocessor_steps.transform(X_test)
+            fold_pre = fit_fold_preprocessor(preprocessor_steps, X_train)
+            X_train_t = fold_pre.transform(X_train)
+            X_test_t = fold_pre.transform(X_test)
 
             fold_model = type(best_estimator)(
                 objective="poisson", n_jobs=1, verbose=-1, **best_params
@@ -375,7 +418,7 @@ def generate_oof_score_predictions(data, predictors, full_pipeline, outcome_var,
             fold_model.fit(X_train_t, y_train)
             oof_preds.loc[test_mask] = np.maximum(fold_model.predict(X_test_t), 1e-6)
             if on_fold is not None:
-                on_fold(fold_model, X_test_t, test_mask.to_numpy(), test_year)
+                on_fold(fold_model, X_test_t, test_mask.to_numpy(), test_year, fold_pre)
         except Exception as exc:
             print(f"OOF generation failed for year {test_year}: {exc}")
 
@@ -456,8 +499,9 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
         X_test = data.loc[test_mask, predictors]
 
         try:
-            X_train_t = preprocessor_steps.transform(X_train)
-            X_test_t = preprocessor_steps.transform(X_test)
+            fold_pre = fit_fold_preprocessor(preprocessor_steps, X_train)
+            X_train_t = fold_pre.transform(X_train)
+            X_test_t = fold_pre.transform(X_test)
 
             fold_clf = lgb.LGBMClassifier(
                 objective='binary', n_jobs=1, verbose=-1,
@@ -466,7 +510,7 @@ def generate_oof_binary_predictions(data, non_draw_mask, predictors, preprocesso
             fold_clf.fit(X_train_t, y_train)
             oof_preds.loc[test_mask] = fold_clf.predict_proba(X_test_t)[:, 1]
             if on_fold is not None:
-                on_fold(fold_clf, X_test_t, test_mask, test_year)
+                on_fold(fold_clf, X_test_t, test_mask, test_year, fold_pre)
         except Exception as exc:
             print(f"OOF binary generation failed for year {test_year}: {exc}")
 

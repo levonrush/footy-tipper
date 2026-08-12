@@ -36,10 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "action",
-        choices=["refresh", "backfill", "validate"],
+        choices=["refresh", "backfill", "rebuild-ladders", "validate"],
         help=(
             "refresh=current season draw + match centres + derived caches; "
             "backfill=historical match centres (2012+); "
+            "rebuild-ladders=re-derive feed_cache_ladders as-of-round for past "
+            "seasons from cached data (no network); "
             "validate=parity report vs cached feed history (no writes)."
         ),
     )
@@ -113,6 +115,12 @@ def main(argv: list[str] | None = None) -> int:
                 end_year=args.end_year or current_year,
                 venue_csv=venue_csv,
                 max_pages=max_pages,
+            )
+        elif args.action == "rebuild-ladders":
+            result = refresh_module.rebuild_ladder_cache(
+                db_path=db_path,
+                start_year=args.start_year or refresh_module.BACKFILL_FIRST_SEASON,
+                end_year=args.end_year or (current_year - 1),
             )
         else:
             result = validate_module.validate_seasons(

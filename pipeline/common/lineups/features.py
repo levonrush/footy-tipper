@@ -577,9 +577,26 @@ def _selection_probability(jersey_number, squad_group, model: dict) -> float:
     return float(global_prob)
 
 
+def _match_kickoff_utc(frame: pd.DataFrame) -> pd.Series:
+    """True-UTC kickoff, for comparison against article publish times.
+
+    `start_time` is venue-local wall clock serialised as-if-UTC (see draw.py),
+    while `source_published_at_utc` is true UTC. Building the as-of cutoff from
+    `start_time` therefore shifted it by the venue's UTC offset: for Australian
+    venues the documented 24h guard was really running at about 13-14h, and
+    lineup_source_age_hours was inflated by the same amount. Prefer the true-UTC
+    column, and fall back to the local one only where it is missing so callers
+    passing a minimal frame still work.
+    """
+    local_as_utc = _to_match_time(frame.get("start_time"))
+    if "start_time_utc" not in frame.columns:
+        return local_as_utc
+    return _to_match_time(frame["start_time_utc"]).fillna(local_as_utc)
+
+
 def _build_match_long(matches: pd.DataFrame, now_utc: pd.Timestamp, horizon_hours: float) -> pd.DataFrame:
     frame = matches.copy()
-    frame["start_time_utc"] = _to_match_time(frame.get("start_time"))
+    frame["start_time_utc"] = _match_kickoff_utc(frame)
     if "game_state_name" in frame.columns:
         frame["game_state_name"] = frame["game_state_name"].fillna("").astype(str)
     else:

@@ -395,8 +395,12 @@ class FoldCollector:
     same fold models that produced the out-of-fold predictions. No extra model
     is fitted; the only added work is one pred_contrib call per fold.
 
-    The raw-feature layout comes from the fitted preprocessor every fold shares,
-    which is exact, rather than from parsing the booster's feature names.
+    The raw-feature layout comes from the fitted preprocessor, which is exact,
+    rather than from parsing the booster's feature names. Each fold now fits its
+    own encoder so it cannot see its test season's categories, so the one-hot
+    widths differ per fold while the raw predictor list does not. The reduceat
+    offsets are therefore rebuilt per fold and the raw layout is asserted
+    unchanged, which keeps every fold writing into the same columns here.
     """
 
     def __init__(self, preprocessor_steps, n_rows):
@@ -409,7 +413,20 @@ class FoldCollector:
         self.captured = np.zeros(int(n_rows), dtype=bool)
         self.split_counts = {name: 0 for name in self.feature_names}
 
-    def __call__(self, fold_model, X_test_t, test_mask, test_year):
+    def _offsets_for(self, fold_preprocessor, test_year):
+        """Reduceat offsets for this fold's encoder, in the shared raw layout."""
+        if fold_preprocessor is None:
+            return self._starts
+        from pipeline.common.explain import contributions as xc
+
+        names, widths = xc.onehot_group_map(fold_preprocessor)
+        if tuple(names) != tuple(self.feature_names):
+            raise ValueError(
+                f"fold {test_year}: raw predictor layout changed between folds"
+            )
+        return np.concatenate(([0], np.cumsum(widths)[:-1]))
+
+    def __call__(self, fold_model, X_test_t, test_mask, test_year, fold_preprocessor=None):
         booster = fold_model.booster_
         contrib = np.asarray(booster.predict(X_test_t, pred_contrib=True), dtype=float)
         rows = np.flatnonzero(np.asarray(test_mask, dtype=bool))
@@ -417,12 +434,13 @@ class FoldCollector:
             raise ValueError(
                 f"fold {test_year}: {len(rows)} masked rows but {len(contrib)} predictions"
             )
-        self.values[rows] = np.add.reduceat(contrib[:, :-1], self._starts, axis=1)
+        starts = self._offsets_for(fold_preprocessor, test_year)
+        self.values[rows] = np.add.reduceat(contrib[:, :-1], starts, axis=1)
         self.base_value[rows] = contrib[:, -1]
         self.captured[rows] = True
 
         splits = np.add.reduceat(
-            np.asarray(booster.feature_importance("split"), dtype=float), self._starts
+            np.asarray(booster.feature_importance("split"), dtype=float), starts
         )
         for name, count in zip(self.feature_names, splits):
             self.split_counts[name] += int(count)
