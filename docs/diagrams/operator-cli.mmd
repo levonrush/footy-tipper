@@ -19,6 +19,7 @@ flowchart TB
   DELIVERY([delivery])
   CLOUD([cloud])
   SITE([site])
+  EXPLAIN([explain])
 
   PREP([prepare<br/>all · training · tips])
   LINEUPS([lineups<br/>refresh · backfill])
@@ -29,6 +30,7 @@ flowchart TB
   DELIVERY_MODES([preview · test<br/>live routes to Actions])
   CLOUD_ACTIONS([pull-runtime · push-runtime<br/>schedule · gate])
   SITE_ACTIONS([build · publish])
+  EXPLAIN_ACTIONS([round · cohort · report<br/>read-only diagnostics])
 
   CLI --> MENU
   CLI --> STATUS
@@ -46,6 +48,7 @@ flowchart TB
   ADV --> DELIVERY
   ADV --> CLOUD
   ADV --> SITE
+  ADV --> EXPLAIN
   DATA --> PREP
   DATA --> LINEUPS
   DATA --> NRL
@@ -55,6 +58,7 @@ flowchart TB
   DELIVERY --> DELIVERY_MODES
   CLOUD --> CLOUD_ACTIONS
   SITE --> SITE_ACTIONS
+  EXPLAIN --> EXPLAIN_ACTIONS
 
   classDef root fill:#0F172A,stroke:#0F172A,color:#FFFFFF,stroke-width:2px;
   classDef everyday fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
@@ -66,4 +70,4 @@ flowchart TB
   class MENU,STATUS,SETUP,TIPS,SHOW,TEST,REFRESH everyday;
   class UPDATE model;
   class LIVE safety;
-  class ADV,DATA,MODEL,LOCAL,DELIVERY,CLOUD,SITE,PREP,LINEUPS,NRL,ODDS,MODEL_ACTIONS,RUN_MODES,DELIVERY_MODES,CLOUD_ACTIONS,SITE_ACTIONS technical;
+  class ADV,DATA,MODEL,LOCAL,DELIVERY,CLOUD,SITE,EXPLAIN,PREP,LINEUPS,NRL,ODDS,MODEL_ACTIONS,RUN_MODES,DELIVERY_MODES,CLOUD_ACTIONS,SITE_ACTIONS,EXPLAIN_ACTIONS technical;

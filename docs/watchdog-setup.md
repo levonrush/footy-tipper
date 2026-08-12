@@ -4,8 +4,8 @@ Footy Tipper uses two hosted clocks:
 
 - GitHub polls at off-boundary Sydney times from 11:07 through 14:37.
 - Google Apps Script checks every five minutes and requests the same guarded
-  gate once per 30-minute recovery slot, beginning around 11:27 and continuing
-  through approximately 14:57.
+  gate once per 30-minute recovery slot, beginning at 11:22 and continuing
+  through 14:52.
 
 The Apps Script never predicts or sends email. It can only dispatch
 `predict.yml` with `watchdog=true`; the workflow reads the Drive-backed

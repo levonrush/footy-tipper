@@ -2,7 +2,7 @@
 
 An NRL prediction engine built from R, Python, SQLite, probability theory, and the stubborn belief that the pub tipping comp deserves production infrastructure.
 
-Footy Tipper prepares match data, versions team lists, trains calibrated score and winner models, simulates coherent scorelines, finds value against the market, and turns the result into a weekly email and static site. It takes the football seriously. It remains open to the possibility that the football does not care.
+Footy Tipper prepares match data, versions team lists, trains calibrated score and winner models, simulates coherent scorelines, finds value against the market, records why it thinks what it thinks, and turns the result into a weekly email and static site. It takes the football seriously. It remains open to the possibility that the football does not care.
 
 ![Footy Tipper logo](images/footy-tipper-logo.jpg)
 
@@ -65,6 +65,7 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - [CLI reference](docs/cli-reference.md) — the complete operator and advanced command trees.
 - [Architecture](docs/how-it-works.md) — data, models, state, and delivery ownership.
 - [Models and evidence](docs/modeling-techniques.md) — Tier A/B/C, calibration, simulation, and limitations.
+- [Explainability](docs/explainability.md): the exact decision chain behind each tip, TreeSHAP attribution, and the cohort analyses.
 - [Operations](docs/operations-reliability.md) — model releases, Actions, delivery safety, reruns, and recovery.
 - [Watchdog operations](docs/watchdog-setup.md) — the deployed Google Apps Script fallback, verification, credential replacement, incident handling, and rollback.
 - [Research and history](docs/research-and-history.md) — research-to-production status and the complete Medium series.

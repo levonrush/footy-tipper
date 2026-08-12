@@ -102,7 +102,7 @@ This supports safe reruns: broad backfills do not multiply identical articles, a
 
 ## Historical coverage is structurally limited
 
-Team-list features reach roughly a third of training games (1,133 of 3,593 as at 2026-08-11). This is expected, not a join defect, and the investigation below should not be repeated.
+Team-list features reach roughly a third of training games (1,168 of 3,593 as at 2026-08-12, after finals articles were recovered). This is expected, not a join defect, and the investigation below should not be repeated.
 
 `lineup_entries` holds about 201 fixtures per season back to 2008, but most of those rows come from `match_state = FullTime` match-centre pages (3,945 of 4,797 snapshots). For a completed match the match-centre parser keeps only jersey 1 to 17 non-replacement players, which is the side that actually played. That is post-match information, and the 2024 backfill stamped it with the CMS `updated` date rather than a publication date. The as-of cutoff is what keeps it out of training, so it is a leakage guard rather than a tunable coverage knob.
 

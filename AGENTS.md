@@ -36,7 +36,13 @@ This file is for coding/automation agents working on `footy-tipper`.
   - Production training runs on the operator's local hardware. The default Bayesian search budget is `FOOTY_TIPPER_TUNE_ITER=100`; search fits parallelize externally while each LightGBM fit remains single-threaded.
   - Google Drive create-only `state/model-releases/` is the publication channel; `state/model-current.json` selects the active release.
   - `training-receipt.json` is written last and records release provenance, versions, training scope, sizes, and hashes.
+  - Training is seeded and reproducible. Two runs on identical data must produce identical metrics, an identical manifest, and byte-identical booster trees.
   - GitHub Actions must not train or auto-train.
+- Explainability:
+  - `pipeline/common/explain/` builds the exact decision chain (expert probabilities, pool weights, temperature, consensus guard, score-mean path) and TreeSHAP attribution from LightGBM `pred_contrib`. No `shap` dependency: it would break the pinned-version contract that keeps the pickles loadable.
+  - Inference writes explanations after the tips are safely persisted, inside a try/except, so a diagnostics failure can never cost a send.
+  - Diagnostics must ride out of the simulation that already ran: no re-simulation, no RNG salt change, byte-identical outcomes.
+  - Artifacts go to `reports/` and SQLite, never `models/`, because the release receipt hashes every file in that directory.
 - Inference:
   - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, reconciles score means only when their tip conflicts with the calibrated tip, simulates negative-binomial/Poisson marginals with shared `lambda3`, derives the displayed scoreline from median margin/total, and upserts into `predictions_table`.
 - Distribution:
@@ -57,6 +63,18 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `FOOTY_TIPPER_START_YEAR` (default: `2008`)
   - `FOOTY_TIPPER_END_YEAR` (default: current year)
   - `FOOTY_TIPPER_INCLUDE_PERFORMANCE` (default: `true`)
+- Training determinism and missing-value controls:
+  - `FOOTY_TIPPER_TUNE_ITER` (default: `100`; Bayesian search budget)
+  - `FOOTY_TIPPER_TRAINING_SEED` (default: `20100308`; seeds `BayesSearchCV` and every
+    LightGBM fit so two trains on identical data produce identical models. Recorded as
+    `training_seed` in `model_manifest.json`. Never A/B two feature sets on unseeded runs:
+    search noise alone moved tipping accuracy ~1.3 points, enough to flip the release gate.)
+  - `FOOTY_TIPPER_NAN_PASSTHROUGH` (default: `false`; when true a missing predictor reaches
+    LightGBM as `NaN` instead of `0.0`. Resolved when the pipeline is built and baked into the
+    fitted transformer, so it only takes effect on the next train. Recorded as
+    `nan_passthrough` in the manifest.)
+- Explainability controls:
+  - `FOOTY_TIPPER_EXPLAIN` (default: `true`; `false` skips the `prediction_explanations` write)
 - Lineup controls:
   - `FOOTY_TIPPER_LINEUPS_ENABLED` (default: `true`)
   - `FOOTY_TIPPER_LINEUPS_MODE` (`recent` or `backfill`, default: `recent`)
@@ -159,6 +177,7 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `footy-tipper advanced delivery preview|test|live`
   - `footy-tipper advanced cloud pull-runtime|push-runtime|schedule|gate`
   - `footy-tipper advanced site build|publish`
+  - `footy-tipper advanced explain round|cohort|report` (read-only diagnostics)
 - Actions machine interface:
   - `python -m pipeline.ops.actions_runner gate`
   - `python -m pipeline.ops.actions_runner runtime-pull`

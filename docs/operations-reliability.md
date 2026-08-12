@@ -79,8 +79,8 @@ Use `footy-tipper status --offline` only when remote checks are unavailable. Tre
 [`predict.yml`](../.github/workflows/predict.yml) uses targeted, off-boundary
 Sydney-time polls beginning at 11:07 and continuing through 14:37. An
 independent Google Apps Script clock requests the same guarded gate in
-30-minute recovery slots, beginning around 11:27 and continuing through
-approximately 14:57. The gate derives the first fixture date in
+30-minute recovery slots, beginning at 11:22 and continuing through
+14:52. The gate derives the first fixture date in
 `Australia/Sydney` and returns:
 
 - `live`: at the first available gate on or after 11:00 Sydney on that date, through the existing post-kickoff grace period;

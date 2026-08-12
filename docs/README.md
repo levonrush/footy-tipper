@@ -15,7 +15,6 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 2. [Models and evaluation](modeling-techniques.md) — Tier A/B/C, market separation, stacking, calibration, margin blending, simulation, and evidence.
 3. [Lineup integration](lineup-integration.md) — versioned snapshots, as-of selection, feature families, uncertainty, and repair behavior.
 4. [Principled odds integration](principled-odds-integration.md) — why odds are a separate signal and how the current stack avoids double-counting them.
-
 5. [Explainability](explainability.md): the exact decision chain behind each tip, TreeSHAP feature attribution, the one-line why, and the cohort analyses that surface dead features and data gaps.
 
 ## I need to operate the competition layer
