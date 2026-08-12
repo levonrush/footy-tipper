@@ -152,6 +152,30 @@ not train Tier B against later closing information.
 - Prefer nested season-out metrics over training-time summaries.
 - Treat opening, prediction-time, and closing prices as different information sets.
 - Do not train a 24-hour-before-kickoff process against closing information without an explicit leakage analysis.
+
+### The closing-price leakage analysis, measured
+
+`feed_cache_fixtures` is COALESCE-filled with **closing** H2H and line prices,
+on the argument that the live provider snapshot is taken inside the 6 hour send
+gate and closing is therefore the nearest historical analogue. That argument is
+sound in direction, and the residual gap is now bounded rather than assumed.
+
+Scored on the 3,541 non-draw games from 2013 where `odds_history` holds both an
+`open` and a `close` snapshot, using each snapshot's own favourite:
+
+| era | games | open favourite | close favourite | favourite flips |
+| --- | --- | --- | --- | --- |
+| 2013-2023 | 2,977 | 66.24% | 67.32% | 6.25% |
+| 2024-2026 | 564 | 62.23% | 62.59% | 7.80% |
+| all | 3,541 | 65.60% | 66.56% | 6.50% |
+
+A whole round of price discovery is worth about **0.96 points** of favourite
+accuracy overall and about **0.36 points** in the era where the market weight
+decision is actually made. Production's snapshot sits between open and close, so
+the market benchmark's optimism is bounded by those numbers. That is far too
+small to account for the model's margin over the market, and it does not explain
+the simulated ROI either; treat that figure as unsettled for the reason given
+under Evaluation rules, not as an artifact of price timing.
 - Report both probability quality and decision outcomes; ROI alone is noisy and selection-dependent.
 
 The current checked-in nested report is summarized in [Models and evaluation](modeling-techniques.md#honest-evaluation).

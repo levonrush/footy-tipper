@@ -121,7 +121,7 @@ footy-tipper advanced
 ├── data
 │   ├── prepare {all|training|tips}
 │   ├── lineups {refresh|backfill}
-│   ├── nrl {refresh|backfill|validate}
+│   ├── nrl {refresh|backfill|rebuild-ladders|validate}
 │   └── odds {refresh|backfill}
 ├── model {train|infer|evaluate|verify|list|activate|rollback}
 ├── local-run {preview|test|live}
@@ -150,6 +150,7 @@ footy-tipper advanced model evaluate --help
 | `lineups backfill` | Repair historical lineup coverage, including old zero-entry snapshots. |
 | `nrl refresh` | Refresh current nrl.com draw/match-centre caches. |
 | `nrl backfill` | Repair historical nrl.com coverage. |
+| `nrl rebuild-ladders` | Re-derive `feed_cache_ladders` as-of-round for past seasons from data already cached. No network. Defaults to 2012 through last season. |
 | `nrl validate` | Produce parity/coverage evidence without changing source state. |
 | `odds refresh` | Record available live The Odds API markets, with the configured provider fallback. |
 | `odds backfill` | Import historical odds workbook observations. |

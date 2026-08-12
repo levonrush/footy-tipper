@@ -34,6 +34,14 @@ Training and inference intentionally select different eligible endpoints:
 - **Training:** latest snapshot known at or before `kickoff - FOOTY_TIPPER_LINEUPS_AS_OF_HOURS_BEFORE_KICKOFF`, default 24 hours.
 - **Inference:** latest available pre-game snapshot at run time.
 
+The cutoff is measured from `start_time_utc`, the true UTC kickoff. It used to
+be measured from `start_time`, which is venue-local wall clock serialised
+as-if-UTC, while article publish times are true UTC. Comparing the two shifted
+the cutoff by the venue's offset, so the documented 24 hour guard was really
+running at about 13 to 14 hours for Australian venues, and
+`lineup_source_age_hours` was inflated by the same amount. Anyone tuning the
+horizon should know the pre-fix numbers were measured against the shorter one.
+
 Historical backtests therefore do not use final lineups that were unavailable at the configured decision time. Within-week snapshot changes still inform churn and uncertainty features.
 
 ## Feature families

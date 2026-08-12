@@ -93,6 +93,19 @@ The path, the asymmetry fix and the competition scorer are recoverable from
 history around commits `079f999` through `b8b3d02`. They are worth revisiting
 if the market regains its edge; they are not worth carrying while it has not.
 
+**These numbers predate the leak removal and the whole experiment is now due a
+re-run.** Every figure in this section was measured on a corpus where the ladder
+form columns carried end-of-season values for 2018 to 2024 and `crowd` was a
+live predictor, so the football experts were being judged partly on information
+they will never have at serve time. Two things have since moved in the direction
+that matters here: the learned pool now asks for more market weight rather than
+less (0.724 to 0.854), and the model is markedly less wrong where it contradicts
+the price (65.1% to 70.4% on the top disagreement decile). Neither overturns the
+conclusion on its own, because deviating from the market still loses on average
+and the field still tips the favourite. But the conclusion is currently resting
+on evidence that has been superseded, and it should not be quoted as settled
+until the shrinkage rungs are re-scored on the clean corpus.
+
 ### Competition placement as a scoreboard
 
 `comp_placement_metrics` scores any forecaster against a simulated rival field
@@ -185,7 +198,36 @@ model-only fallback. It reports calibration, tipping, market comparison,
 score/margin behavior, ROI simulations, and competition-policy evidence where
 coverage allows. Reports are written under `reports/`.
 
-The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the 2024 to 2026 nested holdout summary: 580 pooled non-draw games, 64.5% tipping accuracy, 0.6327 log loss, 0.2213 Brier, and 62.3% market-favourite accuracy on covered games. Margin MAE is 14.13 against 14.27 for the market line. These are historical evaluation results, not a promise about the next round.
+The checked-in [`reports/eval-latest.json`](../reports/eval-latest.json) records the 2024 to 2026 nested holdout summary: 596 pooled non-draw games, 63.8% tipping accuracy (380/596), 0.6395 log loss, 0.2240 Brier, and 62.5% market-favourite accuracy on covered games. Margin MAE is 14.34 against 14.33 for the market line. These are historical evaluation results, not a promise about the next round.
+
+### What the leak removal cost, stated exactly
+
+Those numbers replace 580 games at 64.5%, 0.6327 log loss and 0.2213 Brier. The
+drop is smaller than it looks and is worth decomposing, because two different
+things changed at once.
+
+On the seasons that are like-for-like, 2024 and 2025 at 212 games each, the tip
+count is **identical**: 267 correct of 424 before and after. Removing the
+end-of-season ladder form leak and the post-kickoff `crowd` column cost zero
+tips. What it cost is probability quality on that same data: 2024 log loss moved
+0.6062 to 0.6260 and Brier 0.2093 to 0.2172. The leak was inflating how confident
+the model was entitled to be, not how often it was right.
+
+The pooled headline fell because 2026 grew from 156 to 172 settled games between
+the two runs, and those 16 newly-settled games went 6/16. That is new football,
+not a consequence of the change.
+
+The number that matters most moved the right way. On the top decile of model
+against market disagreement, the 338 games where the model most contradicts the
+price, model accuracy went from **65.1% to 70.4%** and the gap to the market
+narrowed from 11.0 points to 8.0. Deviating from the market still loses on
+average, so the zero market weight is not yet vindicated by it, but far less of
+that deviation is now noise. This is the measurement the market weight decision
+should be re-argued against.
+
+Consistent with all of the above, the learned pool now wants **more** market and
+less Tier C than it did: market weight 0.724 to 0.854, Tier C 0.235 to 0.102.
+The gate still rejects the learned pool and ships Tier C alone.
 
 ### Margin distribution
 
@@ -201,10 +243,10 @@ holdout the pooled CRPS is:
 
 | Method | CRPS | 50% cov | 90% cov | 90% width |
 |---|---|---|---|---|
-| Normal approximation | 10.20 | 0.50 | 0.87 | 55.8 |
-| Empirical replay of past errors | 10.22 | 0.48 | 0.88 | 56.9 |
-| Score model (Poisson family) | 10.25 | 0.47 | 0.84 | 51.4 |
-| Score model reconciled to the calibrated probability | 10.50 | 0.48 | 0.83 | 51.3 |
+| Normal approximation | 10.32 | 0.50 | 0.87 | 56.2 |
+| Empirical replay of past errors | 10.34 | 0.48 | 0.89 | 57.2 |
+| Score model (Poisson family) | 10.37 | 0.47 | 0.85 | 51.6 |
+| Score model reconciled to the calibrated probability | 10.61 | 0.47 | 0.83 | 51.5 |
 
 Two honest negatives follow. The 100k-draw Poisson-family simulator does not
 beat a two-parameter normal approximation fitted to prior-season residuals, so
@@ -215,7 +257,7 @@ the win-probability stack and the score model disagree, and the price of making
 them agree is now measured rather than assumed. All four methods under-cover at
 the 90% level.
 
-The market line appears as a point forecast, where CRPS reduces to MAE (14.27),
+The market line appears as a point forecast, where CRPS reduces to MAE (14.33),
 so it is not a like-for-like comparison against a distribution and should not be
 read as one.
 
@@ -236,11 +278,11 @@ that predates both:
 
 | How the three integers are produced | Margin MAE | Home MAE | Away MAE | Total MAE | CRPS |
 |---|---|---|---|---|---|
-| Solve on conflict, median (**deployed**) | 14.12 | 9.25 | 8.76 | 11.36 | 10.23 |
-| Solve on conflict, modal scoreline | 14.24 | 10.26 | 9.61 | 14.78 | 10.23 |
-| Reweighted, modal scoreline | 14.31 | 10.28 | 9.60 | 14.74 | 10.19 |
-| Solve every game, modal scoreline | 14.46 | 10.37 | 9.69 | 14.92 | 10.50 |
-| Solve every game, median | 14.49 | 9.40 | 8.93 | 11.41 | 10.50 |
+| Solve on conflict, median (**deployed**) | 14.30 | 9.28 | 8.88 | 11.50 | 10.37 |
+| Solve on conflict, modal scoreline | 14.66 | 10.30 | 9.96 | 14.83 | 10.37 |
+| Reweighted, modal scoreline | 14.65 | 10.29 | 9.95 | 14.81 | 10.33 |
+| Solve every game, modal scoreline | 14.58 | 10.48 | 9.64 | 14.96 | 10.61 |
+| Solve every game, median | 14.61 | 9.44 | 9.00 | 11.46 | 10.61 |
 
 Both defaults follow that table rather than preference. The reasoning behind each:
 
@@ -253,7 +295,7 @@ The requirement the scoreline has to meet is that it never contradicts the tip, 
 most games the score model already satisfies it. The calibrated probability is Tier C,
 which models no scores at all, so reconciling a game that was already coherent hands the
 scoreline to a model that has never predicted one. Margin MAE reflects that directly:
-14.13 unreconciled, 14.12 solving only on conflict, 14.49 solving every game.
+14.34 unreconciled, 14.30 solving only on conflict, 14.61 solving every game.
 
 Non-contradiction is enforced explicitly rather than inferred: a median margin of zero,
 or one whose sign disagrees with the tip, is pushed a single point onto the tipped side.
@@ -275,6 +317,17 @@ See [Competition strategy](comp-strategy.md) and [Joker strategy](joker-strategy
 
 ## Limitations
 
+- Not everything in the nested evaluation is held out. Fold weights, the one-hot
+  encoder and Tier-A's base rates and grid are fold-local or pre-holdout;
+  hyperparameters and the predictor set are not, because re-running a
+  100-candidate search inside every fold is not affordable for a routine
+  evaluation. The report records this per component under
+  `config.holdout_discipline` rather than leaving it to be inferred. The residual
+  optimism is small, since fold-to-fold search noise dwarfs the gap between the
+  best and next-best candidates, but it is not zero.
+- Ladder rows for seasons before 2012 are still the legacy feed's own values.
+  They measure as honest, and the match-centre floor of 2012 means they cannot be
+  re-derived, but they are produced by a different path from 2012 onward.
 - Historical odds and line coverage are incomplete and time-varying.
 - H2H, spread, and totals freshness are tracked per market family; stale
   families are masked rather than silently reused.

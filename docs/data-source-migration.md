@@ -69,6 +69,32 @@ FOOTY_TIPPER_FEED_SOURCE=feed footy-tipper advanced data prepare all
 
 Backfill is an intentional historical repair operation; normal prediction uses the narrow current refresh. `validate` is read-only evidence generation. Use `--strict` while diagnosing ingestion itself, not as a permanent default for the weekly prediction path.
 
+### Rebuilding frozen ladder seasons
+
+`refresh` only ever rewrites the current season, which is what kept the legacy
+XML feed's ladder rows frozen. Those rows carried END-OF-SEASON values in
+`recent_form`, `season_form`, `current_streak`, `day_record`, `night_record` and
+`players_used` on every round, and those columns are declared predictors, so a
+round-2 row leaked how the season finished. Distinct values per team-season ran
+about 1.4 across roughly 12.5 home games for 2018 to 2024, against about 7
+either side of that window.
+
+```bash
+footy-tipper advanced data nrl rebuild-ladders --start-year 2012 --end-year 2025
+```
+
+This re-derives `feed_cache_ladders` as-of-round with the same builder the live
+path uses. It needs no network: fixtures come from `feed_cache_fixtures` and
+scoring from `match_player_stats`, hence the 2012 floor. Byes were parsed from
+the draw but never persisted, so they are inferred as "a team with no fixture in
+a regular round"; rebuilding 2026, which the live path had already built from
+real bye rows, reproduces it identically across all 33 columns.
+
+`feed_cache_performance` is deliberately **not** rebuilt. The parity report
+records 46 of its columns as non-derivable from the modern match centre, so a
+rebuild would silently drop them, and the family carries negative measured
+log-loss lift, so it is a removal candidate rather than a repair candidate.
+
 ## Remaining extensions
 
 The source cutover is complete; these are independent modelling/data additions rather than migration blockers:

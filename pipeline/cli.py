@@ -163,7 +163,15 @@ def _build_env(args):
 
 
 def _run_data_prep(env, root):
-    return _run_command(["Rscript", str(root / "pipeline" / "data-prep.R")], env, cwd=root)
+    # Bare "Rscript" resolves through PATH, which inside an activated conda env
+    # finds that env's R rather than the one R_LIBS_USER was built against. The
+    # two are not interchangeable: package shared objects are named .so by a
+    # CRAN build and .dylib by a conda build, and they are tied to the R minor
+    # version, so the mismatch fails at load with a missing shared object rather
+    # than anything that reads as a version problem. FOOTY_TIPPER_RSCRIPT pins
+    # the interpreter that owns R_LIBS_USER. Default is unchanged.
+    rscript = env.get("FOOTY_TIPPER_RSCRIPT") or "Rscript"
+    return _run_command([rscript, str(root / "pipeline" / "data-prep.R")], env, cwd=root)
 
 
 def _run_lineups(env, root):
