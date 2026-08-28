@@ -353,6 +353,12 @@ def generate_reg_regan_email_payload(
         else None
     )
     copy = llm_copy or fallback_copy
+    if news_context and not copy.get("news_hit"):
+        print(
+            "Claude email copy omitted news_hit despite available news; "
+            "using the selected news summary."
+        )
+        copy["news_hit"] = news_context
 
     # Strategy corner: surfaced in both plain and HTML closings so every
     # deviation from pure model tips is visible with its P(win comp) math.
