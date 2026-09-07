@@ -14,8 +14,9 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 1. [Architecture](how-it-works.md) — current production path, ownership boundaries, SQLite contracts, artifacts, and feed rollback.
 2. [Models and evaluation](modeling-techniques.md) — Tier A/B/C, market separation, stacking, calibration, margin blending, simulation, and evidence.
 3. [Lineup integration](lineup-integration.md) — versioned snapshots, as-of selection, feature families, uncertainty, and repair behavior.
-4. [Principled odds integration](principled-odds-integration.md) — why odds are a separate signal and how the current stack avoids double-counting them.
-5. [Explainability](explainability.md): the exact decision chain behind each tip, TreeSHAP feature attribution, the one-line why, and the cohort analyses that surface dead features and data gaps.
+4. [Club Context](club-context.md) — evidence-gated psychosocial match context, immutable round cutoffs, shadow evaluation, and the Context Watch reader card.
+5. [Principled odds integration](principled-odds-integration.md) — why odds are a separate signal and how the current stack avoids double-counting them.
+6. [Explainability](explainability.md): the exact decision chain behind each tip, TreeSHAP feature attribution, the one-line why, and the distinction between observed context and measured model impact.
 
 ## I need to operate the competition layer
 
@@ -27,6 +28,7 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 
 - [Research and history](research-and-history.md) — curated findings, primary references, implementation matrix, and the full Medium series.
 - [Data-source migration](data-source-migration.md) — shipped nrl.com/odds production path, parity evidence, XML rollback, and remaining extensions.
+- [Source and content-use policy](source-policy.md) — provider boundaries, rights states, minimal persistence, attribution, and the commercial-use review gate.
 - [Research notebook index](../research/README.md) — historical R Markdown exploration and stale-path warnings.
 - [Literature-review index](../lit-review/README.md) — report theses and production influence.
 - [Changelog](../CHANGELOG.md) — genuine history, including retired interfaces.

@@ -853,6 +853,8 @@ def _evaluate_season(
     lineup_mc_samples=64,
     lineup_mu_noise_scale=0.12,
     edge_threshold=0.05,
+    include_distribution=True,
+    include_margin_blend=True,
 ):
     prior_mask = non_draw & genuine_oof & (year_col < test_year)
     test_mask = non_draw & genuine_oof & (year_col == test_year)
@@ -1102,6 +1104,11 @@ def _evaluate_season(
         "no_market_selection_tier_b_log_loss": no_market_tier_b_log_loss,
         "probability_routes": probability_routes,
         "no_market_counterfactual_routes": (no_market_counterfactual_routes),
+        # Kept as aligned arrays for shadow experiments.  _build_report omits
+        # ndarray values, so the production evaluation artifact is unchanged.
+        "test_indices": np.flatnonzero(test_mask),
+        "predicted_mu_home": blended_h[test_mask],
+        "predicted_mu_away": blended_a[test_mask],
     }
 
     # Margin metrics for the comp's tie-breaker: model margin from the
@@ -1124,7 +1131,7 @@ def _evaluate_season(
     # model-margin fallback where the line is missing.
     result["margin_blend_mae"] = None
     blend_fit_mask = prior_mask & np.isfinite(market_spread)
-    if blend_fit_mask.sum() >= 100:
+    if include_margin_blend and blend_fit_mask.sum() >= 100:
         model_margin_full = blended_h - blended_a
         tier_a_margin_full = baseline_mu_home - baseline_mu_away
         X_margin = np.column_stack(
@@ -1147,7 +1154,11 @@ def _evaluate_season(
     # Needs the realised scores, since the over-dispersion and shared-component
     # parameters are refitted per season rather than taken from the manifest.
     result["margin_distribution"] = None
-    if actual_home_score is not None and actual_away_score is not None:
+    if (
+        include_distribution
+        and actual_home_score is not None
+        and actual_away_score is not None
+    ):
         result["margin_distribution"] = _score_margin_distributions(
             blended_h,
             blended_a,
@@ -1398,7 +1409,7 @@ def _build_report(results, pooled, config):
     }
 
 
-def _write_report(report, project_root):
+def _write_report(report, project_root, *, report_label="eval"):
     """Write the eval report; failure to write must never fail the eval."""
     try:
         override = os.getenv("FOOTY_TIPPER_EVAL_REPORT_PATH")
@@ -1409,8 +1420,8 @@ def _write_report(report, project_root):
             reports_dir.mkdir(exist_ok=True)
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
             paths = [
-                reports_dir / f"eval-{stamp}.json",
-                reports_dir / "eval-latest.json",
+                reports_dir / f"{report_label}-{stamp}.json",
+                reports_dir / f"{report_label}-latest.json",
             ]
         for path in paths:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -1420,6 +1431,304 @@ def _write_report(report, project_root):
     except Exception as exc:
         print(f"Eval report not written ({exc}).")
         return None
+
+
+def _env_enabled(name):
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _generate_context_oof_inputs(
+    data,
+    predictors,
+    *,
+    home_model,
+    away_model,
+    non_draw,
+):
+    """Generate the candidate on the same expanding folds as production.
+
+    The loaded artifacts contribute only their fixed hyperparameters and
+    preprocessing contract.  Every held-out prediction is refitted on earlier
+    seasons, exactly like the baseline path, and nothing is persisted to
+    ``models/``.
+    """
+
+    home_mu, home_mask = mf.generate_oof_score_predictions(
+        data,
+        predictors,
+        home_model,
+        "team_final_score_home",
+        return_mask=True,
+    )
+    away_mu, away_mask = mf.generate_oof_score_predictions(
+        data,
+        predictors,
+        away_model,
+        "team_final_score_away",
+        return_mask=True,
+    )
+    best_params = dict(home_model.named_steps["hyperparamtuning"].best_params_)
+    tier_c, binary_mask = mf.generate_oof_binary_predictions(
+        data,
+        non_draw,
+        predictors,
+        home_model[:-1],
+        best_params,
+        return_mask=True,
+    )
+    return {
+        "home_mu": home_mu,
+        "away_mu": away_mu,
+        "tier_c": np.clip(tier_c, 1e-6, 1 - 1e-6),
+        "genuine_oof": home_mask & away_mask & binary_mask,
+    }
+
+
+def _context_category_for_row(row):
+    families = {
+        "leadership_change": "leadership_count",
+        "serious_human_event": "human_event_count",
+        "tribute_milestone": "tribute_milestone_count",
+        "club_crisis": "club_crisis_count",
+    }
+    active = []
+    for category, metric in families.items():
+        total = 0.0
+        for side in ("home", "away"):
+            try:
+                total += float(row.get(f"club_context_{metric}_{side}", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                pass
+        if total > 0:
+            active.append(category)
+    if not active:
+        return None
+    return active[0] if len(active) == 1 else "multiple"
+
+
+def _context_games_since(row):
+    values = []
+    for side in ("home", "away"):
+        try:
+            count = float(row.get(f"club_context_event_count_{side}", 0.0) or 0.0)
+            since = float(row.get(f"club_context_games_since_event_{side}", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if count > 0 and np.isfinite(since):
+            values.append(since)
+    return min(values) if values else None
+
+
+def _build_context_shadow_frame(
+    data,
+    baseline_results,
+    context_results,
+    *,
+    db_path,
+):
+    """Build one paired, inspectable row per nested held-out game."""
+
+    from pipeline import club_context_evaluate as cce
+
+    annotations = cce.build_event_annotations(data, db_path)
+    context_by_year = {int(item["year"]): item for item in context_results}
+    frames = []
+    for baseline in baseline_results:
+        candidate = context_by_year.get(int(baseline["year"]))
+        if candidate is None:
+            continue
+        baseline_indices = np.asarray(baseline["test_indices"], dtype=int)
+        candidate_indices = np.asarray(candidate["test_indices"], dtype=int)
+        if not np.array_equal(baseline_indices, candidate_indices):
+            raise RuntimeError(
+                f"Club Context pairing failed for {baseline['year']}: held-out rows differ"
+            )
+        source = data.iloc[baseline_indices].reset_index(drop=True)
+        output = pd.DataFrame(
+            {
+                "game_id": pd.to_numeric(source["game_id"], errors="coerce").astype(int),
+                "competition_year": pd.to_numeric(
+                    source["competition_year"], errors="coerce"
+                ).astype(int),
+                "round_id": pd.to_numeric(source["round_id"], errors="coerce"),
+                "team_home": source["team_home"].astype(str),
+                "team_away": source["team_away"].astype(str),
+                "actual_home_win": baseline["y_test"].astype(int),
+                "actual_home_score": pd.to_numeric(
+                    source["team_final_score_home"], errors="coerce"
+                ),
+                "actual_away_score": pd.to_numeric(
+                    source["team_final_score_away"], errors="coerce"
+                ),
+                "baseline_home_win_prob": baseline["model_p"],
+                "context_home_win_prob": candidate["model_p"],
+                "baseline_no_market_home_win_prob": baseline[
+                    "no_market_counterfactual_p"
+                ],
+                "context_no_market_home_win_prob": candidate[
+                    "no_market_counterfactual_p"
+                ],
+                "baseline_home_score": baseline["predicted_mu_home"],
+                "baseline_away_score": baseline["predicted_mu_away"],
+                "context_home_score": candidate["predicted_mu_home"],
+                "context_away_score": candidate["predicted_mu_away"],
+                "market_available": baseline["valid_market"].astype(bool),
+            }
+        )
+        def source_numeric(column, default=0.0):
+            values = (
+                source[column]
+                if column in source.columns
+                else pd.Series(default, index=source.index, dtype=float)
+            )
+            return pd.to_numeric(values, errors="coerce").fillna(default)
+
+        output["market_spread"] = -pd.to_numeric(
+            source.get("implied_spread_home", np.nan), errors="coerce"
+        )
+
+        event_home = source_numeric("club_context_event_count_home")
+        event_away = source_numeric("club_context_event_count_away")
+        output["context_event_count_home"] = event_home
+        output["context_event_count_away"] = event_away
+        output["context_event_count"] = event_home + event_away
+        output["context_source_diversity"] = np.maximum(
+            source_numeric("club_context_source_diversity_home"),
+            source_numeric("club_context_source_diversity_away"),
+        )
+        output["context_official_count"] = source_numeric(
+            "club_context_official_count_home"
+        ) + source_numeric("club_context_official_count_away")
+        output["context_data_available"] = source_numeric(
+            "club_context_data_available"
+        )
+        output["category"] = source.apply(_context_category_for_row, axis=1)
+        output["matches_since_event"] = source.apply(_context_games_since, axis=1)
+
+        for column in (
+            "venue_name",
+            "form_delta",
+            "rest_delta",
+            "elo_diff",
+            "lineup_avg_named_margin_rating_delta",
+            "lineup_selection_uncertainty_delta",
+        ):
+            if column in source.columns:
+                output[column] = source[column].to_numpy()
+        frames.append(output)
+
+    if not frames:
+        return pd.DataFrame()
+    paired = pd.concat(frames, ignore_index=True)
+    if not annotations.empty:
+        paired = paired.merge(annotations, on="game_id", how="left", suffixes=("", "_research"))
+        # Active-feature category takes precedence; pre-event rows inherit the
+        # research-only label solely for the event-study table.
+        research_category = paired.get("category_research")
+        if research_category is not None:
+            paired["category"] = paired["category"].where(
+                paired["category"].notna(), research_category
+            )
+            paired = paired.drop(columns=["category_research"])
+
+    # A long-lived event can outlast the ±3 research window.  Give such rows a
+    # deterministic synthetic cluster rather than treating games as independent.
+    active_without_id = paired["context_event_count"].gt(0) & paired.get(
+        "event_id", pd.Series(index=paired.index, dtype=object)
+    ).isna()
+    if active_without_id.any():
+        affected = np.where(
+            paired.loc[active_without_id, "context_event_count_home"].to_numpy(float)
+            >= paired.loc[active_without_id, "context_event_count_away"].to_numpy(float),
+            "home",
+            "away",
+        )
+        paired.loc[active_without_id, "affected_side"] = affected
+        paired.loc[active_without_id, "event_id"] = [
+            f"active:{year}:{category}:{side}"
+            for year, category, side in zip(
+                paired.loc[active_without_id, "competition_year"],
+                paired.loc[active_without_id, "category"],
+                affected,
+            )
+        ]
+    return paired.sort_values(["competition_year", "round_id", "game_id"]).reset_index(
+        drop=True
+    )
+
+
+def _write_context_ablation(
+    *,
+    data,
+    baseline_results,
+    context_results,
+    db_path,
+    project_root,
+    baseline_predictors,
+    context_predictors,
+):
+    from pipeline import club_context_evaluate as cce
+
+    paired = _build_context_shadow_frame(
+        data,
+        baseline_results,
+        context_results,
+        db_path=db_path,
+    )
+    reports_dir = pathlib.Path(project_root) / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    paired_path = pathlib.Path(
+        os.getenv(
+            "FOOTY_TIPPER_CONTEXT_PAIRED_PATH",
+            str(reports_dir / "club-context-shadow-predictions-latest.csv"),
+        )
+    )
+    paired_path.parent.mkdir(parents=True, exist_ok=True)
+    paired.to_csv(paired_path, index=False, float_format="%.12g")
+
+    report = cce.evaluate_shadow_frame(
+        paired,
+        seed=mf.training_seed(),
+        bootstrap_reps=max(
+            0, int(os.getenv("FOOTY_TIPPER_CONTEXT_BOOTSTRAP_REPS", "2000"))
+        ),
+    )
+    try:
+        paired_label = paired_path.resolve().relative_to(
+            pathlib.Path(project_root).resolve()
+        ).as_posix()
+    except ValueError:
+        paired_label = str(paired_path)
+    report["nested_evaluation"] = {
+        "paired_predictions": paired_label,
+        "baseline_predictor_count": len(baseline_predictors),
+        "candidate_predictor_count": len(context_predictors),
+        "added_predictors": [
+            column for column in context_predictors if column not in baseline_predictors
+        ],
+        "folds": "identical expanding season-out folds",
+        "production_probabilities_changed": False,
+    }
+    report_path = pathlib.Path(
+        os.getenv(
+            "FOOTY_TIPPER_CONTEXT_REPORT_PATH",
+            str(reports_dir / "club-context-materiality-latest.json"),
+        )
+    )
+    json_path, markdown_path = cce.write_materiality_report(report, report_path)
+    print(f"Club Context paired predictions written to {paired_path}")
+    print(f"Club Context materiality report written to {json_path}")
+    print(f"Club Context materiality summary written to {markdown_path}")
+    console.emit_result(
+        "context_materiality",
+        rows=[
+            ("Status", report.get("status", "unknown")),
+            ("Paired games", str(report.get("rows", 0))),
+            ("Event-linked games", str(report.get("event_linked_rows", 0))),
+            ("Production effect", "none — shadow only"),
+        ],
+    )
+    return report
 
 
 def main():
@@ -1504,6 +1813,17 @@ def main():
         ) from exc
     data = tc.align_predictor_columns(data, configured_predictors)
     data = tc.align_predictor_columns(data, selected)
+    context_ablation = _env_enabled("FOOTY_TIPPER_CONTEXT_ABLATION")
+    context_predictors = list(selected)
+    if context_ablation:
+        if not tc.shadow_context_predictors:
+            raise RuntimeError("Club Context shadow predictor contract is unavailable")
+        context_predictors.extend(
+            column
+            for column in tc.shadow_context_predictors
+            if column not in context_predictors
+        )
+        data = tc.align_predictor_columns(data, context_predictors)
 
     year_col = pd.to_numeric(data["competition_year"], errors="coerce").to_numpy()
     non_draw = data["team_final_score_home"].to_numpy(dtype=float) != data[
@@ -1554,6 +1874,29 @@ def main():
     )
     tier_c_cond_oof = np.clip(tier_c_oof, 1e-6, 1 - 1e-6)
     genuine_oof = home_mask & away_mask & binary_mask
+    evaluation_oof = genuine_oof
+    context_oof = None
+    if context_ablation:
+        console.emit_progress(
+            "generating Club Context candidate on identical season folds (slow)"
+        )
+        print(
+            "Generating shadow Club Context OOF predictions "
+            "(production artifacts will not be changed)..."
+        )
+        context_oof = _generate_context_oof_inputs(
+            data,
+            context_predictors,
+            home_model=home_model,
+            away_model=away_model,
+            non_draw=non_draw,
+        )
+        evaluation_oof = genuine_oof & context_oof["genuine_oof"]
+        dropped = int(genuine_oof.sum() - evaluation_oof.sum())
+        print(
+            f"Club Context paired OOF rows: {int(evaluation_oof.sum())} "
+            f"({dropped} unpaired baseline rows excluded)."
+        )
 
     tier_a_cond = np.clip(
         pd.to_numeric(data["baseline_home_win_prob_conditional"], errors="coerce")
@@ -1597,19 +1940,20 @@ def main():
     market_spread = -pd.to_numeric(
         data.get("implied_spread_home", np.nan), errors="coerce"
     ).to_numpy(dtype=float)
-    eval_years = sorted({int(y) for y in year_col[genuine_oof & ~np.isnan(year_col)]})[
+    eval_years = sorted({int(y) for y in year_col[evaluation_oof & ~np.isnan(year_col)]})[
         -n_seasons:
     ]
     print(f"Evaluating held-out seasons: {eval_years}")
 
     results = []
+    context_results = []
     for test_year in eval_years:
         console.emit_progress(f"scoring held-out season {test_year}")
         res = _evaluate_season(
             test_year,
             year_col,
             non_draw,
-            genuine_oof,
+            evaluation_oof,
             y_full,
             baseline_mu_home,
             baseline_mu_away,
@@ -1631,6 +1975,8 @@ def main():
             lineup_unc_away=lineup_unc_away,
             lineup_mc_samples=lineup_mc_samples,
             lineup_mu_noise_scale=lineup_mu_noise_scale,
+            include_distribution=not context_ablation,
+            include_margin_blend=not context_ablation,
         )
         if res is None:
             print(f"  {test_year}: skipped (not enough prior or test rows).")
@@ -1639,6 +1985,41 @@ def main():
             res["model_p"], res["market_p"], res["y_test"]
         )
         results.append(res)
+        if context_oof is not None:
+            context_res = _evaluate_season(
+                test_year,
+                year_col,
+                non_draw,
+                evaluation_oof,
+                y_full,
+                baseline_mu_home,
+                baseline_mu_away,
+                context_oof["home_mu"],
+                context_oof["away_mu"],
+                tier_a_cond,
+                context_oof["tier_c"],
+                market_cond,
+                valid_market_all,
+                home_odds,
+                away_odds,
+                actual_margin,
+                market_spread,
+                data["team_final_score_home"].to_numpy(dtype=float),
+                data["team_final_score_away"].to_numpy(dtype=float),
+                sim_samples,
+                game_ids=data["game_id"].to_numpy(),
+                lineup_unc_home=lineup_unc_home,
+                lineup_unc_away=lineup_unc_away,
+                lineup_mc_samples=lineup_mc_samples,
+                lineup_mu_noise_scale=lineup_mu_noise_scale,
+                include_distribution=False,
+                include_margin_blend=False,
+            )
+            if context_res is None:
+                raise RuntimeError(
+                    f"Club Context candidate could not score paired season {test_year}"
+                )
+            context_results.append(context_res)
 
     if not results:
         print("No seasons could be evaluated. Train on more seasons first.")
@@ -1905,7 +2286,11 @@ def main():
             and "KEY" not in key
         },
     }
-    report_path = _write_report(_build_report(results, pooled, config), project_root)
+    report_path = _write_report(
+        _build_report(results, pooled, config),
+        project_root,
+        report_label="eval-context-ablation" if context_ablation else "eval",
+    )
     if report_path is not None:
         print(f"\nReport written to {report_path}")
 
@@ -1925,6 +2310,27 @@ def main():
             models_dir=models_dir,
             config=config,
         )
+
+    if context_ablation:
+        try:
+            _write_context_ablation(
+                data=data,
+                baseline_results=results,
+                context_results=context_results,
+                db_path=db_path,
+                project_root=project_root,
+                baseline_predictors=selected,
+                context_predictors=context_predictors,
+            )
+        except Exception as exc:
+            print(f"\nClub Context shadow evaluation failed: {exc}")
+            return 1
+        print(
+            "\nClub Context shadow evaluation complete. The ordinary model-release "
+            f"acceptance gate separately reported {'PASS' if acceptance['passed'] else 'FAIL'}; "
+            "neither result changes production."
+        )
+        return 0
 
     if acceptance["passed"]:
         print("\nEvaluation complete.")

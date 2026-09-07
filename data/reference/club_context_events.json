@@ -1,0 +1,887 @@
+{
+  "catalog_version": "2026-09-07.1",
+  "reviewed_at": "2026-09-07",
+  "scope": {
+    "leadership_change_census": "NRL men's first-grade head-coach handovers that became effective between the start and end of a premiership season, 2008-2026 inclusive. Planned end-of-season departures are excluded from this census and may appear as separately phased events.",
+    "other_events": "A conservative, manually audited seed registry of identifiable serious human events, formal tributes and material club sanctions. It is intentionally not presented as a complete census.",
+    "facts_and_links_only": true,
+    "article_bodies_stored": false
+  },
+  "coverage": {
+    "census_start_year": 2008,
+    "census_end_year": 2026,
+    "seasons_with_no_effective_midseason_handover": [2016, 2025],
+    "leadership_handover_count": 32
+  },
+  "leadership_change_census": [
+    {
+      "event_key": "leadership-cowboys-2008-murray-millward",
+      "competition_year": 2008,
+      "team_key": "cowboys",
+      "team_name": "North Queensland Cowboys",
+      "outgoing_coach": "Graham Murray",
+      "incoming_coach": "Ian Millward",
+      "known_at_utc": "2008-05-22T12:44:00+10:00",
+      "factual_summary": "North Queensland appointed Ian Millward as interim head coach after Graham Murray's resignation.",
+      "source": {
+        "url": "https://www.abc.net.au/news/2008-05-22/millward-takes-cowboys-reins/2444796",
+        "title": "Millward takes Cowboys reins",
+        "publisher_key": "abc.net.au",
+        "source_name": "ABC News",
+        "source_class": "public_broadcaster",
+        "independence_key": "abc",
+        "published_at_utc": "2008-05-22T12:44:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-knights-2009-smith-stone",
+      "competition_year": 2009,
+      "team_key": "knights",
+      "team_name": "Newcastle Knights",
+      "outgoing_coach": "Brian Smith",
+      "incoming_coach": "Rick Stone",
+      "known_at_utc": "2009-08-15T03:00:00+10:00",
+      "factual_summary": "Newcastle confirmed Brian Smith's immediate resignation and appointed Rick Stone as head coach.",
+      "sources": [
+        {
+          "url": "https://www.abc.net.au/news/2009-08-15/smith-quits-knights-post-early/1391840",
+          "title": "Smith quits Knights post early",
+          "publisher_key": "abc.net.au",
+          "source_name": "ABC News",
+          "source_class": "public_broadcaster",
+          "independence_key": "abc",
+          "published_at_utc": "2009-08-15T03:00:00+10:00"
+        },
+        {
+          "url": "https://www.nrl.com/news/2009/08/24/knights-v-cowboys-review/",
+          "title": "Knights v Cowboys review",
+          "published_at_utc": "2009-08-24T10:02:00+10:00",
+          "evidence_role": "corroboration"
+        }
+      ]
+    },
+    {
+      "event_key": "leadership-sharks-2010-stuart-flanagan",
+      "competition_year": 2010,
+      "team_key": "sharks",
+      "team_name": "Cronulla-Sutherland Sharks",
+      "outgoing_coach": "Ricky Stuart",
+      "incoming_coach": "Shane Flanagan",
+      "known_at_utc": "2010-07-20T06:13:00+10:00",
+      "factual_summary": "Cronulla confirmed Ricky Stuart had left early and Shane Flanagan had taken over immediately.",
+      "sources": [
+        {
+          "url": "https://www.abc.net.au/news/2010-07-20/stuart-walks-out-on-sharks/911792",
+          "title": "Stuart walks out on Sharks",
+          "publisher_key": "abc.net.au",
+          "source_name": "ABC News",
+          "source_class": "public_broadcaster",
+          "independence_key": "abc",
+          "published_at_utc": "2010-07-20T06:13:00+10:00"
+        },
+        {
+          "url": "https://www.nrl.com/news/2010/05/24/official-release-sharks-to-replace-stuart-with-flanagan/",
+          "title": "Official release: Sharks to replace Stuart with Flanagan",
+          "published_at_utc": "2010-05-24T13:00:00+10:00",
+          "evidence_role": "corroboration"
+        }
+      ]
+    },
+    {
+      "event_key": "leadership-panthers-2011-elliott-georgallis",
+      "competition_year": 2011,
+      "team_key": "panthers",
+      "team_name": "Penrith Panthers",
+      "outgoing_coach": "Matthew Elliott",
+      "incoming_coach": "Steve Georgallis",
+      "known_at_utc": "2011-06-20T10:24:00+10:00",
+      "factual_summary": "Penrith confirmed Matthew Elliott had stepped down and Steve Georgallis would coach for the remainder of the season.",
+      "sources": [
+        {
+          "url": "https://www.abc.net.au/news/2011-06-20/elliott-hands-over-panthers-reins/2764452",
+          "title": "Elliott hands over Panthers reins",
+          "publisher_key": "abc.net.au",
+          "source_name": "ABC News",
+          "source_class": "public_broadcaster",
+          "independence_key": "abc-aap",
+          "published_at_utc": "2011-06-20T10:24:00+10:00"
+        },
+        {
+          "url": "https://www.foxsports.com.au/nrl/nrl-premiership/penrith-coach-matt-elliott-stands-down-as-coach-steve-georgallis-takes-over-for-rest-of-season/news-story/a4a3a6acd7095f49dd2d36a55e608967",
+          "title": "Penrith coach Matt Elliott stands down",
+          "publisher_key": "foxsports.com.au",
+          "source_name": "Fox Sports",
+          "source_class": "reputable_media",
+          "independence_key": "fox-sports",
+          "published_at_utc": "2011-06-20T14:48:00+10:00",
+          "evidence_role": "corroboration"
+        }
+      ]
+    },
+    {
+      "event_key": "leadership-bulldogs-2011-moore-dymock",
+      "competition_year": 2011,
+      "team_key": "bulldogs",
+      "team_name": "Canterbury-Bankstown Bulldogs",
+      "outgoing_coach": "Kevin Moore",
+      "incoming_coach": "Jim Dymock",
+      "known_at_utc": "2011-07-14T16:00:00+10:00",
+      "factual_summary": "Canterbury confirmed Kevin Moore had left immediately and Jim Dymock would coach for the remainder of the season.",
+      "sources": [
+        {
+          "url": "https://www.abc.net.au/news/2011-07-14/moore-quits-bulldogs/2795230",
+          "title": "Moore walks after Bulldogs drop axe",
+          "publisher_key": "abc.net.au",
+          "source_name": "ABC News",
+          "source_class": "public_broadcaster",
+          "independence_key": "abc",
+          "published_at_utc": "2011-07-14T16:00:00+10:00"
+        },
+        {
+          "url": "https://www.nzherald.co.nz/sport/rugby-league/warriors/nrl-bulldogs-in-disarray-after-moores-resignation/YP2ER6D532VIYV3BLLFEGPJ5FI/",
+          "title": "Bulldogs in disarray after Moore's resignation",
+          "publisher_key": "nzherald.co.nz",
+          "source_name": "New Zealand Herald",
+          "source_class": "reputable_media",
+          "independence_key": "nz-herald",
+          "published_at_utc": "2011-07-14T17:30:00+12:00",
+          "evidence_role": "corroboration"
+        }
+      ]
+    },
+    {
+      "event_key": "leadership-eels-2012-kearney-arthur",
+      "competition_year": 2012,
+      "team_key": "eels",
+      "team_name": "Parramatta Eels",
+      "outgoing_coach": "Stephen Kearney",
+      "incoming_coach": "Brad Arthur",
+      "known_at_utc": "2012-07-20T10:47:00+10:00",
+      "factual_summary": "Parramatta confirmed Stephen Kearney's departure and appointed Brad Arthur as caretaker coach.",
+      "sources": [
+        {
+          "url": "https://www.abc.net.au/news/2012-07-20/kearney-resigns-as-eels-coach/4143434",
+          "title": "Kearney resigns as Eels coach",
+          "publisher_key": "abc.net.au",
+          "source_name": "ABC News",
+          "source_class": "public_broadcaster",
+          "independence_key": "abc",
+          "published_at_utc": "2012-07-20T10:47:00+10:00"
+        },
+        {
+          "url": "https://www.foxsports.com.au/nrl/nrl-premiership/after-two-torrid-seasons-parramatta-and-coach-steve-kearney-to-part-ways-at-friday-press-conference/news-story/4a71af43ab3b04eed1ae63b0761d2d08",
+          "title": "Parramatta and Kearney part ways",
+          "publisher_key": "foxsports.com.au",
+          "source_name": "Fox Sports",
+          "source_class": "reputable_media",
+          "independence_key": "news-corp",
+          "published_at_utc": "2012-07-20T12:31:00+10:00",
+          "evidence_role": "corroboration"
+        }
+      ]
+    },
+    {
+      "event_key": "leadership-warriors-2012-mcclennan-iro",
+      "competition_year": 2012,
+      "team_key": "warriors",
+      "team_name": "New Zealand Warriors",
+      "outgoing_coach": "Brian McClennan",
+      "incoming_coach": "Tony Iro",
+      "known_at_utc": "2012-08-21T16:34:00+10:00",
+      "factual_summary": "The Warriors parted ways with Brian McClennan and Tony Iro became caretaker coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2012/08/21/biggest-day-in-league-history---nrl-daily/",
+        "title": "Biggest day in league history - NRL Daily",
+        "published_at_utc": "2012-08-21T16:34:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-raiders-2013-furner-dunemann",
+      "competition_year": 2013,
+      "team_key": "raiders",
+      "team_name": "Canberra Raiders",
+      "outgoing_coach": "David Furner",
+      "incoming_coach": "Andrew Dunemann",
+      "known_at_utc": "2013-08-21T12:30:00+10:00",
+      "factual_summary": "Canberra dismissed David Furner and Andrew Dunemann became caretaker coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2013/08/21/raiders-v-sea-eagles-preview/",
+        "title": "Raiders v Sea Eagles preview",
+        "published_at_utc": "2013-08-21T12:30:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-warriors-2014-elliott-mcfadden",
+      "competition_year": 2014,
+      "team_key": "warriors",
+      "team_name": "New Zealand Warriors",
+      "outgoing_coach": "Matthew Elliott",
+      "incoming_coach": "Andrew McFadden",
+      "known_at_utc": "2014-04-09T07:10:00+10:00",
+      "factual_summary": "The Warriors confirmed Matthew Elliott was no longer head coach and Andrew McFadden had taken over in an acting capacity.",
+      "source": {
+        "url": "https://www.nrl.com/news/2014/04/09/warriors-coach-the-toughest-job-in-the-nrl/",
+        "title": "Warriors coach the toughest job in the NRL?",
+        "published_at_utc": "2014-04-09T07:10:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-dragons-2014-price-mcgregor",
+      "competition_year": 2014,
+      "team_key": "dragons",
+      "team_name": "St George Illawarra Dragons",
+      "outgoing_coach": "Steve Price",
+      "incoming_coach": "Paul McGregor",
+      "known_at_utc": "2014-05-26T11:12:00+10:00",
+      "factual_summary": "St George Illawarra dismissed Steve Price and appointed Paul McGregor as caretaker coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2014/05/26/dragons-sack-coach-steve-price/",
+        "title": "Dragons sack coach Steve Price",
+        "published_at_utc": "2014-05-26T11:12:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-sharks-2014-sharp-shepherd",
+      "competition_year": 2014,
+      "team_key": "sharks",
+      "team_name": "Cronulla-Sutherland Sharks",
+      "outgoing_coach": "Peter Sharp",
+      "incoming_coach": "James Shepherd",
+      "known_at_utc": "2014-07-01T10:23:00+10:00",
+      "factual_summary": "Peter Sharp resigned as Cronulla's interim coach and James Shepherd took over as caretaker.",
+      "source": {
+        "url": "https://www.nrl.com/news/2014/07/01/sharp-resigns-as-sharks-coach/",
+        "title": "Sharp resigns as Sharks coach",
+        "published_at_utc": "2014-07-01T10:23:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-titans-2014-cartwright-henry",
+      "competition_year": 2014,
+      "team_key": "titans",
+      "team_name": "Gold Coast Titans",
+      "outgoing_coach": "John Cartwright",
+      "incoming_coach": "Neil Henry",
+      "known_at_utc": "2014-08-05T14:59:00+10:00",
+      "effective_from_utc": "2014-08-12T00:00:00+10:00",
+      "factual_summary": "Gold Coast confirmed John Cartwright would coach one final match before Neil Henry became interim coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2014/08/05/cartwright-searle-quit-club-they-built/",
+        "title": "Cartwright, Searle quit club they built",
+        "published_at_utc": "2014-08-05T14:59:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-knights-2015-stone-buderus",
+      "competition_year": 2015,
+      "team_key": "knights",
+      "team_name": "Newcastle Knights",
+      "outgoing_coach": "Rick Stone",
+      "incoming_coach": "Danny Buderus",
+      "known_at_utc": "2015-07-27T15:05:00+10:00",
+      "factual_summary": "Newcastle dismissed Rick Stone and appointed Danny Buderus as interim coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2015/07/27/buderus-replaces-stone-as-knights-coach/",
+        "title": "Buderus replaces Stone as Knights coach",
+        "published_at_utc": "2015-07-27T15:05:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-tigers-2017-taylor-webster",
+      "competition_year": 2017,
+      "team_key": "tigers",
+      "team_name": "Wests Tigers",
+      "outgoing_coach": "Jason Taylor",
+      "incoming_coach": "Andrew Webster",
+      "known_at_utc": "2017-03-20T14:18:00+11:00",
+      "factual_summary": "Wests Tigers dismissed Jason Taylor and appointed Andrew Webster as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2017/03/20/wests-tigers-sack-jason-taylor/",
+        "title": "Wests Tigers sack Jason Taylor",
+        "published_at_utc": "2017-03-20T14:18:00+11:00"
+      }
+    },
+    {
+      "event_key": "leadership-titans-2017-henry-matterson-hodges",
+      "competition_year": 2017,
+      "team_key": "titans",
+      "team_name": "Gold Coast Titans",
+      "outgoing_coach": "Neil Henry",
+      "incoming_coach": "Terry Matterson and Craig Hodges",
+      "known_at_utc": "2017-08-21T15:00:00+10:00",
+      "factual_summary": "Gold Coast dismissed Neil Henry and appointed Terry Matterson and Craig Hodges as interim co-coaches.",
+      "source": {
+        "url": "https://www.nrl.com/news/2017/08/21/titans-ceo-graham-annesley-player-power-not-behind-neil-henrys-axing/",
+        "title": "Player power not behind Henry's axing",
+        "published_at_utc": "2017-08-21T15:00:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-panthers-2018-griffin-ciraldo",
+      "competition_year": 2018,
+      "team_key": "panthers",
+      "team_name": "Penrith Panthers",
+      "outgoing_coach": "Anthony Griffin",
+      "incoming_coach": "Cameron Ciraldo",
+      "known_at_utc": "2018-08-06T18:18:00+10:00",
+      "factual_summary": "Penrith parted ways with Anthony Griffin and appointed Cameron Ciraldo as caretaker coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2018/08/06/penrith-panthers-part-ways-with-coach-anthony-griffin-four-weeks-out-from-finals/",
+        "title": "Panthers part ways with coach Griffin four weeks out from finals",
+        "published_at_utc": "2018-08-06T18:18:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-titans-2019-brennan-hodges-burt",
+      "competition_year": 2019,
+      "team_key": "titans",
+      "team_name": "Gold Coast Titans",
+      "outgoing_coach": "Garth Brennan",
+      "incoming_coach": "Craig Hodges and Luke Burt",
+      "known_at_utc": "2019-07-14T20:42:00+10:00",
+      "factual_summary": "Gold Coast parted ways with Garth Brennan and named Craig Hodges and Luke Burt to take over for the remainder of the season.",
+      "source": {
+        "url": "https://www.nrl.com/news/2019/07/14/titans-and-coach-garth-brennan-to-part-ways/",
+        "title": "Titans part ways with Brennan",
+        "published_at_utc": "2019-07-14T20:42:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-knights-2019-brown-woolf",
+      "competition_year": 2019,
+      "team_key": "knights",
+      "team_name": "Newcastle Knights",
+      "outgoing_coach": "Nathan Brown",
+      "incoming_coach": "Kristian Woolf",
+      "known_at_utc": "2019-08-27T17:40:00+10:00",
+      "factual_summary": "Newcastle confirmed Nathan Brown's immediate departure and appointed Kristian Woolf as interim coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2019/08/27/brown-depart-knights-effective-immediately/",
+        "title": "Brown departs Knights, effective immediately",
+        "published_at_utc": "2019-08-27T17:40:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-warriors-2020-kearney-payten",
+      "competition_year": 2020,
+      "team_key": "warriors",
+      "team_name": "New Zealand Warriors",
+      "outgoing_coach": "Stephen Kearney",
+      "incoming_coach": "Todd Payten",
+      "known_at_utc": "2020-06-20T17:23:00+10:00",
+      "factual_summary": "The Warriors ended Stephen Kearney's tenure and appointed Todd Payten as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2020/06/20/warriors-end-kearneys-tenure-after-heavy-defeat/",
+        "title": "Warriors end Kearney's tenure after heavy defeat",
+        "published_at_utc": "2020-06-20T17:23:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-bulldogs-2020-pay-georgallis",
+      "competition_year": 2020,
+      "team_key": "bulldogs",
+      "team_name": "Canterbury-Bankstown Bulldogs",
+      "outgoing_coach": "Dean Pay",
+      "incoming_coach": "Steve Georgallis",
+      "known_at_utc": "2020-07-14T09:55:00+10:00",
+      "factual_summary": "Canterbury and Dean Pay parted ways and Steve Georgallis became interim head coach.",
+      "source": {
+        "url": "https://www.bulldogs.com.au/news/2020/07/14/dean-pay-to-step-down-as-bulldogs-head-coach/",
+        "title": "Dean Pay to step down as Bulldogs Head Coach",
+        "publisher_key": "bulldogs.com.au",
+        "source_name": "Canterbury-Bankstown Bulldogs",
+        "source_class": "official_club",
+        "published_at_utc": "2020-07-14T09:55:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-cowboys-2020-green-hannay",
+      "competition_year": 2020,
+      "team_key": "cowboys",
+      "team_name": "North Queensland Cowboys",
+      "outgoing_coach": "Paul Green",
+      "incoming_coach": "Josh Hannay",
+      "known_at_utc": "2020-07-20T16:37:00+10:00",
+      "factual_summary": "North Queensland and Paul Green parted ways and Josh Hannay became interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2020/07/20/green-set-to-part-ways-with-cowboys-effective-immediately/",
+        "title": "Green parts ways with Cowboys effective immediately",
+        "published_at_utc": "2020-07-20T16:37:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-broncos-2020-seibold-gentle",
+      "competition_year": 2020,
+      "team_key": "broncos",
+      "team_name": "Brisbane Broncos",
+      "outgoing_coach": "Anthony Seibold",
+      "incoming_coach": "Peter Gentle",
+      "known_at_utc": "2020-08-25T15:29:00+10:00",
+      "factual_summary": "Brisbane confirmed Anthony Seibold's departure and Peter Gentle continued as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2020/08/25/seibold-confirms-brisbane-days-are-over/",
+        "title": "Seibold confirms Brisbane days are over",
+        "published_at_utc": "2020-08-25T15:29:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-dragons-2020-mcgregor-young",
+      "competition_year": 2020,
+      "team_key": "dragons",
+      "team_name": "St George Illawarra Dragons",
+      "outgoing_coach": "Paul McGregor",
+      "incoming_coach": "Dean Young",
+      "known_at_utc": "2020-08-13T10:19:00+10:00",
+      "effective_from_utc": "2020-08-15T00:00:00+10:00",
+      "factual_summary": "St George Illawarra confirmed Paul McGregor would coach one final match before Dean Young became interim head coach.",
+      "source": {
+        "url": "https://www.dragons.com.au/news/2020/08/13/paul-mcgregor-to-part-ways-with-dragons/",
+        "title": "Paul McGregor to part ways with Dragons",
+        "publisher_key": "dragons.com.au",
+        "source_name": "St George Illawarra Dragons",
+        "source_class": "official_club",
+        "published_at_utc": "2020-08-13T10:19:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-sharks-2021-morris-hannay",
+      "competition_year": 2021,
+      "team_key": "sharks",
+      "team_name": "Cronulla-Sutherland Sharks",
+      "outgoing_coach": "John Morris",
+      "incoming_coach": "Josh Hannay",
+      "known_at_utc": "2021-04-13T18:50:00+10:00",
+      "factual_summary": "Cronulla parted ways with John Morris and appointed Josh Hannay as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2021/04/13/sharks-to-fast-track-call-on-morris-as-graham-wants-decision/",
+        "title": "Sharks part ways with Morris as Fitzgibbon lands job",
+        "published_at_utc": "2021-04-13T18:50:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-bulldogs-2022-barrett-potter",
+      "competition_year": 2022,
+      "team_key": "bulldogs",
+      "team_name": "Canterbury-Bankstown Bulldogs",
+      "outgoing_coach": "Trent Barrett",
+      "incoming_coach": "Mick Potter",
+      "known_at_utc": "2022-05-18T10:28:00+10:00",
+      "factual_summary": "Canterbury appointed Mick Potter as interim head coach after Trent Barrett's departure.",
+      "source": {
+        "url": "https://www.nrl.com/news/2022/05/18/michael-potter-announced-as-interim-head-coach-of-the-bulldogs/",
+        "title": "Michael Potter announced as interim head coach of the Bulldogs",
+        "published_at_utc": "2022-05-18T10:28:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-tigers-2022-maguire-kimmorley",
+      "competition_year": 2022,
+      "team_key": "tigers",
+      "team_name": "Wests Tigers",
+      "outgoing_coach": "Michael Maguire",
+      "incoming_coach": "Brett Kimmorley",
+      "known_at_utc": "2022-06-07T14:24:00+10:00",
+      "factual_summary": "Wests Tigers parted ways with Michael Maguire and appointed Brett Kimmorley as interim coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2022/06/07/wests-tigers-confirm-departure-of-michael-maguire/",
+        "title": "Wests Tigers confirm departure of Michael Maguire",
+        "published_at_utc": "2022-06-07T14:24:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-warriors-2022-brown-jones",
+      "competition_year": 2022,
+      "team_key": "warriors",
+      "team_name": "New Zealand Warriors",
+      "outgoing_coach": "Nathan Brown",
+      "incoming_coach": "Stacey Jones",
+      "known_at_utc": "2022-06-07T09:06:00+10:00",
+      "factual_summary": "The Warriors confirmed Nathan Brown's departure and appointed Stacey Jones as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2022/06/07/warriors-confirm-departure-of-nathan-brown/",
+        "title": "Warriors confirm departure of Nathan Brown",
+        "published_at_utc": "2022-06-07T09:06:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-dragons-2023-griffin-carr",
+      "competition_year": 2023,
+      "team_key": "dragons",
+      "team_name": "St George Illawarra Dragons",
+      "outgoing_coach": "Anthony Griffin",
+      "incoming_coach": "Ryan Carr",
+      "known_at_utc": "2023-05-16T09:33:00+10:00",
+      "factual_summary": "St George Illawarra parted ways with Anthony Griffin and appointed Ryan Carr as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2023/05/16/dragons-part-ways-with-griffin/",
+        "title": "Dragons part ways with Griffin",
+        "published_at_utc": "2023-05-16T09:33:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-titans-2023-holbrook-lenihan",
+      "competition_year": 2023,
+      "team_key": "titans",
+      "team_name": "Gold Coast Titans",
+      "outgoing_coach": "Justin Holbrook",
+      "incoming_coach": "Jim Lenihan",
+      "known_at_utc": "2023-06-22T15:56:00+10:00",
+      "factual_summary": "Gold Coast parted ways with Justin Holbrook and appointed Jim Lenihan as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2023/06/22/titans-confirm-des-hasler-to-replace-justin-holbrook-as-coach/",
+        "title": "Titans confirm Hasler to replace Holbrook as coach",
+        "published_at_utc": "2023-06-22T15:56:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-rabbitohs-2024-demetriou-hornby",
+      "competition_year": 2024,
+      "team_key": "rabbitohs",
+      "team_name": "South Sydney Rabbitohs",
+      "outgoing_coach": "Jason Demetriou",
+      "incoming_coach": "Ben Hornby",
+      "known_at_utc": "2024-04-30T19:58:00+10:00",
+      "factual_summary": "South Sydney parted ways with Jason Demetriou and appointed Ben Hornby as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2024/04/30/rabbitohs-confirm-demetriou-departure-hornby-to-take-charge/",
+        "title": "Rabbitohs confirm Demetriou departure, Hornby to take charge",
+        "published_at_utc": "2024-04-30T19:58:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-eels-2024-arthur-barrett",
+      "competition_year": 2024,
+      "team_key": "eels",
+      "team_name": "Parramatta Eels",
+      "outgoing_coach": "Brad Arthur",
+      "incoming_coach": "Trent Barrett",
+      "known_at_utc": "2024-05-20T17:19:00+10:00",
+      "factual_summary": "Parramatta dismissed Brad Arthur and appointed Trent Barrett as interim head coach.",
+      "source": {
+        "url": "https://www.nrl.com/news/2024/05/20/eels-confirm-brad-arthur-departure/",
+        "title": "Eels confirm Brad Arthur departure",
+        "published_at_utc": "2024-05-20T17:19:00+10:00"
+      }
+    },
+    {
+      "event_key": "leadership-sea-eagles-2026-seibold-foran",
+      "competition_year": 2026,
+      "team_key": "sea_eagles",
+      "team_name": "Manly Warringah Sea Eagles",
+      "outgoing_coach": "Anthony Seibold",
+      "incoming_coach": "Kieran Foran",
+      "known_at_utc": "2026-03-29T08:42:00+11:00",
+      "factual_summary": "Manly appointed Kieran Foran as interim head coach after parting ways with Anthony Seibold.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2026/03/27/sea-eagles-sack-seibold-after-0-3-start-to-season/",
+          "title": "Sea Eagles sack Seibold after 0-3 start to season",
+          "published_at_utc": "2026-03-27T19:20:00+11:00"
+        },
+        {
+          "url": "https://www.nrl.com/news/2026/03/28/sea-eagles-appoint-foran-as-interim-head-coach-after-seibold-sacking/",
+          "title": "Foran ready to step up",
+          "published_at_utc": "2026-03-29T08:42:00+11:00"
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "event_key": "crisis-storm-salary-cap-sanctions-2010",
+      "competition_year": 2010,
+      "category": "club_crisis",
+      "phase": "announcement",
+      "known_at_utc": "2010-04-22T15:56:00+10:00",
+      "effective_from_utc": "2010-04-22T15:56:00+10:00",
+      "expires_at_utc": "2010-05-13T23:59:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "standard",
+      "factual_summary": "The NRL announced major salary-cap sanctions against Melbourne, including the loss of its 2010 competition points and ability to accrue points that season.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2010/04/22/melbourne-storm-breach-nrl-salary-cap/",
+          "title": "Melbourne Storm breach NRL Salary Cap",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2010-04-22T15:56:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "storm", "display_name": "Melbourne Storm", "team_key": "storm", "relationship": "affected"}
+      ]
+    },
+    {
+      "event_key": "human-knights-mckinnon-injury-2014",
+      "competition_year": 2014,
+      "category": "serious_human_event",
+      "phase": "announcement",
+      "known_at_utc": "2014-03-25T19:30:00+11:00",
+      "effective_from_utc": "2014-03-25T19:30:00+11:00",
+      "expires_at_utc": "2014-04-08T23:59:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "highly_sensitive",
+      "factual_summary": "The Knights confirmed Alex McKinnon had sustained a serious spinal injury, had undergone surgery and remained in hospital with his family and club supporting him.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2014/03/25/mckinnon-has-surgery-faces-long-recovery/",
+          "title": "McKinnon has surgery, faces long recovery",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2014-03-25T19:30:00+11:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "knights", "display_name": "Newcastle Knights", "team_key": "knights", "relationship": "affected"},
+        {"entity_type": "player", "entity_key": "Alex McKinnon", "display_name": "Alex McKinnon", "team_key": "knights", "relationship": "subject"}
+      ]
+    },
+    {
+      "event_key": "tribute-knights-rise-for-alex-round-2014",
+      "competition_year": 2014,
+      "category": "tribute_milestone",
+      "phase": "tribute",
+      "known_at_utc": "2014-07-14T12:29:00+10:00",
+      "effective_from_utc": "2014-07-18T19:40:00+10:00",
+      "expires_at_utc": "2014-07-21T23:59:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "highly_sensitive",
+      "factual_summary": "The NRL scheduled RiseForAlex Round to support Alex McKinnon and his recovery, with the Knights' match included in the formal round-wide tribute.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2014/07/14/alex-no-point-in-me-being-angry/",
+          "title": "Alex: No point in me being angry",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2014-07-14T12:29:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "knights", "display_name": "Newcastle Knights", "team_key": "knights", "relationship": "affected"},
+        {"entity_type": "player", "entity_key": "Alex McKinnon", "display_name": "Alex McKinnon", "team_key": "knights", "relationship": "subject"}
+      ]
+    },
+    {
+      "event_key": "crisis-eels-salary-cap-preliminary-sanctions-2016",
+      "competition_year": 2016,
+      "category": "club_crisis",
+      "phase": "announcement",
+      "known_at_utc": "2016-05-03T10:20:00+10:00",
+      "effective_from_utc": "2016-05-03T10:20:00+10:00",
+      "expires_at_utc": "2016-05-24T23:59:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "standard",
+      "factual_summary": "The NRL announced preliminary salary-cap findings and proposed major sanctions against Parramatta, including the loss of competition points accrued while non-compliant.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2016/05/03/parramatta-salary-cap-preliminary-findings/",
+          "title": "Parramatta salary cap preliminary findings",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2016-05-03T10:20:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "eels", "display_name": "Parramatta Eels", "team_key": "eels", "relationship": "affected"}
+      ]
+    },
+    {
+      "event_key": "human-cowboys-paul-green-2022",
+      "competition_year": 2022,
+      "category": "serious_human_event",
+      "phase": "announcement",
+      "known_at_utc": "2022-08-11T13:37:00+10:00",
+      "effective_from_utc": "2022-08-11T13:37:00+10:00",
+      "expires_at_utc": "2022-08-18T23:59:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "highly_sensitive",
+      "factual_summary": "North Queensland confirmed the death of former premiership-winning coach and player Paul Green and offered condolences to his family.",
+      "sources": [
+        {
+          "url": "https://www.cowboys.com.au/news/2022/08/11/vale--paul-green/",
+          "title": "Vale Paul Green",
+          "publisher_key": "cowboys.com.au",
+          "source_name": "North Queensland Cowboys",
+          "source_class": "official_club",
+          "published_at_utc": "2022-08-11T13:37:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "cowboys", "display_name": "North Queensland Cowboys", "team_key": "cowboys", "relationship": "affected"},
+        {"entity_type": "coach", "entity_key": "Paul Green", "display_name": "Paul Green", "team_key": "cowboys", "relationship": "subject"}
+      ]
+    },
+    {
+      "event_key": "tribute-cowboys-paul-green-home-match-2022",
+      "competition_year": 2022,
+      "category": "tribute_milestone",
+      "phase": "tribute",
+      "known_at_utc": "2022-08-12T10:52:00+10:00",
+      "effective_from_utc": "2022-08-19T18:00:00+10:00",
+      "expires_at_utc": "2022-08-19T21:00:00+10:00",
+      "confidence": 0.95,
+      "salience": 1.0,
+      "sensitivity": "highly_sensitive",
+      "factual_summary": "North Queensland confirmed it planned a further home-game tribute to former coach Paul Green.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2022/08/12/an-overwhelming-feeling-of-sadness-payten-pays-tribute-to-green/",
+          "title": "Payten pays tribute to Green",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2022-08-12T10:52:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "cowboys", "display_name": "North Queensland Cowboys", "team_key": "cowboys", "relationship": "affected"},
+        {"entity_type": "coach", "entity_key": "Paul Green", "display_name": "Paul Green", "team_key": "cowboys", "relationship": "subject"}
+      ]
+    },
+    {
+      "event_key": "leadership-knights-2025-obrien-planned-departure",
+      "competition_year": 2025,
+      "category": "leadership_change",
+      "phase": "announcement",
+      "known_at_utc": "2025-08-28T14:19:00+10:00",
+      "effective_from_utc": "2025-08-28T14:19:00+10:00",
+      "expires_at_utc": "2025-09-08T00:00:00+10:00",
+      "confidence": 1.0,
+      "salience": 0.8,
+      "sensitivity": "standard",
+      "factual_summary": "Newcastle and Adam O'Brien agreed he would depart after coaching the final two matches of the 2025 season.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2025/08/28/knights-part-compay-with-adam-obrien/",
+          "title": "O'Brien to depart Knights",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2025-08-28T14:19:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "knights", "display_name": "Newcastle Knights", "team_key": "knights", "relationship": "affected"},
+        {"entity_type": "coach", "entity_key": "Adam O'Brien", "display_name": "Adam O'Brien", "team_key": "knights", "relationship": "subject"}
+      ]
+    },
+    {
+      "event_key": "human-rabbitohs-arrow-retirement-announcement-2026",
+      "competition_year": 2026,
+      "category": "serious_human_event",
+      "phase": "announcement",
+      "known_at_utc": "2026-05-20T14:21:00+10:00",
+      "effective_from_utc": "2026-05-20T14:21:00+10:00",
+      "expires_at_utc": "2026-06-04T00:00:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "highly_sensitive",
+      "factual_summary": "South Sydney confirmed Jai Arrow's immediate retirement on medical grounds and said the club was supporting him and his family.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2026/05/20/rabbitoh-jai-arrow-jai-arrow-announces-retirement-on-medical-grounds/",
+          "title": "Jai Arrow announces retirement on medical grounds",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2026-05-20T14:21:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "rabbitohs", "display_name": "South Sydney Rabbitohs", "team_key": "rabbitohs", "relationship": "affected"},
+        {"entity_type": "player", "entity_key": "Jai Arrow", "display_name": "Jai Arrow", "team_key": "rabbitohs", "relationship": "subject"}
+      ]
+    },
+    {
+      "event_key": "tribute-rabbitohs-arrow-whiteout-match-2026",
+      "competition_year": 2026,
+      "category": "tribute_milestone",
+      "phase": "tribute",
+      "known_at_utc": "2026-06-10T12:00:00+10:00",
+      "known_at_basis": "manually_verified_at",
+      "effective_from_utc": "2026-06-11T19:50:00+10:00",
+      "expires_at_utc": "2026-06-11T23:00:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "highly_sensitive",
+      "factual_summary": "South Sydney confirmed a one-match whiteout jersey, guard of honour and pre-kick-off tribute for Jai Arrow in its Round 15 match against Brisbane.",
+      "sources": [
+        {
+          "url": "https://www.rabbitohs.com.au/news/rabbitohs-to-wear-special-whiteout-playing-strip-to-highlight-and-honour-jai-arrow",
+          "title": "Rabbitohs to wear special whiteout playing strip to highlight and honour Jai Arrow",
+          "publisher_key": "rabbitohs.com.au",
+          "source_name": "South Sydney Rabbitohs",
+          "source_class": "official_club",
+          "first_observed_at_utc": "2026-06-10T12:00:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "rabbitohs", "display_name": "South Sydney Rabbitohs", "team_key": "rabbitohs", "relationship": "affected"},
+        {"entity_type": "player", "entity_key": "Jai Arrow", "display_name": "Jai Arrow", "team_key": "rabbitohs", "relationship": "subject"}
+      ]
+    },
+    {
+      "event_key": "milestone-rabbitohs-arrow-game-99-2026",
+      "competition_year": 2026,
+      "category": "tribute_milestone",
+      "phase": "milestone",
+      "known_at_utc": "2026-08-25T11:24:00+10:00",
+      "effective_from_utc": "2026-08-29T15:00:00+10:00",
+      "expires_at_utc": "2026-08-29T18:00:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "highly_sensitive",
+      "factual_summary": "The NRL approved a one-off arrangement for Jai Arrow to be listed and briefly enter the field in South Sydney's Round 26 match as part of reaching 100 club appearances across two rounds.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2026/08/25/jai-arrow-receives-nrl-support-to-achieve-special-milestone/",
+          "title": "Jai Arrow receives NRL support to achieve special milestone",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2026-08-25T11:24:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "rabbitohs", "display_name": "South Sydney Rabbitohs", "team_key": "rabbitohs", "relationship": "affected"},
+        {"entity_type": "player", "entity_key": "Jai Arrow", "display_name": "Jai Arrow", "team_key": "rabbitohs", "relationship": "subject"}
+      ]
+    },
+    {
+      "event_key": "milestone-rabbitohs-arrow-game-100-2026",
+      "competition_year": 2026,
+      "category": "tribute_milestone",
+      "phase": "milestone",
+      "known_at_utc": "2026-08-25T11:24:00+10:00",
+      "effective_from_utc": "2026-09-04T20:00:00+10:00",
+      "expires_at_utc": "2026-09-04T23:00:00+10:00",
+      "confidence": 1.0,
+      "salience": 1.0,
+      "sensitivity": "highly_sensitive",
+      "factual_summary": "The NRL approved a one-off arrangement for Jai Arrow to be listed and briefly enter the field in South Sydney's Round 27 match for his 100th Rabbitohs appearance.",
+      "sources": [
+        {
+          "url": "https://www.nrl.com/news/2026/08/25/jai-arrow-receives-nrl-support-to-achieve-special-milestone/",
+          "title": "Jai Arrow receives NRL support to achieve special milestone",
+          "publisher_key": "nrl.com",
+          "source_name": "NRL.com",
+          "source_class": "official_nrl",
+          "published_at_utc": "2026-08-25T11:24:00+10:00"
+        }
+      ],
+      "entities": [
+        {"entity_type": "team", "entity_key": "rabbitohs", "display_name": "South Sydney Rabbitohs", "team_key": "rabbitohs", "relationship": "affected"},
+        {"entity_type": "player", "entity_key": "Jai Arrow", "display_name": "Jai Arrow", "team_key": "rabbitohs", "relationship": "subject"}
+      ]
+    }
+  ]
+}

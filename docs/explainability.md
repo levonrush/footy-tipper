@@ -46,6 +46,17 @@ The sentence follows the largest single driver, not the net, so a tip carried by
 
 It appears in the email and on the site's tip card. Absent explanations render exactly as the email did before, which is asserted by a byte-identical test.
 
+## Club Context: observation is not impact
+
+Club Context introduces a feature-family label but not a production contribution. The reader product keeps two claims separate:
+
+- **Observed context** means a reviewed event was known before the round cutoff and is supported by linked evidence.
+- **Model impact** means a fitted feature contribution actually changed the published prediction.
+
+During shadow mode a sourced Context Watch card may state the first claim and must disclose that the event did not alter the displayed probability. The `club_context` family is excluded from production predictors, so it cannot appear as a driver in `why_line`. A future activated release may name it only when its real TreeSHAP contribution clears the existing explanation threshold; mere event presence is never substituted for attribution.
+
+Context copy uses locked factual fields rather than raw articles. A deterministic safety layer rejects causal certainty, “playing for” claims, diagnosis speculation, tragedy-as-betting-edge language, and humour about illness, death, bereavement, or trauma. Sensitive events cannot prompt banner imagery. Invalid generated prose falls back to deterministic factual copy; missing context preserves the byte-identical no-context render.
+
 ## Cohort analysis
 
 ```bash
@@ -81,6 +92,7 @@ footy-tipper advanced explain report
 | Persistence | `pipeline/common/explain/store.py`, `pipeline/common/sql/create_explanations_table.sql` |
 | Report artifact | `pipeline/common/explain/report.py`, `reports/explain-latest.json` |
 | Console rendering | `pipeline/common/explain/cli_views.py` |
+| Club Context facts, safety, and reader-card normalization | `pipeline/common/club_context/product.py` |
 
 ## Boundaries
 
@@ -90,4 +102,5 @@ Explanations are diagnostics and are built so they cannot break anything they de
 - They live in their own table. `prediction_table.sql` stays the ten-column published contract, pinned by a test, and the why line is left-joined in pandas.
 - Diagnostics ride out of the simulation that already ran. Nothing re-simulates, no RNG salt changes, and a test asserts that asking for diagnostics returns byte-identical outcomes.
 - Artifacts go to `reports/` and SQLite, never to `models/`, because the release receipt hashes every file in that directory.
+- Context Watch describes immutable observed facts separately from model explanation; shadow context cannot acquire a contribution label or change a why line.
 - Linearised points do not sum exactly to the prediction, since the link is nonlinear. Surfaces therefore report both `points` (comparable across games) and `share` (exact, sums to one) and rank by magnitude.

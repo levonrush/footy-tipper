@@ -37,6 +37,20 @@ That separation makes the ensemble interpretable and avoids feeding the bookmake
 
 [Editable Mermaid source](diagrams/odds-before-after.mmd)
 
+## Club Context stays shadow-only
+
+[Club Context](club-context.md) captures confirmed, acute off-field events as sign-neutral measurements: category and phase, recency, games since event, official confirmation, confidence, salience, source diversity, uncertainty, and home-versus-away differences. It does not use generic sentiment, raw article text, embeddings, or an assumed “lift.”
+
+The feature family is excluded from the production predictor list. The research candidate appends the same shared transformer to the existing Tier-B score and Tier-C binary models; it is not another stacking expert. A separate experiment may test whether defined leadership/tribute cohorts change residual variance enough to justify a bounded dispersion adjustment, but no such adjustment ships today.
+
+```bash
+footy-tipper advanced model evaluate --context-ablation
+```
+
+That mode fits and scores paired, identically seeded out-of-fold baseline and context-candidate predictions. It reports all-game and event-linked log loss, Brier, calibration, accuracy, score/margin error, residual variance, tip flips, category/time cohorts, operational and counterfactual no-market results, clustered uncertainty, matched event windows, pre-trends, and placebos. An explicit `--context-input` can rescore an existing paired file. It cannot activate a model.
+
+The 7 September 2026 retrospective covered 3,180 held-out games and 89 context-exposed games. Event-cohort log loss improved by 0.00725, but its event-cluster 95% interval crossed zero (-0.01911 to +0.00486), aggregate log loss worsened by 0.00011, event-cohort accuracy fell 3.37 percentage points, and residual variance was effectively unchanged (ratio 1.001). The matched event-match margin effect was -0.77 points with a wide -6.38 to +5.14 interval. The prior and NRL evidence therefore do not support a universal new-coach bounce. Production activation still requires a later explicit model-release decision after leakage-safe benefit without overall calibration harm and a full prospective season confirming the direction. Materiality is currently **not established**.
+
 ## Probability pooling and calibration
 
 Two constrained logit pools combine:
@@ -329,6 +343,7 @@ See [Competition strategy](comp-strategy.md) and [Joker strategy](joker-strategy
   They measure as honest, and the match-centre floor of 2012 means they cannot be
   re-derived, but they are produced by a different path from 2012 onward.
 - Historical odds and line coverage are incomplete and time-varying.
+- Club Context event counts are small, selectively reported, and sensitive to historical source coverage. Its candidate signal has not established material predictive value and remains outside production probabilities.
 - H2H, spread, and totals freshness are tracked per market family; stale
   families are masked rather than silently reused.
 - Player identities and old team-list layouts are noisier than match-level IDs.

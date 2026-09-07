@@ -6,15 +6,18 @@ flowchart TB
   NRL[/nrl.com match data/]
   ODDS[/Historical and live odds/]
   LINEUP_SOURCE[/Team Lists and Late Mail/]
+  CONTEXT_SOURCE[/ABC/GDELT discovery<br/>official or corroborated facts/]
   SMTP[/SMTP and test recipient/]
   PAGES[/GitHub Pages/]
 
   CLI([Human CLI<br/>menu · status · tips · update-model])
   MACHINE([Actions runner<br/>exact modes · never trains])
   INGEST([Python source and lineup ingestion])
+  CONTEXT_INGEST([Club Context evidence gate<br/>rights · review · round cutoff])
   PREP([R preparation])
   TRAIN_DB[(Local training DB<br/>authoritative history)]
   RUNTIME_DB[(Runtime SQLite<br/>predictions · ledgers)]
+  CONTEXT_DB[(Context tables in runtime SQLite<br/>registry · immutable snapshots)]
   RUNTIME_STATE[(Drive runtime state<br/>DB · schedule)]
   TRAIN[[Staged local training<br/>100 candidates]]
   VERIFY{Local inference and<br/>hash validation pass?}
@@ -24,6 +27,7 @@ flowchart TB
   GATE{Schedule gate<br/>live · refresh · skip}
   INFER([Inference and simulation])
   DECIDE([Tips · value · stakes · joker])
+  CONTEXT_CARD([Context Watch<br/>verified facts · safe copy])
   MODE{Exact run mode}
   PREP_EMAIL([Prepare production envelope<br/>credentials · token · recipients])
   NO_CLAIM([Fail safely<br/>no marker · no SMTP])
@@ -43,6 +47,8 @@ flowchart TB
   NRL --> INGEST
   ODDS --> INGEST
   LINEUP_SOURCE --> INGEST
+  CONTEXT_SOURCE --> CONTEXT_INGEST
+  CONTEXT_INGEST --> CONTEXT_DB
   INGEST --> PREP
   PREP --> TRAIN_DB
   TRAIN_DB --> TRAIN
@@ -55,11 +61,15 @@ flowchart TB
   RUNTIME_STATE --> MACHINE
   MACHINE -->|runtime pull| RUNTIME_DB
   MACHINE --> INGEST
+  MACHINE --> CONTEXT_INGEST
   PREP --> RUNTIME_DB
   GATE -->|live or refresh| INFER
   GATE -.->|automated failure| ALERT
   RELEASE --> INFER
   RUNTIME_DB --> INFER
+  CONTEXT_DB -.->|sign-neutral shadow only<br/>no production effect| INFER
+  CONTEXT_DB -->|eligible observed facts only| CONTEXT_CARD
+  CONTEXT_DB --> SYNC
   INFER --> DECIDE
   DECIDE --> MODE
   MODE -->|test| EMAIL
@@ -69,6 +79,7 @@ flowchart TB
   PREP_EMAIL -->|valid| MARKER
   MARKER -->|pending claimed| EMAIL
   EMAIL --> SMTP
+  CONTEXT_CARD --> EMAIL
   SMTP -->|live success marks sent| MARKER
   SMTP -->|live partial · refused · ambiguous| BLOCK
   BLOCK -->|remains| MARKER
@@ -78,6 +89,7 @@ flowchart TB
   SYNC --> RUNTIME_STATE
   MODE -->|refresh or live| SITE
   SITE --> PAGES
+  CONTEXT_CARD --> SITE
   MARKER -->|successful live closes| ALERT
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
@@ -86,8 +98,8 @@ flowchart TB
   classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
 
-  class OP,ACTIONS,GOOGLE_CLOCK,NRL,ODDS,LINEUP_SOURCE,SMTP,PAGES source;
-  class CLI,MACHINE,INGEST,PREP,INFER,DECIDE,PREP_EMAIL,NO_CLAIM,EMAIL,BLOCK,ALERT,SYNC,SITE process;
-  class TRAIN_DB,RUNTIME_DB,RUNTIME_STATE,POINTER,MARKER data;
+  class OP,ACTIONS,GOOGLE_CLOCK,NRL,ODDS,LINEUP_SOURCE,CONTEXT_SOURCE,SMTP,PAGES source;
+  class CLI,MACHINE,INGEST,CONTEXT_INGEST,PREP,INFER,DECIDE,CONTEXT_CARD,PREP_EMAIL,NO_CLAIM,EMAIL,BLOCK,ALERT,SYNC,SITE process;
+  class TRAIN_DB,RUNTIME_DB,CONTEXT_DB,RUNTIME_STATE,POINTER,MARKER data;
   class TRAIN,RELEASE model;
   class VERIFY,MODEL_CHECK,GATE,MODE decision;

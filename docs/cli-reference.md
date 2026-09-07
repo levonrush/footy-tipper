@@ -121,6 +121,7 @@ footy-tipper advanced
 ├── data
 │   ├── prepare {all|training|tips}
 │   ├── lineups {refresh|backfill}
+│   ├── context {refresh|backfill|validate}
 │   ├── nrl {refresh|backfill|rebuild-ladders|validate}
 │   └── odds {refresh|backfill}
 ├── model {train|infer|evaluate|verify|list|activate|rollback}
@@ -148,6 +149,9 @@ footy-tipper advanced model evaluate --help
 | `prepare tips` | Refresh the narrow current inference window. |
 | `lineups refresh` | Fetch recent Team Lists/Late Mail snapshots. |
 | `lineups backfill` | Repair historical lineup coverage, including old zero-entry snapshots. |
+| `context refresh` | Discover current Club Context candidates into the rights-aware review registry; candidates are not automatically eligible. |
+| `context backfill` | Intentionally import/repair the audited historical event registry. |
+| `context validate` | Read-only schema, eligibility, source-coverage, timing, and provenance checks. |
 | `nrl refresh` | Refresh current nrl.com draw/match-centre caches. |
 | `nrl backfill` | Repair historical nrl.com coverage. |
 | `nrl rebuild-ladders` | Re-derive `feed_cache_ladders` as-of-round for past seasons from data already cached. No network. Defaults to 2012 through last season. |
@@ -161,13 +165,15 @@ footy-tipper advanced model evaluate --help
 | --- | --- |
 | `train` | Technical local training only. It may stage artifacts but does not activate a production release. |
 | `infer` | Load a selected/local artifact set and upsert predictions. Technical auto-training, where supported, must be an explicit flag here only. |
-| `evaluate` | Run nested season-out evaluation and write evidence under `reports/`. `--explain` additionally captures out-of-fold feature attribution to `reports/explain-latest.json`. |
+| `evaluate` | Run nested season-out evaluation and write evidence under `reports/`. `--explain` captures out-of-fold attribution; `--context-ablation` adds an identically folded Club Context candidate and scores the paired shadow predictions without changing production. |
 | `verify` | Validate artifact completeness, loading, manifest/receipt metadata, sizes, and hashes. |
 | `list` | List immutable model releases and identify the active one. |
 | `activate` | Recheck a selected release locally and in the hosted production image, then point production at it. A malformed old pointer is archived before an explicitly confirmed repair. |
 | `rollback` | Recheck the previous release in the hosted production image, then activate it after explicit confirmation. |
 
 `update-model`, not a hand-built chain of these commands, is the normal publication interface.
+
+`advanced model evaluate --context-ablation` generates baseline and Club Context out-of-fold rows on the same expanding season folds, writes the paired CSV plus JSON/Markdown materiality evidence, and returns success once that research report is complete even if the separately printed ordinary model-release gate fails. `--context-input` skips model fitting and rescores an existing paired CSV/JSON file. `--context-report` changes the JSON destination and `--context-bootstrap-reps` changes the fixed-seed event-cluster bootstrap count. An empty explicit input produces `not_ready`; neither path has an activation or production-model write.
 
 ### `advanced local-run`
 

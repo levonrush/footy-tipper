@@ -58,6 +58,10 @@ class FamilyTaxonomyTests(unittest.TestCase):
         # Ladder columns that also start with season_.
         self.assertEqual(fam.family_for("season_form_home_ladder"), "ladder")
         self.assertEqual(fam.family_for("season_form_home"), "season_state")
+        # Registered for the shadow layer, without adding any live predictor.
+        self.assertEqual(fam.family_for("context_event_count_home"), "club_context")
+        self.assertEqual(fam.family_for("club_context_salience_delta"), "club_context")
+        self.assertIn("club_context", fam.SHADOW_ONLY_FAMILIES)
 
     def test_unknown_predictor_falls_back_without_raising(self):
         self.assertEqual(fam.family_for("something_brand_new"), fam.UNCLASSIFIED)

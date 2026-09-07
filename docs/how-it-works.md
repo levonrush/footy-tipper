@@ -15,6 +15,7 @@ Footy Tipper is a small production system wearing a tipping-comp scarf. Python o
 | Source ingestion | `pipeline/common/nrl_data/` and `pipeline/common/odds/` | Refresh nrl.com match data and market snapshots into compatible SQLite caches |
 | Provider preparation | [`pipeline/data-prep.R`](../pipeline/data-prep.R) and `pipeline/common/data-prep/` | Read cached inputs and write prepared match tables |
 | Lineup ingestion | [`pipeline/lineups.py`](../pipeline/lineups.py) and `pipeline/common/lineups/` | Discover, parse, version, normalize, and repair official team-list snapshots |
+| Club Context | `pipeline/common/club_context/` | Discover candidates, enforce evidence/rights/time gates, build sign-neutral shadow features, and freeze immutable prediction context |
 | Training | [`pipeline/train.py`](../pipeline/train.py) | Fit score, binary, stack, calibration, dispersion, margin, and joker artifacts into a staged release |
 | Inference | [`pipeline/inference.py`](../pipeline/inference.py) | Rebuild pre-game context, load the selected release, simulate, and upsert predictions |
 | Delivery | `pipeline/common/use_predictions/` | Select tips/value, size stakes, decide joker, render copy/site, send, and record state |
@@ -40,6 +41,7 @@ The default `FOOTY_TIPPER_FEED_SOURCE=python` path uses:
 - The Odds API for production live pre-game match, line, and totals snapshots;
 - Betfair Exchange as a jurisdiction-configurable operator fallback;
 - official nrl.com Team Lists and Late Mail articles for versioned lineups.
+- ABC/GDELT for Club Context discovery and official NRL/club or independently corroborated reporting for reviewed facts; this path stores links and factual metadata, not article bodies.
 
 Python writes `feed_cache_fixtures`, `feed_cache_ladders`, and `feed_cache_performance` plus odds history/snapshots. Smart refresh preserves frozen seasons and last usable cache state. `FOOTY_TIPPER_FEED_SOURCE=feed` is the explicit credentialled XML rollback through the same R-facing cache boundary.
 
@@ -56,7 +58,7 @@ Python writes `feed_cache_fixtures`, `feed_cache_ladders`, and `feed_cache_perfo
 
 The Final/Pre Game split is a leakage boundary. The broad local training DB is preserved and backed up by `update-model`. The smaller Drive runtime DB is synchronized around Actions prediction and never pushed back over the training authority.
 
-Lineup ingestion owns `lineup_article_snapshots`, `lineup_entries`, and `lineup_ingestion_runs`. Prediction/delivery add `predictions_table`, `email_sends`, and `joker_usage`. [`prediction_table.sql`](../pipeline/common/sql/prediction_table.sql) selects the latest season with pre-game context and its minimum round.
+Lineup ingestion owns `lineup_article_snapshots`, `lineup_entries`, and `lineup_ingestion_runs`. Club Context owns article/event/source/entity/run tables plus immutable `context_prediction_runs` and `prediction_context` snapshots. Prediction/delivery add `predictions_table`, `email_sends`, and `joker_usage`. [`prediction_table.sql`](../pipeline/common/sql/prediction_table.sql) selects the latest season with pre-game context and its minimum round.
 
 `prediction_explanations` and `prediction_distributions` are sibling diagnostics tables rather than extra columns on `predictions_table`, which is the published tips contract. Both are written after the tips are safely persisted and inside a try/except, so a diagnostics failure costs the email a sentence or a section rather than a send.
 
@@ -104,6 +106,18 @@ Actions resolves the pointer and exact release; it never trains. Its runtime pus
 
 Training selects the latest eligible snapshot at or before the configured cutoff, normally 24 hours before kickoff. Inference selects the most recent known pre-game snapshot. Both paths derive the same versioned feature families and fill safe defaults when coverage is absent. See [Lineup integration](lineup-integration.md).
 
+## Club Context shadow layer
+
+![Club Context evidence, cutoff, shadow evaluation, reader safety, and provenance](diagrams/club-context.svg)
+
+[Editable Mermaid source](diagrams/club-context.mmd)
+
+Club Context records confirmed, acute psychosocial match context such as a leadership transition, serious human event, formal tribute, or club crisis. Candidate discovery is not evidence: an approved event requires official confirmation or two independent reputable sources, explicit source rights, an unambiguous team/entity mapping, and a known time before the decision cutoff.
+
+Historical rows freeze every game in a round at 11:00 `Australia/Sydney` on the local date of the earliest fixture. Live runs capture one actual decision time immediately before feature construction. New refreshes create new snapshots and cannot rewrite what a previous prediction run knew.
+
+The shared transformer emits category/phase, recency, games-since-event, confirmation, confidence, salience, source-diversity, uncertainty, and home/away-difference features without assigning positive or negative emotion. Those features are excluded from the production predictor set. A separate shadow candidate and paired season-out ablation determine whether they add anything after market, lineup, opponent, venue, and form controls. See [Club Context](club-context.md).
+
 ## Prediction, delivery, and state
 
 Inference combines the active model release with current prepared rows and upserts `predictions_table`. Delivery derives:
@@ -115,6 +129,7 @@ Inference combines the active model release with current prepared rows and upser
 - Claude-generated or deterministic copy;
 - an optional OpenAI-generated banner;
 - during the finals, premiership probabilities, knockout stakes, margin shape, head-to-head history, and line/totals picks. See [Finals special edition](finals-edition.md).
+- a sourced Context Watch card when an eligible Club Context event exists, explicitly labelled experimental and non-causal while the feature family remains shadow-only.
 
 Scheduled and human-triggered live sends share one serialized GitHub Actions workflow. It first validates the sender credentials, token, Google Sheet access, and frozen recipient envelope, then claims a season/round marker in Drive immediately before SMTP. This external marker protects the gap between successful email delivery and a later DB/runtime push. A pending marker is deliberately treated as uncertain and blocks automatic resend; an ambiguous or partially refused SMTP result leaves it pending. Full success reconciles the marker with `email_sends` and applies an eligible joker transition. Test mode sends one recipient but mutates none of those production stores.
 
@@ -144,6 +159,7 @@ The Python nrl.com/odds path cut over on `main` in PR #34. R deliberately keeps 
 
 - No pre-game rows: clean no-op; no old-round email.
 - Lineup ingestion: continue with safe defaults unless strict diagnosis was requested.
+- Club Context ingestion/classification/source failure: omit the context card and use all-zero/missing shadow features; never alter or block a production prediction or send.
 - Performance data enabled but unavailable: fail preparation/training clearly.
 - Optional Claude/OpenAI missing: deterministic copy or static presentation fallback.
 - Drive unavailable in a stateful cloud run: fail rather than claim unpersisted success.

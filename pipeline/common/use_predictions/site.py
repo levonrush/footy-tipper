@@ -297,6 +297,46 @@ def _value_card(tipper_picks):
     )
 
 
+def _context_watch_card(context_cards):
+    """Render immutable, sourced Club Context facts in shadow mode."""
+    try:
+        from pipeline.common.club_context.product import (
+            SHADOW_DISCLAIMER,
+            category_label,
+            normalize_context_cards,
+        )
+
+        cards = normalize_context_cards(context_cards)
+    except Exception:
+        return ""
+    if not cards:
+        return ""
+
+    items = []
+    for card in cards:
+        owner = f"{card['team_name']} · " if card.get("team_name") else ""
+        phase = str(card.get("phase") or "").replace("_", " ").strip()
+        title = owner + category_label(card.get("category"))
+        if phase:
+            title += f" · {phase.title()}"
+        items.append(
+            '<div style="border-top:1px solid #bfdbfe; padding-top:10px; margin-top:10px;">'
+            f'<h3 style="margin:0 0 5px; color:#0f172a;">{html.escape(title)}</h3>'
+            f'<p style="margin:0 0 5px; line-height:1.5;">{html.escape(card["display_copy"])}</p>'
+            f'<p style="margin:0; color:#64748b; font-size:12px;">Source: '
+            f'<a style="color:#0369a1;" href="{html.escape(card["source_url"], quote=True)}" '
+            f'rel="noopener noreferrer">{html.escape(card["source_title"])}</a></p>'
+            "</div>"
+        )
+    return (
+        '<div class="card" style="border:1px solid #93c5fd; background:#eff6ff;">'
+        '<h2 style="border-left-color:#0369a1;">Context Watch</h2>'
+        f'<p style="color:#64748b; font-size:12px;">{html.escape(SHADOW_DISCLAIMER)}</p>'
+        + "".join(items)
+        + "</div>"
+    )
+
+
 def _joker_card(joker_recommendation):
     if not isinstance(joker_recommendation, dict):
         return ""
@@ -450,6 +490,14 @@ def generate_site(db_path, project_root):
     scoreboard = get_season_scoreboard(db_path)
     results = get_season_results(db_path)
     finals = finals_payload(db_path, predictions) if not predictions.empty else None
+    context_cards = []
+    if not predictions.empty and "game_id" in predictions:
+        try:
+            from pipeline.common.club_context.product import load_context_cards
+
+            context_cards = load_context_cards(db_path, predictions["game_id"].tolist())
+        except Exception as exc:
+            print(f"Club Context site data unavailable ({exc}).")
     is_finals = _finals_on(finals)
     theme = finals["theme"] if is_finals else None
 
@@ -471,6 +519,7 @@ def generate_site(db_path, project_root):
     index_body = (
         _scoreboard_card(scoreboard)
         + _tips_card(predictions, finals)
+        + _context_watch_card(context_cards)
         + _value_card(tipper_picks)
         + (_market_card(finals.get("market_picks")) if is_finals else "")
         + feature_card

@@ -1,5 +1,11 @@
-"""NRL news context fetching for the weekly email."""
+"""Legacy unstructured NRL-news copy support.
 
+Structured, sourced Club Context cards now own model-adjacent weekly context.
+This module remains behind an explicit rollback flag for ordinary editorial
+colour only; its output is never persisted as evidence or used by a model.
+"""
+
+import os
 import urllib.request
 
 from pipeline.common.use_predictions.llm import resolve_claude_model
@@ -33,7 +39,10 @@ def _fetch_rss_headlines(max_items=20):
 
 
 def _fetch_nrl_news_context(anthropic_client):
-    """Fetch NRL headlines then ask Claude to pick the top story. Always returns something."""
+    """Return legacy editorial colour only when explicitly enabled."""
+    enabled = os.getenv("FOOTY_TIPPER_LEGACY_NEWS_ENABLED", "false").strip().lower()
+    if enabled not in {"1", "true", "yes", "y", "on"}:
+        return None
     try:
         headlines = _fetch_rss_headlines()
         if not headlines:

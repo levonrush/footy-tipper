@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 # Bump when the rules change, so stored explanations can be spotted as stale.
-FAMILY_TAXONOMY_VERSION = 1
+FAMILY_TAXONOMY_VERSION = 2
 
 UNCLASSIFIED = "unclassified"
 
@@ -41,6 +41,7 @@ FAMILY_LABELS = {
     "season_state": "Season trajectory",
     "schedule_context": "Schedule context",
     "broadcast": "Broadcast slot",
+    "club_context": "Club context",
     "team_identity": "Team identity",
     UNCLASSIFIED: "Unclassified",
 }
@@ -79,6 +80,12 @@ _SCHEDULE_CONTEXT = frozenset({
 _WEATHER_EXTRAS = frozenset({"ground_condition", "weather_missing"})
 _VENUE_EXTRAS = frozenset({"city", "crowd", "crowd_features_missing"})
 _TEAM_IDENTITY = frozenset({"team_home", "team_away"})
+
+# Club Context is intentionally presentation-only while the prospective shadow
+# study runs. Keeping the family registered now means a future model release can
+# activate context_* predictors without silently filing their SHAP contribution
+# under "unclassified". It does not make those predictors active by itself.
+SHADOW_ONLY_FAMILIES = frozenset({"club_context"})
 
 
 def _starts(*prefixes):
@@ -126,6 +133,7 @@ RULES = (
     ),
     ("schedule_context", lambda name: name in _SCHEDULE_CONTEXT),
     ("broadcast", _starts("broadcast_channel")),
+    ("club_context", _starts("context_", "club_context_")),
     ("team_identity", lambda name: name in _TEAM_IDENTITY),
 )
 

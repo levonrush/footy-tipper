@@ -23,6 +23,7 @@ flowchart TB
 
   PREP([prepare<br/>all · training · tips])
   LINEUPS([lineups<br/>refresh · backfill])
+  CONTEXT([context<br/>refresh · backfill · validate])
   NRL([nrl<br/>refresh · backfill · validate])
   ODDS([odds<br/>refresh · backfill])
   MODEL_ACTIONS([train · infer · evaluate · verify<br/>list · activate · rollback])
@@ -51,6 +52,7 @@ flowchart TB
   ADV --> EXPLAIN
   DATA --> PREP
   DATA --> LINEUPS
+  DATA --> CONTEXT
   DATA --> NRL
   DATA --> ODDS
   MODEL --> MODEL_ACTIONS
@@ -70,4 +72,4 @@ flowchart TB
   class MENU,STATUS,SETUP,TIPS,SHOW,TEST,REFRESH everyday;
   class UPDATE model;
   class LIVE safety;
-  class ADV,DATA,MODEL,LOCAL,DELIVERY,CLOUD,SITE,EXPLAIN,PREP,LINEUPS,NRL,ODDS,MODEL_ACTIONS,RUN_MODES,DELIVERY_MODES,CLOUD_ACTIONS,SITE_ACTIONS,EXPLAIN_ACTIONS technical;
+  class ADV,DATA,MODEL,LOCAL,DELIVERY,CLOUD,SITE,EXPLAIN,PREP,LINEUPS,CONTEXT,NRL,ODDS,MODEL_ACTIONS,RUN_MODES,DELIVERY_MODES,CLOUD_ACTIONS,SITE_ACTIONS,EXPLAIN_ACTIONS technical;

@@ -192,6 +192,10 @@ class OperatorCLITests(unittest.TestCase):
             for action in ("refresh", "backfill")
         ]
         commands += [
+            ["advanced", "data", "context", action]
+            for action in ("refresh", "backfill", "validate")
+        ]
+        commands += [
             ["advanced", "model", action]
             for action in ("train", "infer", "evaluate", "verify", "list", "rollback")
         ]
@@ -218,6 +222,60 @@ class OperatorCLITests(unittest.TestCase):
             with self.subTest(command=command):
                 parsed = parser.parse_args(command)
                 self.assertEqual(parsed.command, "advanced")
+
+        context_eval = parser.parse_args(
+            ["advanced", "model", "evaluate", "--context-ablation"]
+        )
+        self.assertTrue(context_eval.context_ablation)
+
+    def test_context_ablation_without_input_runs_the_honest_nested_evaluator(self):
+        args = cli.build_parser().parse_args(
+            [
+                "advanced",
+                "model",
+                "evaluate",
+                "--context-ablation",
+                "--context-bootstrap-reps",
+                "17",
+                "--skip-prepare",
+            ]
+        )
+        engine = mock.Mock()
+        engine._build_env.return_value = {}
+        engine._model_artifacts_exist.return_value = True
+
+        with mock.patch("pipeline.operator_cli._engine", return_value=engine):
+            rc = operator_cli._advanced_model(args, root=pathlib.Path("/repo"))
+
+        self.assertEqual(rc, operator_cli.EXIT_OK)
+        engine._run_evaluate.assert_called_once()
+        env = engine._run_evaluate.call_args.args[0]
+        self.assertEqual(env["FOOTY_TIPPER_CONTEXT_ABLATION"], "1")
+        self.assertEqual(env["FOOTY_TIPPER_CONTEXT_BOOTSTRAP_REPS"], "17")
+        engine._run_command.assert_not_called()
+
+    def test_context_ablation_can_rescore_an_explicit_paired_file(self):
+        args = cli.build_parser().parse_args(
+            [
+                "advanced",
+                "model",
+                "evaluate",
+                "--context-ablation",
+                "--context-input",
+                "/tmp/paired.csv",
+            ]
+        )
+        engine = mock.Mock()
+        engine._build_env.return_value = {}
+
+        with mock.patch("pipeline.operator_cli._engine", return_value=engine):
+            rc = operator_cli._advanced_model(args, root=pathlib.Path("/repo"))
+
+        self.assertEqual(rc, operator_cli.EXIT_OK)
+        command = engine._run_command.call_args.args[0]
+        self.assertIn("--input", command)
+        self.assertIn("/tmp/paired.csv", command)
+        engine._run_evaluate.assert_not_called()
 
     def test_every_retired_top_level_command_is_rejected_with_replacement(self):
         for command, replacement in operator_cli.RETIRED_COMMANDS.items():

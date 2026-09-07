@@ -24,6 +24,14 @@ This file is for coding/automation agents working on `footy-tipper`.
   - Re-running lineup backfill should be able to repair previously stored zero-entry snapshots when newer parsing logic can now extract rows from the same article hash.
   - `pipeline/train.py` and `pipeline/inference.py` merge lineup-derived features from these tables.
   - Current lineup feature families include squad size/composition, uncertainty, continuity, role-group strength (spine/halves/middles/edges/outside backs/interchange), cohesion, and within-week snapshot churn.
+- Club Context:
+  - `pipeline/club_context.py` and `pipeline/common/club_context/` implement the evidence-gated psychosocial match-context registry, shared feature transformer, immutable prediction snapshots, and reader-product safety layer.
+  - `refresh` discovers candidates from ABC RSS and GDELT JSON using Python's standard HTTP/XML/JSON libraries. It is browser-free: Chrome, Chrome Headless Shell, Playwright, Selenium, and browser drivers are not dependencies.
+  - Discovery never promotes a headline into an eligible event. Eligibility requires reviewed facts, permitted source rights, sufficient confidence, and either official NRL/club confirmation or two reputable independent sources; `backfill` imports the manually reviewed catalogue and `validate` audits the registry.
+  - Model-update preparation, advanced inference, and Actions prediction idempotently import the checked-in reviewed catalogue before recent discovery so fresh runtime databases receive approved facts without auto-promoting headlines.
+  - Training, inference, and evaluation use one sign-neutral context feature transformer. Context predictors are deliberately excluded from the production predictor list and are enabled only by the shadow ablation evaluator.
+  - Live inference captures one `decision_at_utc` after refresh and before feature construction, then appends immutable run/game snapshots after tips are safely persisted. Historical evaluation freezes every game in a round at 11:00 Australia/Sydney on the earliest fixture's calendar day.
+  - Eligible events may produce a sourced experimental Context Watch card in email/site, but shadow mode cannot alter probabilities, tips, scorelines, value picks, stakes, or joker decisions. Sensitive-event copy has deterministic safeguards and cannot drive banner imagery.
 - Data prep:
   - `pipeline/data-prep.R` sources `pipeline/common/data-prep/*.R`.
   - Writes three SQLite tables to `data/footy-tipper-db.sqlite`:
@@ -95,6 +103,16 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `FOOTY_TIPPER_LINEUP_MONTE_CARLO_SAMPLES` (default: `64`; uncertainty marginalization samples)
   - `FOOTY_TIPPER_LINEUP_MU_NOISE_SCALE` (default: `0.12`; score-mean noise scale for uncertainty marginalization)
   - Python deps for scraping: `beautifulsoup4`, `lxml` (missing deps should fail soft unless strict mode is enabled)
+- Club Context controls:
+  - `FOOTY_TIPPER_CONTEXT_ENABLED` (default: `true`; `false` skips live discovery refresh without changing predictions)
+  - `FOOTY_TIPPER_CONTEXT_STRICT` (default: `false`; context commands fail soft unless this or `--strict` is enabled)
+  - `FOOTY_TIPPER_CONTEXT_LOOKBACK_DAYS` (default: `10`; recent discovery window)
+  - `FOOTY_TIPPER_CONTEXT_MAX_ITEMS` (default: `100`; discovery candidate cap)
+  - `FOOTY_TIPPER_CONTEXT_QUERY` (optional discovery-query override)
+  - `FOOTY_TIPPER_CONTEXT_ABLATION` (set by `advanced model evaluate --context-ablation`; never a production activation switch)
+  - `FOOTY_TIPPER_CONTEXT_BOOTSTRAP_REPS` (default: `2000`; fixed-seed event-cluster bootstrap repetitions)
+  - `FOOTY_TIPPER_CONTEXT_PAIRED_PATH` and `FOOTY_TIPPER_CONTEXT_REPORT_PATH` (optional shadow evaluation output overrides)
+  - `FOOTY_TIPPER_LEGACY_NEWS_ENABLED` (default: `false`; opt-in legacy editorial colour only, never registry evidence or a model feature)
 - Feed controls:
   - `FOOTY_TIPPER_FEED_SOURCE` (`python` default; `feed` selects legacy XML rollback)
   - `FOOTY_TIPPER_NRL_DATA_ENABLED` (default: `true`)
@@ -165,6 +183,13 @@ This file is for coding/automation agents working on `footy-tipper`.
   - Train/infer must continue if lineup tables are unavailable or sparse.
   - `--lineups-strict` / `FOOTY_TIPPER_LINEUPS_STRICT=true` is the only mode that should fail hard.
   - Historical lineup backfills should prefer repairing existing sparse/zero-entry snapshots over creating duplicate article rows.
+- Club Context-safe execution:
+  - Context discovery and feature/snapshot construction fail soft by default. Missing tables, source outages, rejected events, classification failures, or rights-disabled adapters must leave predictions, delivery, and the existing no-context email/site output unchanged.
+  - Refresh stores discovery metadata only; it must not auto-confirm or auto-review an event. Store factual summaries, timestamps, hashes, and links, never article bodies, embeddings, or publisher imagery.
+  - The shared transformer must remain sign-neutral: no generic sentiment, raw text, embeddings, or hard-coded positive/negative effect. Context columns stay outside production predictors until a separately approved model release.
+  - Historical features use the common 11:00 Sydney round cutoff; live features use the single captured decision time. Later news and post-match interviews may support research review but can never be moved backward into pre-match features.
+  - `context_prediction_runs` and `prediction_context` are append-only at the prediction boundary. Their database triggers must continue to reject update and delete operations so a sent render retains its original provenance.
+  - Reader copy must distinguish observed verified context from measured model impact. While shadow-only, Context Watch carries the experimental/no-probability-change disclosure and Reg must not make causal claims, speculate about diagnoses, joke about trauma, or frame tragedy as a betting edge.
 
 ## Data and SQL Contracts
 - `prediction_table.sql` should always target:
@@ -174,6 +199,12 @@ This file is for coding/automation agents working on `footy-tipper`.
 - `prediction_table.sql` also publishes `start_time`/`game_number` (finals `game_id`s are bracket-numbered, so identifier order is not kickoff order) and the line/totals prices the finals value section reads.
 - `prediction_distributions` is a second sibling diagnostics table, written by `pipeline/common/model_prediciton/distributions.py` on the same terms as the explanations table.
 - `prediction_explanations` is a sibling diagnostics table upserted by `pipeline/common/sql/insert_into_explanations_table.sql`. Keep it out of `prediction_table.sql`: the email and site left-join its `why_line` in pandas so a missing or broken explanations table costs a sentence, not a send. Its additive column migration lives once in `pipeline/common/explain/store.py`.
+- Club Context owns seven additive SQLite tables that stay out of `prediction_table.sql`:
+  - `context_article_snapshots` (canonical/source URLs, publisher and time provenance, content hash, rights/acquisition/extraction state; no article body)
+  - `context_events` (category, phase, known/effective/expiry times, confidence, salience, sensitivity, factual summary, confirmation, and review state)
+  - `context_event_sources` and `context_event_entities` (source evidence and normalized team/player/coach/club relationships)
+  - `context_ingestion_runs` (adapter outcomes, counts, errors, and configuration)
+  - `context_prediction_runs` and `prediction_context` (immutable round/run cutoff, version/hash provenance, eligible facts, and exact sign-neutral feature snapshots)
 
 ## Common Commands
 - Human/operator CLI:
@@ -185,6 +216,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Exact advanced tree:
   - `footy-tipper advanced data prepare all|training|tips`
   - `footy-tipper advanced data lineups refresh|backfill`
+  - `footy-tipper advanced data context refresh|backfill|validate`
   - `footy-tipper advanced data nrl refresh|backfill|validate`
   - `footy-tipper advanced data odds refresh|backfill`
   - `footy-tipper advanced model train|infer|evaluate|verify|list|activate|rollback`
@@ -214,6 +246,8 @@ This file is for coding/automation agents working on `footy-tipper`.
   - Advanced activation and rollback require a fresh hosted production-image check before the pointer can move.
 - Honest evaluation:
   - `footy-tipper advanced model evaluate` (nested season-out metrics)
+  - `footy-tipper advanced model evaluate --context-ablation` (identically seeded/folded baseline-versus-context shadow comparison; generates paired out-of-fold rows when no `--context-input` is supplied)
+  - `footy-tipper advanced model evaluate --context-ablation --context-input PATH` (score an existing paired CSV/JSON without changing production)
 - Static site:
   - `footy-tipper advanced site build|publish`
 - Data prep only:
@@ -237,5 +271,6 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Performance feed availability can vary by season; when `FOOTY_TIPPER_INCLUDE_PERFORMANCE=true`, missing performance data should fail fast with a clear error.
 - Google/Claude/OpenAI integrations are operationally optional for local runs, but production workflows should monitor unexpected skipped integration messages.
 - Anything derived from a column that is only observable after kickoff is a leak, not a feature. Raw `crowd` was a declared predictor for exactly this reason: populated on nearly every training row, NULL on every inference row, then zero-filled. When adding a predictor, check its non-null rate in `inference_data`, not just `training_data`.
+- Club Context has an additional publication-time leak risk: a source, event label, or quote first known after the round's decision cutoff cannot affect any game in that round. In particular, keep an initial announcement distinct from a later tribute phase and never use post-match “played for them” coverage as a pre-match feature.
 - `feed_cache_*` seasons other than the current one are frozen, so a defect in historical rows survives every refresh. `advanced data nrl rebuild-ladders` is the repair path for the ladder cache; there is no equivalent for `feed_cache_performance`.
 - `Rscript` resolves through PATH, and an activated conda env may put its own R first. Package shared objects differ between CRAN and conda builds (`.so` against `.dylib`) and are tied to the R minor version, so a mismatch fails at load with a missing shared object rather than anything that reads as a version problem. Set `FOOTY_TIPPER_RSCRIPT` to the interpreter that owns `R_LIBS_USER`.

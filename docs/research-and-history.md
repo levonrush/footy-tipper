@@ -42,6 +42,14 @@ Production simulates the remaining bracket from the ladder seeds, pricing drawn 
 
 The migration research identified nrl.com draw/match-centre replacements, a derivable ladder/performance path, and historical/live odds sources. That work shipped on `main` in PR #34: Python refreshes the sources into the existing cache schemas before R preparation, with `FOOTY_TIPPER_FEED_SOURCE=feed` retaining the XML rollback. Richer player identity features and totals-based score offsets remain separate follow-on work.
 
+### Club Context
+
+The missing concept was not news sentiment but **psychosocial match context**: a confirmed acute leadership, serious-human, tribute/milestone, or club-crisis event with a plausible pathway to motivation, cohesion, distraction, tactics, or variance. The product name is Club Context.
+
+Research on football coach changes warns against the intuitive story. A 24-study systematic review found mixed short-term results, a 331-dismissal matched study found no detectable treatment effect, and earlier control-group work attributes much of the apparent bounce to regression to the mean. Those results do not settle the NRL question; they determine the default: sign-neutral features, matched and nested evaluation, and no production effect until prospective evidence earns one.
+
+The implemented shadow boundary is a rights-aware event registry, immutable round-cutoff snapshots, a shared shadow feature transformer, materiality reporting, and a sourced Context Watch card that explicitly does not alter the probability. The first model-era ablation paired 3,180 held-out games, including 89 context-exposed games: its small event-cohort log-loss improvement was uncertain, aggregate probability quality was slightly worse, and the matched margin and dispersion checks were null. The recorded decision is therefore to remain shadow-only and collect a prospective season. See [Club Context](club-context.md) and [Source policy](source-policy.md) for effect sizes and limitations.
+
 ## Research -> production matrix
 
 | Research proposition | Status | Production evidence or next gate |
@@ -74,6 +82,9 @@ The migration research identified nrl.com draw/match-centre replacements, a deri
 | Full bookmaker-offset residual score model | Not implemented | current valid-market blends only nudge prediction-time means |
 | nrl.com draw/match-centre feed replacement | Shipped | Python ingestion runs before R prep; parity evidence checked in; XML retained as rollback |
 | Referee, weather, travel, and rest expansion | Exploratory | candidate sources/features; train/infer symmetry and evaluation still required |
+| Evidence-gated Club Context registry and cutoff snapshots | Shadow | reviewed facts/provenance can be frozen and surfaced; cannot change production probabilities |
+| Club Context score/winner features | Shadow candidate | sign-neutral shared transformer; requires paired nested season-out and prospective evidence |
+| Generic news sentiment, raw article text, or embeddings | Rejected | too noisy, hard to interpret, rights-sensitive, and unnecessary for the event hypothesis |
 
 ## Evidence discipline
 
@@ -81,7 +92,7 @@ The migration research identified nrl.com draw/match-centre replacements, a deri
 - Use `Final` rows for training and `Pre Game` rows for inference.
 - Match prediction-time information sets in historical tests; closing odds and final lineups can leak.
 - Treat the AI-assisted reports as research maps. Verify citations and claims at the primary source before relying on them.
-- Keep “Shipped,” “Partial,” “Exploratory,” and “Not implemented” attached to claims that could otherwise be mistaken for architecture.
+- Keep “Shipped,” “Shadow,” “Partial,” “Exploratory,” “Rejected,” and “Not implemented” attached to claims that could otherwise be mistaken for architecture.
 
 ## Primary references
 
@@ -89,6 +100,9 @@ The migration research identified nrl.com draw/match-centre replacements, a deri
 - R. H. Koning and Renske Zijm, [“Betting Market Efficiency and Prediction in Binary Choice Models”](https://doi.org/10.1007/s10479-022-04722-3), *Annals of Operations Research* 325, 2023 (published online 2022).
 - M. J. van der Laan, E. C. Polley, and A. E. Hubbard, [“Super Learner”](https://doi.org/10.2202/1544-6115.1309), 2007.
 - L. Egidi and J. Gabry, [“Bayesian Hierarchical Models for Predicting Individual Performance in Soccer”](https://doi.org/10.1515/jqas-2017-0066), *Journal of Quantitative Analysis in Sports*, 2018. This supports hierarchical player-performance modelling; it is not cited as an odds-combination paper.
+- E. Lundkvist et al., [“The sacking illusion: A counterfactual analysis of mid-season coaching changes using points and expected points in European football”](https://doi.org/10.1080/02640414.2026.2698238), *Journal of Sports Sciences*, 2026.
+- H. Sousa et al., [“Effects of changing the head coach on soccer team's performance: A systematic review”](https://doi.org/10.5114/biolsport.2024.131816), *Biology of Sport* 41(2), 2024.
+- J. C. van Ours and M. A. van Tuijl, [“In-Season Head-Coach Dismissals and the Performance of Professional Football Teams”](https://ideas.repec.org/a/bla/ecinqu/v54y2016i1p591-604.html), *Economic Inquiry* 54(1), 2016.
 
 The previously listed Lopez citation could not be verified and has been removed rather than upgraded by confidence alone.
 

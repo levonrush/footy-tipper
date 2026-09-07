@@ -478,7 +478,12 @@ def context_numeric_columns(frame: pd.DataFrame) -> list[str]:
     ]
 
 
-def merge_match_context_features(data: pd.DataFrame, db_path: str | Path) -> pd.DataFrame:
+def merge_match_context_features(
+    data: pd.DataFrame,
+    db_path: str | Path,
+    *,
+    context_decision_at_utc=None,
+) -> pd.DataFrame:
     """Single merge point for context + player-form features (fail-soft).
 
     Used identically by train.py, inference.py, and evaluate.py so the three
@@ -499,6 +504,31 @@ def merge_match_context_features(data: pd.DataFrame, db_path: str | Path) -> pd.
             data = data.merge(player_form, on="game_id", how="left")
     except Exception as exc:
         print(f"[nrl-data] player form features skipped ({exc}).")
+
+    # Club Context shares this one train/infer/evaluate merge point but its
+    # columns are deliberately absent from the production predictor contract.
+    # They are available for a seeded shadow ablation and immutable snapshots
+    # without changing a released probability.
+    try:
+        from ..club_context.features import (
+            build_context_match_features,
+            fill_context_feature_columns,
+        )
+
+        club_context = build_context_match_features(
+            db_path,
+            data,
+            decision_at_utc=context_decision_at_utc,
+        )
+        if (
+            club_context is not None
+            and not club_context.empty
+            and len(club_context.columns) > 1
+        ):
+            data = data.merge(club_context, on="game_id", how="left")
+            data = fill_context_feature_columns(data)
+    except Exception as exc:
+        print(f"[nrl-data] Club Context shadow features skipped ({exc}).")
 
     for col in CONTEXT_CATEGORICAL_COLUMNS:
         if col in data.columns:

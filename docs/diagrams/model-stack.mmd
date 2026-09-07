@@ -3,6 +3,7 @@ flowchart TB
   DATA[(Final rows for training<br/>Pre Game rows for inference)]
   FOOTBALL([Match · ladder · performance<br/>and as-of lineup features])
   ODDS[/Fresh H2H · spread · totals/]
+  CONTEXT[(Eligible Club Context<br/>immutable round-cutoff snapshot)]
 
   A[[Tier A<br/>sequential baseline]]
   B[[Tier B<br/>home and away score models]]
@@ -20,6 +21,9 @@ flowchart TB
   SIM([Score simulation<br/>NB or Poisson marginals · shared lambda3])
   DISPLAY([Median margin + median total<br/>enforce tipped-side non-contradiction])
   OUT[(predictions_table<br/>tip · probability · margin · scoreline)]
+  CONTEXT_CANDIDATE[[Shadow Tier B/C candidate<br/>sign-neutral context features]]
+  ABLATION([Paired season-out ablation<br/>same folds and seed])
+  CONTEXT_REPORT[(Context materiality report<br/>cannot activate production)]
 
   DATA --> FOOTBALL
   FOOTBALL --> A
@@ -51,6 +55,11 @@ flowchart TB
   SIM --> DISPLAY
   CAL --> DISPLAY
   DISPLAY --> OUT
+  FOOTBALL -.->|same football controls| CONTEXT_CANDIDATE
+  CONTEXT -.->|candidate only| CONTEXT_CANDIDATE
+  STACK -.->|baseline OOF rows| ABLATION
+  CONTEXT_CANDIDATE -.->|paired OOF rows| ABLATION
+  ABLATION --> CONTEXT_REPORT
 
   classDef source fill:#CFFAFE,stroke:#0891B2,color:#0F172A,stroke-width:2px;
   classDef process fill:#E0F2FE,stroke:#0369A1,color:#0F172A,stroke-width:2px;
@@ -59,7 +68,7 @@ flowchart TB
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
 
   class ODDS source;
-  class FOOTBALL,UNC,SCOREMEANS,SIM,DISPLAY process;
-  class DATA,OUT data;
-  class A,B,C,MARKET,BLEND,STACK,CAL,MARGIN,RECON model;
+  class FOOTBALL,UNC,SCOREMEANS,SIM,DISPLAY,ABLATION process;
+  class DATA,CONTEXT,OUT,CONTEXT_REPORT data;
+  class A,B,C,MARKET,BLEND,STACK,CAL,MARGIN,RECON,CONTEXT_CANDIDATE model;
   class DISP,CONFLICT decision;

@@ -7,6 +7,11 @@ import os
 import pandas as pd
 
 from pipeline.common.odds.validity import valid_decimal_odds
+from pipeline.common.club_context.product import (
+    SHADOW_DISCLAIMER,
+    category_label as _context_category_label,
+    normalize_context_cards,
+)
 from pipeline.common.use_predictions.finals import theme as _stage_theme
 from pipeline.common.use_predictions.joker import _round_label
 from pipeline.common.use_predictions.probabilities import (  # re-exported for site/email_copy
@@ -396,7 +401,67 @@ def _premiership_lines(finals):
     return lines
 
 
-def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None, scoreboard=None, finals=None):
+def _context_watch_plain_lines(context_cards):
+    """Render verified, locked Club Context facts without an LLM rewrite."""
+    cards = normalize_context_cards(context_cards)
+    if not cards:
+        return []
+    lines = ["--- CONTEXT WATCH ---", SHADOW_DISCLAIMER]
+    for card in cards:
+        owner = f"{card['team_name']} · " if card.get("team_name") else ""
+        label = _context_category_label(card["category"])
+        phase = str(card.get("phase") or "").replace("_", " ").strip()
+        detail = f" · {phase.title()}" if phase else ""
+        lines.extend(
+            [
+                f"- {owner}{label}{detail}",
+                f"  {card['display_copy']}",
+                f"  Source: {card['source_title']} — {card['source_url']}",
+            ]
+        )
+    lines.extend(["---------------------", ""])
+    return lines
+
+
+def _context_watch_html(context_cards):
+    """Email-safe Context Watch card; absent input returns byte-for-byte empty."""
+    cards = normalize_context_cards(context_cards)
+    if not cards:
+        return ""
+    items = []
+    for card in cards:
+        owner = f"{card['team_name']} · " if card.get("team_name") else ""
+        label = _context_category_label(card["category"])
+        phase = str(card.get("phase") or "").replace("_", " ").strip()
+        title = f"{owner}{label}" + (f" · {phase.title()}" if phase else "")
+        url = html.escape(card["source_url"], quote=True)
+        source = html.escape(card["source_title"])
+        items.append(
+            "<div style=\"margin:0 0 12px;\">"
+            "<p style=\"margin:0 0 4px; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; "
+            f"font-size:14px; font-weight:700;\">{html.escape(title)}</p>"
+            "<p style=\"margin:0 0 4px; color:#334155; font-family:Arial, sans-serif; "
+            f"font-size:14px; line-height:1.5;\">{html.escape(card['display_copy'])}</p>"
+            "<p style=\"margin:0; color:#64748b; font-family:Arial, sans-serif; font-size:12px;\">"
+            f"Source: <a href=\"{url}\" style=\"color:#0369a1;\">{source}</a></p>"
+            "</div>"
+        )
+    return (
+        "<tr><td style=\"padding:6px 24px 10px;\">"
+        "<div style=\"border-radius:8px; overflow:hidden; border:1px solid #93c5fd;\">"
+        "<div style=\"background:#0369a1; padding:8px 14px;\">"
+        "<p style=\"margin:0; color:#ffffff; font-family:'Trebuchet MS', Arial, sans-serif; "
+        "font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase;\">"
+        "Context Watch</p></div>"
+        "<div style=\"padding:14px 16px 4px; background:#eff6ff;\">"
+        f"{''.join(items)}"
+        "<p style=\"margin:0 0 10px; color:#475569; font-family:Arial, sans-serif; "
+        f"font-size:11px; line-height:1.4;\">{html.escape(SHADOW_DISCLAIMER)}</p>"
+        "</div></div></td></tr>"
+    )
+
+
+def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None, scoreboard=None, finals=None, context_cards=None):
     first_game = _first_game_callout(predictions)
     market_notice = _market_coverage_notice(predictions)
     is_finals = _finals_on(finals)
@@ -406,6 +471,7 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
         lines.extend([scoreboard_line, ""])
     if news_hit:
         lines.extend(["--- THIS WEEK IN LEAGUE ---", news_hit, "---------------------------", ""])
+    lines.extend(_context_watch_plain_lines(context_cards))
     lines.append(opening)
     if market_notice:
         lines.extend(["", f"MARKET DATA NOTICE: {market_notice}"])
@@ -681,6 +747,7 @@ def _render_html_email(
     news_hit=None,
     scoreboard=None,
     finals=None,
+    context_cards=None,
 ):
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
@@ -959,6 +1026,7 @@ def _render_html_email(
             "</td></tr>"
             if news_hit else ""
         ) +
+        f"{_context_watch_html(context_cards)}"
         "<tr><td style=\"padding:6px 24px 6px;\">"
         f"{_to_html_paragraphs(opening)}"
         "</td></tr>"

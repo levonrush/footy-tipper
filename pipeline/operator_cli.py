@@ -825,6 +825,23 @@ def _advanced_data(args, *, root: pathlib.Path) -> int:
             extra.append("--strict")
         engine._run_odds(env, root, "live" if args.action == "refresh" else "backfill", extra)
         return EXIT_OK
+    if args.data_command == "context":
+        extra = []
+        for flag, value in (
+            ("--start-year", args.start_year),
+            ("--end-year", args.end_year),
+            ("--input", args.input),
+            ("--report-path", args.report_path),
+            ("--query", args.query),
+            ("--lookback-days", args.lookback_days),
+            ("--max-items", args.max_items),
+        ):
+            if value is not None:
+                extra.extend([flag, str(value)])
+        if args.strict:
+            extra.append("--strict")
+        engine._run_club_context(env, root, args.action, extra)
+        return EXIT_OK
     raise InvocationError("Unknown advanced data command.")
 
 
@@ -870,16 +887,50 @@ def _advanced_model(args, *, root: pathlib.Path) -> int:
             allow_lineup_bootstrap=args.auto_train,
         ):
             return EXIT_OPERATIONAL
+        if not args.skip_prepare:
+            # Capture discovery metadata before inference freezes the round's
+            # immutable context snapshot.  This remains fail-soft and cannot
+            # add an event to the model without reviewed evidence.
+            engine._run_club_context(env, root, "backfill")
+            engine._run_club_context(env, root, "refresh")
         engine._run_inference(env, skip_prep=args.skip_prepare, root=root)
         return EXIT_OK
     if action == "evaluate":
         env["FOOTY_TIPPER_PREP_MODE"] = "train"
+        if getattr(args, "context_ablation", False) and args.context_input:
+            # A supplied paired file is useful for reproducing or rescoring an
+            # already-completed run.  Without one, the honest nested evaluator
+            # below must generate both candidates with identical season folds.
+            command = [
+                sys.executable,
+                str(root / "pipeline" / "club_context_evaluate.py"),
+                "--input",
+                str(args.context_input),
+                "--bootstrap-reps",
+                str(args.context_bootstrap_reps),
+            ]
+            if args.context_report:
+                command.extend(["--report-path", str(args.context_report)])
+            engine._run_command(
+                command,
+                env,
+                cwd=root,
+                label="Evaluating Club Context shadow materiality",
+            )
+            return EXIT_OK
         if not engine._model_artifacts_exist(root):
             raise RuntimeError("Model artifacts are missing; train a model first.")
         if args.seasons is not None:
             env["FOOTY_TIPPER_EVAL_SEASONS"] = str(args.seasons)
         if getattr(args, "explain", False):
             env["FOOTY_TIPPER_EVAL_EXPLAIN"] = "1"
+        if getattr(args, "context_ablation", False):
+            env["FOOTY_TIPPER_CONTEXT_ABLATION"] = "1"
+            env["FOOTY_TIPPER_CONTEXT_BOOTSTRAP_REPS"] = str(
+                args.context_bootstrap_reps
+            )
+            if args.context_report:
+                env["FOOTY_TIPPER_CONTEXT_REPORT_PATH"] = str(args.context_report)
         engine._run_evaluate(env, skip_prep=args.skip_prepare, root=root)
         return EXIT_OK
     raise InvocationError("Unknown advanced model command.")
@@ -1040,6 +1091,18 @@ def build_parser() -> argparse.ArgumentParser:
     odds.add_argument("--url")
     odds.add_argument("--strict", action="store_true")
 
+    context = data_sub.add_parser(
+        "context", help="Refresh, backfill, or validate Club Context evidence."
+    )
+    context.add_argument("action", choices=("refresh", "backfill", "validate"))
+    _add_years(context)
+    context.add_argument("--input")
+    context.add_argument("--report-path")
+    context.add_argument("--query")
+    context.add_argument("--lookback-days", type=int)
+    context.add_argument("--max-items", type=int)
+    context.add_argument("--strict", action="store_true")
+
     model = advanced_sub.add_parser("model", help="Technical model operations.")
     model_sub = model.add_subparsers(dest="action", required=True, parser_class=FriendlyParser)
     model_train = model_sub.add_parser("train", help="Train locally without publishing.")
@@ -1062,6 +1125,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--explain",
         action="store_true",
         help="Also capture out-of-fold feature attribution to reports/explain-latest.json.",
+    )
+    model_eval.add_argument(
+        "--context-ablation",
+        action="store_true",
+        help="Score paired baseline/Club Context shadow predictions without changing production.",
+    )
+    model_eval.add_argument(
+        "--context-input",
+        type=pathlib.Path,
+        help=(
+            "Rescore existing paired OOF CSV/JSON rows; omit it to generate a fresh "
+            "nested season-out comparison."
+        ),
+    )
+    model_eval.add_argument(
+        "--context-report",
+        type=pathlib.Path,
+        help="Club Context JSON report path (default reports/club-context-materiality-latest.json).",
+    )
+    model_eval.add_argument(
+        "--context-bootstrap-reps",
+        type=int,
+        default=2000,
+        help="Fixed-seed event-cluster bootstrap repetitions.",
     )
     model_sub.add_parser("verify", help="Verify the active published model.")
     model_list = model_sub.add_parser("list", help="List immutable model releases.")

@@ -2,6 +2,8 @@
 
 > **Status: CUT OVER on `main` (PR #34, merged 2026-07-15).** Model update, cloud prediction, and advanced preparation invoke Python nrl.com/odds ingestion before R preparation. `FOOTY_TIPPER_FEED_SOURCE=python` is the default; `feed` is the legacy credentialled XML rollback.
 
+The cross-source rights, minimal-persistence, attribution, and commercial-review rules live in [Source and content-use policy](source-policy.md). Club Context discovery/confirmation is a separate optional registry, documented in [Club Context](club-context.md); it does not change this feed cutover or the R cache boundary.
+
 ![Python nrl.com and odds production feeds with the legacy XML rollback](diagrams/feed-migration.svg)
 
 [Editable Mermaid source](diagrams/feed-migration.mmd)

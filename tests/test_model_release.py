@@ -200,6 +200,15 @@ class ModelReleaseTests(unittest.TestCase):
                     root, environment, root / "update.log"
                 )
 
+        commands = [call.args[0] for call in run_logged.call_args_list]
+        self.assertIn(
+            [model_release.sys.executable, root / "pipeline" / "club_context.py", "backfill"],
+            commands,
+        )
+        self.assertIn(
+            [model_release.sys.executable, root / "pipeline" / "club_context.py", "refresh"],
+            commands,
+        )
         command = run_logged.call_args.args[0]
         self.assertEqual(command[0], rscript.resolve())
         self.assertEqual(command[1], root / "pipeline" / "data-prep.R")

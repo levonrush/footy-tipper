@@ -14,6 +14,7 @@ This is the runbook for model releases, scheduled tips, email idempotency, and r
 | Local training database | Operator hardware | Back up before model updates; never overwrite it with the Actions runtime DB |
 | Active model release | Drive immutable release + `model-current.json` | Create releases once; move the pointer only after validation and a successful GitHub Actions production-image check |
 | Runtime SQLite database | GitHub Actions / Drive | Pull at run start, push after stateful refresh/live success |
+| Club Context registry and prediction snapshots | Runtime SQLite database | Reviewed event state is versioned; every prediction run appends an immutable cutoff/provenance snapshot; shadow data cannot activate a model |
 | `schedule.json` | Runtime scheduler / Drive | Derived from the next actionable unsent round |
 | Delivery round marker | Drive | After pre-SMTP configuration/recipient validation, claim pending under serialized Actions concurrency; pending means uncertain until reconciled to sent |
 | `docs/site/` | Site generator / GitHub Pages | Generated; publish explicitly or in the production workflow |
@@ -113,6 +114,8 @@ late; check `footy-tipper status`, the latest workflow run, and the alert issue.
 
 Actions uses the machine-only `pipeline.ops.actions_runner` interface. Its prediction mode is an exact allowlist of `test`, `refresh`, and `live`; an unknown value fails. There is no wildcard branch that can become live. Every mode refuses auto-training.
 
+Club Context refresh runs before its live feature snapshot. The prediction then captures one `decision_at_utc` for the whole round and writes immutable `context_prediction_runs`/`prediction_context` rows. Historical research uses the stricter 11:00 Sydney round cutoff. A later news refresh appends a new prediction snapshot; it cannot revise the context attached to an earlier render or sent message.
+
 The other workflows do not own production training: `build-image.yml` builds the pinned runtime image after relevant runtime-file changes; `model-check.yml` is manually dispatched by `update-model` to load one exact immutable candidate in that image; and `smoke-checks.yml` compiles/tests Python plus parses the R entrypoint on pushes and pull requests.
 
 ### Manual operator commands
@@ -154,6 +157,8 @@ The live sequence is:
 `pending` blocks automatic resend because its SMTP outcome may be uncertain. Do not delete the marker or use a force option simply to make the workflow green. First establish whether recipients received the message, then reconcile the marker and DB ledger to the observed truth.
 
 Inference remains upsert-safe by `game_id`. Odds and lineup observations remain versioned/append-only evidence rather than duplicate operational sends.
+
+Club Context is also append-oriented at the prediction boundary. Event review metadata can progress through its workflow, but a prediction snapshot cannot be updated or deleted. In shadow mode the event registry is optional: an outage, rejected event, missing source, or rights-disabled adapter omits Context Watch and leaves tips/delivery unchanged.
 
 ## Updating the model
 
@@ -258,12 +263,27 @@ footy-tipper advanced data lineups refresh --help
 footy-tipper advanced data lineups backfill --help
 ```
 
+### Club Context coverage or validation fails
+
+Do not delay a weekly prediction or infer an event from a headline. Run the read-only validation first, then an explicit strict refresh only for diagnosis:
+
+```bash
+footy-tipper advanced data context validate
+footy-tipper advanced data context refresh --strict
+```
+
+Check ingestion-run errors, source rights, publication/first-observed times, independent confirmations, event/entity mapping, and the round cutoff. Leave uncertain candidates pending. Restoring Context Watch is lower priority than preserving the no-context prediction/send path.
+
+Do not install or troubleshoot a browser for this path. Club Context discovery uses direct RSS/JSON requests and has no Chrome, Headless Shell, Playwright, Selenium, or browser-driver dependency.
+
 ## Optional integrations and failure behavior
 
 | Condition | Expected behavior |
 | --- | --- |
 | No pre-game rows | Clean no-op; do not invent fixtures or send old tips. |
 | Missing/sparse lineups | Fill safe defaults unless explicit strict diagnosis is requested. |
+| Missing/invalid Club Context registry | Omit Context Watch and keep sign-neutral shadow defaults; production probability and delivery remain unchanged. |
+| Unsafe or invalid context prose | Use deterministic factual copy; sensitive events never prompt banner imagery. |
 | Missing performance data while enabled | Fail model preparation clearly. |
 | Missing Claude/Anthropic | Use deterministic copy when generation cannot run. |
 | Missing OpenAI/banner generation | Continue with the normal/static presentation. |
@@ -291,10 +311,11 @@ footy-tipper advanced site publish
 - next season/round selected by `prediction_table.sql`
 - delivery marker and `email_sends` agreement
 - lineup ingestion status and as-of coverage
+- Club Context ingestion/eligibility coverage, rights-disabled adapters, decision time, and immutable snapshot hash
 - current odds/line coverage
 - runtime DB and schedule timestamps
 - site publication result
 
 ## Security
 
-Never commit `secrets.env`, `service-account-token.json`, passwords, API keys, model-update logs, or rendered email output containing private data. The watchdog's repository-scoped GitHub token belongs only in the Apps Script `GITHUB_TOKEN` property; SMTP, Drive, recipient, model, and content-generation credentials remain in GitHub. Preserve [`.gitignore`](../.gitignore), review public Actions logs, redact secrets in human/JSON errors, and use the least credentials required for each action.
+Never commit `secrets.env`, `service-account-token.json`, passwords, API keys, model-update logs, or rendered email output containing private data. The watchdog's repository-scoped GitHub token belongs only in the Apps Script `GITHUB_TOKEN` property; SMTP, Drive, recipient, model, and content-generation credentials remain in GitHub. Preserve [`.gitignore`](../.gitignore), review public Actions logs, redact secrets in human/JSON errors, and use the least credentials required for each action. Follow the [source and content-use policy](source-policy.md) before enabling an adapter or expanding stored third-party content.

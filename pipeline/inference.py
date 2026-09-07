@@ -3,7 +3,6 @@ print("Running the inference.py script...")
 
 import json
 import os
-import pathlib
 import sys
 
 import numpy as np
@@ -91,6 +90,16 @@ if inference_data.empty:
     print("Predictions saved to the database!")
     raise SystemExit(0)
 
+# Freeze one real decision instant for every Club Context lookup in this run.
+# It is captured after ingestion and before feature construction, then reused
+# for the immutable snapshot after predictions are safely persisted.
+try:
+    from pipeline.common.club_context import capture_live_decision_at_utc
+
+    context_decision_at_utc = capture_live_decision_at_utc()
+except Exception:
+    context_decision_at_utc = None
+
 # Build Tier-A baseline on full context so pre-game rows inherit latest team state.
 try:
     context_data = pf.get_table_data(db_path, "footy_tipping_data")
@@ -141,7 +150,11 @@ print("Merging match-context features (form/referee/weather/travel + player form
 try:
     from pipeline.common.nrl_data import features as ctx
 
-    inference_data = ctx.merge_match_context_features(inference_data, db_path)
+    inference_data = ctx.merge_match_context_features(
+        inference_data,
+        db_path,
+        context_decision_at_utc=context_decision_at_utc,
+    )
 except Exception as exc:
     print(f"Match-context feature merge skipped ({exc}).")
 
@@ -344,6 +357,34 @@ pf.save_predictions_to_db(
     project_root / "pipeline/common/sql/create_table.sql",
     project_root / "pipeline/common/sql/insert_into_table.sql",
 )
+
+# Observed facts and shadow features are frozen only after the production tips
+# are safe.  This is diagnostics/product provenance: failure cannot cost a tip
+# or change any displayed probability.
+try:
+    from pipeline.common.club_context import (
+        PredictionMode,
+        create_prediction_context_snapshot,
+    )
+
+    requested_mode = os.getenv("FOOTY_TIPPER_ACTIONS_MODE", "preview").strip().lower()
+    try:
+        context_mode = PredictionMode(requested_mode)
+    except ValueError:
+        context_mode = PredictionMode.PREVIEW
+    context_run_id = create_prediction_context_snapshot(
+        db_path,
+        inference_data,
+        mode=context_mode,
+        decision_at_utc=context_decision_at_utc,
+        model_release=manifest.get("release") or manifest.get("release_id"),
+    )
+    if context_run_id:
+        print(f"Club Context shadow snapshot written ({context_run_id}).")
+    else:
+        print("Club Context shadow snapshot unavailable; predictions are unchanged.")
+except Exception as exc:
+    print(f"Club Context shadow snapshot skipped ({exc}).")
 
 # Margin bands and market cover probabilities, read out of the simulation that
 # already ran. Same terms as the explanations below: written after the tips are

@@ -240,11 +240,12 @@ class RuntimePredictionTests(unittest.TestCase):
                 return_value=coverage,
             ),
             mock.patch.object(runtime_prediction.pipeline_cli, "_run_data_prep"),
+            mock.patch.object(runtime_prediction.pipeline_cli, "_run_club_context"),
         )
 
     def test_refresh_never_calls_send(self):
         patches = self._patched_pipeline()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[10], patches[11]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[10], patches[11], patches[12] as context:
             result = runtime_prediction.run("refresh")
 
         self.assertEqual(result, 0)
@@ -256,13 +257,20 @@ class RuntimePredictionTests(unittest.TestCase):
         )
         infer.assert_called_once()
         self.assertTrue(infer.call_args.kwargs["skip_prep"])
+        self.assertEqual(
+            context.call_args_list,
+            [
+                mock.call(mock.ANY, mock.ANY, "backfill"),
+                mock.call(mock.ANY, mock.ANY, "refresh"),
+            ],
+        )
         send.assert_not_called()
 
     def test_every_actions_prediction_mode_disables_auto_train(self):
         for mode in runtime_prediction.VALID_MODES:
             with self.subTest(mode=mode):
                 patches = self._patched_pipeline()
-                with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6], patches[7], patches[8], patches[9], patches[10], patches[11]:
+                with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6], patches[7], patches[8], patches[9], patches[10], patches[11], patches[12]:
                     result = runtime_prediction.run(mode)
 
                 self.assertEqual(result, 0)
@@ -275,7 +283,7 @@ class RuntimePredictionTests(unittest.TestCase):
 
     def test_missing_models_fail_without_hosted_training(self):
         patches = self._patched_pipeline(ensure_models=False)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[10], patches[11]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[10], patches[11], patches[12]:
             result = runtime_prediction.run("live")
 
         self.assertEqual(result, 1)
@@ -292,7 +300,7 @@ class RuntimePredictionTests(unittest.TestCase):
         patches = self._patched_pipeline()
         coverage = mock.Mock(complete=False)
         coverage.message.return_value = "Fresh H2H odds coverage for Round 21: 7/8."
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[11], mock.patch.object(
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5] as ensure, patches[6] as infer, patches[7], patches[8], patches[9] as send, patches[11], patches[12], mock.patch.object(
             runtime_prediction,
             "current_round_odds_coverage",
             return_value=coverage,
@@ -308,7 +316,7 @@ class RuntimePredictionTests(unittest.TestCase):
         patches = self._patched_pipeline()
         coverage = mock.Mock(complete=False)
         coverage.message.return_value = "Fresh H2H odds coverage for Round 21: 7/8."
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6] as infer, patches[7] as log, patches[8], patches[9] as send, patches[11], mock.patch.object(
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6] as infer, patches[7] as log, patches[8], patches[9] as send, patches[11], patches[12], mock.patch.object(
             runtime_prediction,
             "current_round_odds_coverage",
             return_value=coverage,
@@ -324,7 +332,7 @@ class RuntimePredictionTests(unittest.TestCase):
         patches = self._patched_pipeline(send_result=0)
         coverage = mock.Mock(complete=False)
         coverage.message.return_value = "Fresh H2H odds coverage for Round 21: 7/8."
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6] as infer, patches[7] as log, patches[8], patches[9] as send, patches[11], mock.patch.object(
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6] as infer, patches[7] as log, patches[8], patches[9] as send, patches[11], patches[12], mock.patch.object(
             runtime_prediction,
             "current_round_odds_coverage",
             return_value=coverage,
@@ -338,7 +346,7 @@ class RuntimePredictionTests(unittest.TestCase):
 
     def test_test_send_cannot_upload_predictions_to_drive(self):
         patches = self._patched_pipeline(send_result=0)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9] as send, patches[10], patches[11]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9] as send, patches[10], patches[11], patches[12]:
             result = runtime_prediction.run("test")
 
         self.assertEqual(result, 0)
@@ -353,7 +361,7 @@ class RuntimePredictionTests(unittest.TestCase):
 
     def test_live_send_is_explicit(self):
         patches = self._patched_pipeline(send_result=0)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9] as send, patches[10], patches[11]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], patches[8], patches[9] as send, patches[10], patches[11], patches[12]:
             result = runtime_prediction.run("live")
 
         self.assertEqual(result, 0)
@@ -394,7 +402,7 @@ class RuntimePredictionTests(unittest.TestCase):
             runtime_prediction.pipeline_cli,
             "_refresh_nrl_data",
             side_effect=refresh,
-        ), patches[5], patches[6] as infer, patches[7], patches[8], patches[9], mock.patch.object(
+        ), patches[5], patches[6] as infer, patches[7], patches[8], patches[9], patches[12], mock.patch.object(
             runtime_prediction,
             "current_round_odds_coverage",
             side_effect=coverage,

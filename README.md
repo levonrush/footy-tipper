@@ -2,7 +2,7 @@
 
 An NRL prediction engine built from R, Python, SQLite, probability theory, and the stubborn belief that the pub tipping comp deserves production infrastructure.
 
-Footy Tipper prepares match data, versions team lists, trains calibrated score and winner models, simulates coherent scorelines, finds value against the market, records why it thinks what it thinks, and turns the result into a weekly email and static site. It takes the football seriously. It remains open to the possibility that the football does not care.
+Footy Tipper prepares match data, versions team lists, trains calibrated score and winner models, simulates coherent scorelines, finds value against the market, records why it thinks what it thinks, and turns the result into a weekly email and static site. Its shadow-only Club Context layer can also flag a verified acute off-field event without pretending that the story has earned a probability adjustment. It takes the football seriously. It remains open to the possibility that the football does not care.
 
 ![Footy Tipper logo](images/footy-tipper-logo.jpg)
 
@@ -65,7 +65,9 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - [CLI reference](docs/cli-reference.md) — the complete operator and advanced command trees.
 - [Architecture](docs/how-it-works.md) — data, models, state, and delivery ownership.
 - [Models and evidence](docs/modeling-techniques.md) — Tier A/B/C, calibration, simulation, and limitations.
+- [Club Context](docs/club-context.md) — the evidence gate, immutable cutoff, shadow materiality test, and safe Context Watch card.
 - [Explainability](docs/explainability.md): the exact decision chain behind each tip, TreeSHAP attribution, and the cohort analyses.
+- [Source policy](docs/source-policy.md) — content-use, rights, attribution, and minimal-persistence rules.
 - [Finals special edition](docs/finals-edition.md) — what changes in September, and the premiership simulation behind it.
 - [Operations](docs/operations-reliability.md) — model releases, Actions, delivery safety, reruns, and recovery.
 - [Watchdog operations](docs/watchdog-setup.md) — the deployed Google Apps Script fallback, verification, credential replacement, incident handling, and rollback.
@@ -76,6 +78,7 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - Training rows are explicitly `game_state_name == "Final"`; inference rows are `game_state_name == "Pre Game"`.
 - Beginner commands never trigger a surprise local training run.
 - Missing lineup data fails soft unless strict mode is requested.
+- Club Context is sign-neutral and shadow-only: an observed event cannot change a production tip, probability, scoreline, value pick, or stake.
 - Actions prediction consumes a named active release and fails clearly if it is missing or invalid.
 - A pending live-delivery marker is deliberately treated as uncertain and blocks automatic resend until it is reconciled.
 - Finals rounds run as special editions: the joker and competition strategy switch off, and a premiership simulation takes their place.

@@ -109,6 +109,8 @@ logs/*
 
 # Timestamped eval reports (keep latest + named baselines)
 reports/eval-2*.json
+# The Club Context evaluator publishes the compact materiality report instead.
+reports/eval-context-ablation-*.json
 
 # Timestamped explainability reports (keep latest)
 reports/explain-2*.json

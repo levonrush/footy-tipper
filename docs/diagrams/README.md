@@ -10,6 +10,7 @@ This directory is the canonical home for editable Mermaid architecture sources a
 | Current production architecture | [source](current-production.mmd) | [preview](current-production.svg) |
 | Dual-clock delivery watchdog, guarded gate, and alert lifecycle | [source](delivery-watchdog.mmd) | [preview](delivery-watchdog.svg) |
 | Model, market, calibration, score reconciliation, simulation, and display | [source](model-stack.mmd) | [preview](model-stack.svg) |
+| Club Context evidence gate, round cutoff, shadow evaluation, reader safety, and immutable provenance | [source](club-context.mmd) | [preview](club-context.svg) |
 | Versioned lineup ingestion and as-of selection | [source](lineup-as-of.mmd) | [preview](lineup-as-of.svg) |
 | Immutable model publication, Actions runtime state, and delivery safety | [source](operations-state.mmd) | [preview](operations-state.svg) |
 | Python production feeds and legacy XML rollback | [source](feed-migration.mmd) | [preview](feed-migration.svg) |

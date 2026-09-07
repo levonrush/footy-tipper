@@ -787,6 +787,19 @@ def _prepare_training_data(root, env, log_path) -> None:
                  "Refreshing odds"),
             ]
         )
+    if pipeline_cli._to_bool(env.get("FOOTY_TIPPER_CONTEXT_ENABLED"), True):
+        commands.extend(
+            [
+                (
+                    [sys.executable, root / "pipeline" / "club_context.py", "backfill"],
+                    "Importing reviewed Club Context catalogue",
+                ),
+                (
+                    [sys.executable, root / "pipeline" / "club_context.py", "refresh"],
+                    "Refreshing Club Context discovery",
+                ),
+            ]
+        )
     commands.append(
         (
             [_active_conda_rscript(env), root / "pipeline" / "data-prep.R"],

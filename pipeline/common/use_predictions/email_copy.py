@@ -436,12 +436,31 @@ def generate_reg_regan_email_payload(
     use_llm=None,
     comp_strategy=None,
     finals=None,
+    context_cards=None,
+    db_path=None,
 ):
     # `use_openai` is a deprecated alias for `use_llm` (the copy actually comes
     # from Claude; only the banner image uses OpenAI).
     use_llm = use_openai if use_llm is None else use_llm
 
     predictions = _sort_predictions_for_display(predictions)
+    if context_cards is None and db_path is not None and not predictions.empty:
+        try:
+            from pipeline.common.club_context.product import load_context_cards
+
+            context_cards = load_context_cards(
+                db_path,
+                predictions["game_id"].tolist() if "game_id" in predictions else None,
+            )
+        except Exception:
+            context_cards = []
+    try:
+        from pipeline.common.club_context.product import normalize_context_cards
+
+        context_cards = normalize_context_cards(context_cards)
+    except Exception:
+        context_cards = []
+    sensitive_context = any(bool(card.get("sensitive")) for card in context_cards)
     is_finals = bool(isinstance(finals, dict) and finals.get("is_finals"))
     fallback_copy = _build_fallback_copy(
         predictions,
@@ -495,8 +514,12 @@ def generate_reg_regan_email_payload(
         }
 
     news_hit = copy.get("news_hit")
-    banner_path = (
-        _generate_dynamic_banner(
+    # A sensitive fact may appear in Context Watch but can never seed banner
+    # imagery.  The context cards are not in the banner prompt, and this guard
+    # also prevents accidental thematic overlap with legacy editorial news.
+    generated_banner = None
+    if not sensitive_context:
+        generated_banner = _generate_dynamic_banner(
             copy,
             api_key,
             openai_api_key,
@@ -504,8 +527,7 @@ def generate_reg_regan_email_payload(
             news_hit=news_hit,
             finals=finals,
         )
-        or _resolve_banner_path()
-    )
+    banner_path = generated_banner or _resolve_banner_path()
     plain_email = _render_plain_email(
         predictions,
         tipper_picks,
@@ -517,6 +539,7 @@ def generate_reg_regan_email_payload(
         news_hit=news_hit,
         scoreboard=scoreboard,
         finals=finals,
+        context_cards=context_cards,
     )
     html_email = _render_html_email(
         predictions,
@@ -529,6 +552,7 @@ def generate_reg_regan_email_payload(
         news_hit=news_hit,
         scoreboard=scoreboard,
         finals=finals,
+        context_cards=context_cards,
     )
 
     inline_images = []

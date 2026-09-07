@@ -43,6 +43,7 @@ def _log(message: str, start_time: float = None) -> None:
 _STEP_LABELS = (
     ("data-prep.R", "Preparing data (R)"),
     ("lineups.py", "Fetching team lists"),
+    ("club_context.py", "Refreshing Club Context"),
     ("train.py", "Training models"),
     ("inference.py", "Running inference"),
     ("evaluate.py", "Evaluating model"),
@@ -189,6 +190,13 @@ def _run_nrl_data(env, root, action, extra_args=None):
 
 def _run_odds(env, root, action, extra_args=None):
     cmd = [sys.executable, str(root / "pipeline" / "odds.py"), action]
+    if extra_args:
+        cmd.extend(extra_args)
+    return _run_command(cmd, env, cwd=root)
+
+
+def _run_club_context(env, root, action, extra_args=None):
+    cmd = [sys.executable, str(root / "pipeline" / "club_context.py"), action]
     if extra_args:
         cmd.extend(extra_args)
     return _run_command(cmd, env, cwd=root)
@@ -731,6 +739,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
         scoreboard=scoreboard,
         comp_strategy=comp_strategy,
         finals=finals,
+        db_path=db_path,
     )
 
     subject = email_payload["subject"]

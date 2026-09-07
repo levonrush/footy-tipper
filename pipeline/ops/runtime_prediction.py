@@ -83,6 +83,15 @@ def run(mode: str) -> int:
         allow_lineup_bootstrap=False,
     ):
         return 1
+    # Import the checked-in reviewed catalogue before discovery. The import is
+    # idempotent, so a fresh runtime DB gains approved evidence while an
+    # existing DB only picks up newly reviewed catalogue entries.
+    prediction_records += pipeline_cli._run_club_context(
+        inference_env, root, "backfill"
+    ) or []
+    prediction_records += pipeline_cli._run_club_context(
+        inference_env, root, "refresh"
+    ) or []
     prediction_records += (
         pipeline_cli._run_inference(inference_env, skip_prep=True, root=root) or []
     )

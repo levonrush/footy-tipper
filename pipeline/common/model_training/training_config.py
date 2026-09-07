@@ -366,6 +366,18 @@ include_match_form = os.getenv(
     "FOOTY_TIPPER_INCLUDE_MATCH_FORM", "true"
 ).strip().lower() in {"1", "true", "yes", "y"}
 
+# Experimental predictor contract.  These columns are intentionally separate
+# from ``predictors`` so a registry refresh cannot change production output.
+# The honest context-ablation path opts into them explicitly.
+try:
+    from pipeline.common.club_context.features import CONTEXT_FEATURE_COLUMNS
+
+    shadow_context_predictors = [
+        column for column in CONTEXT_FEATURE_COLUMNS if column != "game_id"
+    ]
+except Exception:  # pragma: no cover - additive rollout against old checkouts
+    shadow_context_predictors = []
+
 
 def filter_predictors(
     include_performance=True,
