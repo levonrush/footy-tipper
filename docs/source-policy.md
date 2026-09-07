@@ -22,11 +22,14 @@ This is an engineering policy, not legal advice. Terms can change; the maintaine
 | Australia Sports Betting | Historical markets | Normalized odds observations | Fill historical gaps; retain observation type/time |
 | The Odds API / Betfair | Live pre-game markets | Versioned odds observations | Credentials, jurisdiction, freshness, and no-market fallback apply |
 | ABC RSS / GDELT | Club Context candidate discovery | URL, title/identifier, publisher, publication or first-observed time, and hash | Discovery only; never sufficient confirmation |
+| GDELT DOC `timelinevolraw` | Club attention volume | Daily count of matching articles per club plus the size of the index that day | Counts only; no title, body, link, or tone. One request per club-season, at or below the documented rate floor. Coverage begins 2017; earlier dates are recorded missing, never zero |
 | Official NRL/club or reputable reporting | Club Context confirmation | Factual summary, link, timestamps, evidence role, and rights state | Approved facts-and-links events only; no article body |
 
 The feed-specific runtime, parity, and rollback contracts remain in [Data-source migration](data-source-migration.md). Club Context's evidence rules are in [Club Context](club-context.md).
 
 Club Context discovery is deliberately browser-free: the optional ABC RSS and GDELT JSON adapters use Python's standard HTTP/XML/JSON libraries. Chrome, Chrome Headless Shell, Playwright, Selenium, and browser-driver installation are not runtime dependencies.
+
+The attention adapter is a narrower case of the same rule. It asks GDELT how many indexed articles matched a club phrase on each day and keeps only that number. It retains no URL, title, snippet, or derived tone, so it creates no claim over any publisher's content, and a rate-limited response raises rather than being stored as a day with no news.
 
 ## Club Context rights states
 

@@ -1,17 +1,28 @@
 {
-  "catalog_version": "2026-09-07.1",
+  "catalog_version": "2026-09-07.2",
   "reviewed_at": "2026-09-07",
   "scope": {
     "leadership_change_census": "NRL men's first-grade head-coach handovers that became effective between the start and end of a premiership season, 2008-2026 inclusive. Planned end-of-season departures are excluded from this census and may appear as separately phased events.",
     "other_events": "A conservative, manually audited seed registry of identifiable serious human events, formal tributes and material club sanctions. It is intentionally not presented as a complete census.",
     "facts_and_links_only": true,
-    "article_bodies_stored": false
+    "article_bodies_stored": false,
+    "disposition_rule": "involuntary where the source states a dismissal, voluntary where it states a resignation, stepping down or agreed departure, commemorative for tributes and milestones, and undetermined where the source attributes no initiative (for example 'parted ways'). Not inferred from tone.",
+    "magnitude_rule": "Only a source-stated numeric penalty (competition points stripped, games suspended) on its own natural scale. No reviewed event currently states one, so every magnitude is 0."
   },
   "coverage": {
     "census_start_year": 2008,
     "census_end_year": 2026,
-    "seasons_with_no_effective_midseason_handover": [2016, 2025],
-    "leadership_handover_count": 32
+    "seasons_with_no_effective_midseason_handover": [
+      2016,
+      2025
+    ],
+    "leadership_handover_count": 32,
+    "disposition_counts": {
+      "commemorative": 5,
+      "involuntary": 13,
+      "undetermined": 20,
+      "voluntary": 5
+    }
   },
   "leadership_change_census": [
     {
@@ -31,7 +42,10 @@
         "source_class": "public_broadcaster",
         "independence_key": "abc",
         "published_at_utc": "2008-05-22T12:44:00+10:00"
-      }
+      },
+      "disposition": "voluntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-knights-2009-smith-stone",
@@ -58,7 +72,10 @@
           "published_at_utc": "2009-08-24T10:02:00+10:00",
           "evidence_role": "corroboration"
         }
-      ]
+      ],
+      "disposition": "voluntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-sharks-2010-stuart-flanagan",
@@ -85,7 +102,10 @@
           "published_at_utc": "2010-05-24T13:00:00+10:00",
           "evidence_role": "corroboration"
         }
-      ]
+      ],
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-panthers-2011-elliott-georgallis",
@@ -116,7 +136,10 @@
           "published_at_utc": "2011-06-20T14:48:00+10:00",
           "evidence_role": "corroboration"
         }
-      ]
+      ],
+      "disposition": "voluntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-bulldogs-2011-moore-dymock",
@@ -147,7 +170,10 @@
           "published_at_utc": "2011-07-14T17:30:00+12:00",
           "evidence_role": "corroboration"
         }
-      ]
+      ],
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-eels-2012-kearney-arthur",
@@ -178,7 +204,10 @@
           "published_at_utc": "2012-07-20T12:31:00+10:00",
           "evidence_role": "corroboration"
         }
-      ]
+      ],
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-warriors-2012-mcclennan-iro",
@@ -193,7 +222,10 @@
         "url": "https://www.nrl.com/news/2012/08/21/biggest-day-in-league-history---nrl-daily/",
         "title": "Biggest day in league history - NRL Daily",
         "published_at_utc": "2012-08-21T16:34:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-raiders-2013-furner-dunemann",
@@ -208,7 +240,10 @@
         "url": "https://www.nrl.com/news/2013/08/21/raiders-v-sea-eagles-preview/",
         "title": "Raiders v Sea Eagles preview",
         "published_at_utc": "2013-08-21T12:30:00+10:00"
-      }
+      },
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-warriors-2014-elliott-mcfadden",
@@ -223,7 +258,10 @@
         "url": "https://www.nrl.com/news/2014/04/09/warriors-coach-the-toughest-job-in-the-nrl/",
         "title": "Warriors coach the toughest job in the NRL?",
         "published_at_utc": "2014-04-09T07:10:00+10:00"
-      }
+      },
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-dragons-2014-price-mcgregor",
@@ -238,7 +276,10 @@
         "url": "https://www.nrl.com/news/2014/05/26/dragons-sack-coach-steve-price/",
         "title": "Dragons sack coach Steve Price",
         "published_at_utc": "2014-05-26T11:12:00+10:00"
-      }
+      },
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-sharks-2014-sharp-shepherd",
@@ -253,7 +294,10 @@
         "url": "https://www.nrl.com/news/2014/07/01/sharp-resigns-as-sharks-coach/",
         "title": "Sharp resigns as Sharks coach",
         "published_at_utc": "2014-07-01T10:23:00+10:00"
-      }
+      },
+      "disposition": "voluntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-titans-2014-cartwright-henry",
@@ -269,7 +313,10 @@
         "url": "https://www.nrl.com/news/2014/08/05/cartwright-searle-quit-club-they-built/",
         "title": "Cartwright, Searle quit club they built",
         "published_at_utc": "2014-08-05T14:59:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-knights-2015-stone-buderus",
@@ -284,7 +331,10 @@
         "url": "https://www.nrl.com/news/2015/07/27/buderus-replaces-stone-as-knights-coach/",
         "title": "Buderus replaces Stone as Knights coach",
         "published_at_utc": "2015-07-27T15:05:00+10:00"
-      }
+      },
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-tigers-2017-taylor-webster",
@@ -299,7 +349,10 @@
         "url": "https://www.nrl.com/news/2017/03/20/wests-tigers-sack-jason-taylor/",
         "title": "Wests Tigers sack Jason Taylor",
         "published_at_utc": "2017-03-20T14:18:00+11:00"
-      }
+      },
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-titans-2017-henry-matterson-hodges",
@@ -314,7 +367,10 @@
         "url": "https://www.nrl.com/news/2017/08/21/titans-ceo-graham-annesley-player-power-not-behind-neil-henrys-axing/",
         "title": "Player power not behind Henry's axing",
         "published_at_utc": "2017-08-21T15:00:00+10:00"
-      }
+      },
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-panthers-2018-griffin-ciraldo",
@@ -329,7 +385,10 @@
         "url": "https://www.nrl.com/news/2018/08/06/penrith-panthers-part-ways-with-coach-anthony-griffin-four-weeks-out-from-finals/",
         "title": "Panthers part ways with coach Griffin four weeks out from finals",
         "published_at_utc": "2018-08-06T18:18:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-titans-2019-brennan-hodges-burt",
@@ -344,7 +403,10 @@
         "url": "https://www.nrl.com/news/2019/07/14/titans-and-coach-garth-brennan-to-part-ways/",
         "title": "Titans part ways with Brennan",
         "published_at_utc": "2019-07-14T20:42:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-knights-2019-brown-woolf",
@@ -359,7 +421,10 @@
         "url": "https://www.nrl.com/news/2019/08/27/brown-depart-knights-effective-immediately/",
         "title": "Brown departs Knights, effective immediately",
         "published_at_utc": "2019-08-27T17:40:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-warriors-2020-kearney-payten",
@@ -374,7 +439,10 @@
         "url": "https://www.nrl.com/news/2020/06/20/warriors-end-kearneys-tenure-after-heavy-defeat/",
         "title": "Warriors end Kearney's tenure after heavy defeat",
         "published_at_utc": "2020-06-20T17:23:00+10:00"
-      }
+      },
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-bulldogs-2020-pay-georgallis",
@@ -392,7 +460,10 @@
         "source_name": "Canterbury-Bankstown Bulldogs",
         "source_class": "official_club",
         "published_at_utc": "2020-07-14T09:55:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-cowboys-2020-green-hannay",
@@ -407,7 +478,10 @@
         "url": "https://www.nrl.com/news/2020/07/20/green-set-to-part-ways-with-cowboys-effective-immediately/",
         "title": "Green parts ways with Cowboys effective immediately",
         "published_at_utc": "2020-07-20T16:37:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-broncos-2020-seibold-gentle",
@@ -422,7 +496,10 @@
         "url": "https://www.nrl.com/news/2020/08/25/seibold-confirms-brisbane-days-are-over/",
         "title": "Seibold confirms Brisbane days are over",
         "published_at_utc": "2020-08-25T15:29:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-dragons-2020-mcgregor-young",
@@ -441,7 +518,10 @@
         "source_name": "St George Illawarra Dragons",
         "source_class": "official_club",
         "published_at_utc": "2020-08-13T10:19:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-sharks-2021-morris-hannay",
@@ -456,7 +536,10 @@
         "url": "https://www.nrl.com/news/2021/04/13/sharks-to-fast-track-call-on-morris-as-graham-wants-decision/",
         "title": "Sharks part ways with Morris as Fitzgibbon lands job",
         "published_at_utc": "2021-04-13T18:50:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-bulldogs-2022-barrett-potter",
@@ -471,7 +554,10 @@
         "url": "https://www.nrl.com/news/2022/05/18/michael-potter-announced-as-interim-head-coach-of-the-bulldogs/",
         "title": "Michael Potter announced as interim head coach of the Bulldogs",
         "published_at_utc": "2022-05-18T10:28:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-tigers-2022-maguire-kimmorley",
@@ -486,7 +572,10 @@
         "url": "https://www.nrl.com/news/2022/06/07/wests-tigers-confirm-departure-of-michael-maguire/",
         "title": "Wests Tigers confirm departure of Michael Maguire",
         "published_at_utc": "2022-06-07T14:24:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-warriors-2022-brown-jones",
@@ -501,7 +590,10 @@
         "url": "https://www.nrl.com/news/2022/06/07/warriors-confirm-departure-of-nathan-brown/",
         "title": "Warriors confirm departure of Nathan Brown",
         "published_at_utc": "2022-06-07T09:06:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-dragons-2023-griffin-carr",
@@ -516,7 +608,10 @@
         "url": "https://www.nrl.com/news/2023/05/16/dragons-part-ways-with-griffin/",
         "title": "Dragons part ways with Griffin",
         "published_at_utc": "2023-05-16T09:33:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-titans-2023-holbrook-lenihan",
@@ -531,7 +626,10 @@
         "url": "https://www.nrl.com/news/2023/06/22/titans-confirm-des-hasler-to-replace-justin-holbrook-as-coach/",
         "title": "Titans confirm Hasler to replace Holbrook as coach",
         "published_at_utc": "2023-06-22T15:56:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-rabbitohs-2024-demetriou-hornby",
@@ -546,7 +644,10 @@
         "url": "https://www.nrl.com/news/2024/04/30/rabbitohs-confirm-demetriou-departure-hornby-to-take-charge/",
         "title": "Rabbitohs confirm Demetriou departure, Hornby to take charge",
         "published_at_utc": "2024-04-30T19:58:00+10:00"
-      }
+      },
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-eels-2024-arthur-barrett",
@@ -561,7 +662,10 @@
         "url": "https://www.nrl.com/news/2024/05/20/eels-confirm-brad-arthur-departure/",
         "title": "Eels confirm Brad Arthur departure",
         "published_at_utc": "2024-05-20T17:19:00+10:00"
-      }
+      },
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-sea-eagles-2026-seibold-foran",
@@ -583,7 +687,10 @@
           "title": "Foran ready to step up",
           "published_at_utc": "2026-03-29T08:42:00+11:00"
         }
-      ]
+      ],
+      "disposition": "undetermined",
+      "availability_impact": false,
+      "magnitude": 0.0
     }
   ],
   "events": [
@@ -610,8 +717,17 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "storm", "display_name": "Melbourne Storm", "team_key": "storm", "relationship": "affected"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "storm",
+          "display_name": "Melbourne Storm",
+          "team_key": "storm",
+          "relationship": "affected"
+        }
+      ],
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "human-knights-mckinnon-injury-2014",
@@ -636,9 +752,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "knights", "display_name": "Newcastle Knights", "team_key": "knights", "relationship": "affected"},
-        {"entity_type": "player", "entity_key": "Alex McKinnon", "display_name": "Alex McKinnon", "team_key": "knights", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "knights",
+          "display_name": "Newcastle Knights",
+          "team_key": "knights",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "player",
+          "entity_key": "Alex McKinnon",
+          "display_name": "Alex McKinnon",
+          "team_key": "knights",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "involuntary",
+      "availability_impact": true,
+      "magnitude": 0.0
     },
     {
       "event_key": "tribute-knights-rise-for-alex-round-2014",
@@ -663,9 +794,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "knights", "display_name": "Newcastle Knights", "team_key": "knights", "relationship": "affected"},
-        {"entity_type": "player", "entity_key": "Alex McKinnon", "display_name": "Alex McKinnon", "team_key": "knights", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "knights",
+          "display_name": "Newcastle Knights",
+          "team_key": "knights",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "player",
+          "entity_key": "Alex McKinnon",
+          "display_name": "Alex McKinnon",
+          "team_key": "knights",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "commemorative",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "crisis-eels-salary-cap-preliminary-sanctions-2016",
@@ -690,8 +836,17 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "eels", "display_name": "Parramatta Eels", "team_key": "eels", "relationship": "affected"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "eels",
+          "display_name": "Parramatta Eels",
+          "team_key": "eels",
+          "relationship": "affected"
+        }
+      ],
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "human-cowboys-paul-green-2022",
@@ -716,9 +871,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "cowboys", "display_name": "North Queensland Cowboys", "team_key": "cowboys", "relationship": "affected"},
-        {"entity_type": "coach", "entity_key": "Paul Green", "display_name": "Paul Green", "team_key": "cowboys", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "cowboys",
+          "display_name": "North Queensland Cowboys",
+          "team_key": "cowboys",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "coach",
+          "entity_key": "Paul Green",
+          "display_name": "Paul Green",
+          "team_key": "cowboys",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "involuntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "tribute-cowboys-paul-green-home-match-2022",
@@ -743,9 +913,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "cowboys", "display_name": "North Queensland Cowboys", "team_key": "cowboys", "relationship": "affected"},
-        {"entity_type": "coach", "entity_key": "Paul Green", "display_name": "Paul Green", "team_key": "cowboys", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "cowboys",
+          "display_name": "North Queensland Cowboys",
+          "team_key": "cowboys",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "coach",
+          "entity_key": "Paul Green",
+          "display_name": "Paul Green",
+          "team_key": "cowboys",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "commemorative",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "leadership-knights-2025-obrien-planned-departure",
@@ -770,9 +955,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "knights", "display_name": "Newcastle Knights", "team_key": "knights", "relationship": "affected"},
-        {"entity_type": "coach", "entity_key": "Adam O'Brien", "display_name": "Adam O'Brien", "team_key": "knights", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "knights",
+          "display_name": "Newcastle Knights",
+          "team_key": "knights",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "coach",
+          "entity_key": "Adam O'Brien",
+          "display_name": "Adam O'Brien",
+          "team_key": "knights",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "voluntary",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "human-rabbitohs-arrow-retirement-announcement-2026",
@@ -797,9 +997,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "rabbitohs", "display_name": "South Sydney Rabbitohs", "team_key": "rabbitohs", "relationship": "affected"},
-        {"entity_type": "player", "entity_key": "Jai Arrow", "display_name": "Jai Arrow", "team_key": "rabbitohs", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "rabbitohs",
+          "display_name": "South Sydney Rabbitohs",
+          "team_key": "rabbitohs",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "player",
+          "entity_key": "Jai Arrow",
+          "display_name": "Jai Arrow",
+          "team_key": "rabbitohs",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "involuntary",
+      "availability_impact": true,
+      "magnitude": 0.0
     },
     {
       "event_key": "tribute-rabbitohs-arrow-whiteout-match-2026",
@@ -825,9 +1040,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "rabbitohs", "display_name": "South Sydney Rabbitohs", "team_key": "rabbitohs", "relationship": "affected"},
-        {"entity_type": "player", "entity_key": "Jai Arrow", "display_name": "Jai Arrow", "team_key": "rabbitohs", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "rabbitohs",
+          "display_name": "South Sydney Rabbitohs",
+          "team_key": "rabbitohs",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "player",
+          "entity_key": "Jai Arrow",
+          "display_name": "Jai Arrow",
+          "team_key": "rabbitohs",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "commemorative",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "milestone-rabbitohs-arrow-game-99-2026",
@@ -852,9 +1082,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "rabbitohs", "display_name": "South Sydney Rabbitohs", "team_key": "rabbitohs", "relationship": "affected"},
-        {"entity_type": "player", "entity_key": "Jai Arrow", "display_name": "Jai Arrow", "team_key": "rabbitohs", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "rabbitohs",
+          "display_name": "South Sydney Rabbitohs",
+          "team_key": "rabbitohs",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "player",
+          "entity_key": "Jai Arrow",
+          "display_name": "Jai Arrow",
+          "team_key": "rabbitohs",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "commemorative",
+      "availability_impact": false,
+      "magnitude": 0.0
     },
     {
       "event_key": "milestone-rabbitohs-arrow-game-100-2026",
@@ -879,9 +1124,24 @@
         }
       ],
       "entities": [
-        {"entity_type": "team", "entity_key": "rabbitohs", "display_name": "South Sydney Rabbitohs", "team_key": "rabbitohs", "relationship": "affected"},
-        {"entity_type": "player", "entity_key": "Jai Arrow", "display_name": "Jai Arrow", "team_key": "rabbitohs", "relationship": "subject"}
-      ]
+        {
+          "entity_type": "team",
+          "entity_key": "rabbitohs",
+          "display_name": "South Sydney Rabbitohs",
+          "team_key": "rabbitohs",
+          "relationship": "affected"
+        },
+        {
+          "entity_type": "player",
+          "entity_key": "Jai Arrow",
+          "display_name": "Jai Arrow",
+          "team_key": "rabbitohs",
+          "relationship": "subject"
+        }
+      ],
+      "disposition": "commemorative",
+      "availability_impact": false,
+      "magnitude": 0.0
     }
   ]
 }

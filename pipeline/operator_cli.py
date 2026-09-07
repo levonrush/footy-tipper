@@ -835,6 +835,7 @@ def _advanced_data(args, *, root: pathlib.Path) -> int:
             ("--query", args.query),
             ("--lookback-days", args.lookback_days),
             ("--max-items", args.max_items),
+            ("--rate-limit-seconds", getattr(args, "rate_limit_seconds", None)),
         ):
             if value is not None:
                 extra.extend([flag, str(value)])
@@ -897,6 +898,32 @@ def _advanced_model(args, *, root: pathlib.Path) -> int:
         return EXIT_OK
     if action == "evaluate":
         env["FOOTY_TIPPER_PREP_MODE"] = "train"
+        if getattr(args, "context_offset", False):
+            # The offset scores an existing paired frame against the fixed
+            # production baseline, so it never trains or touches an artifact.
+            command = [
+                sys.executable,
+                str(root / "pipeline" / "club_context_evaluate.py"),
+                "--offset",
+                "--input",
+                str(
+                    args.context_input
+                    or root / "reports" / "club-context-shadow-predictions-latest.csv"
+                ),
+                "--db-path",
+                str(root / "data" / "footy-tipper-db.sqlite"),
+                "--bootstrap-reps",
+                str(args.context_bootstrap_reps),
+            ]
+            if args.context_report:
+                command.extend(["--report-path", str(args.context_report)])
+            engine._run_command(
+                command,
+                env,
+                cwd=root,
+                label="Scoring Club Context offset materiality",
+            )
+            return EXIT_OK
         if getattr(args, "context_ablation", False) and args.context_input:
             # A supplied paired file is useful for reproducing or rescoring an
             # already-completed run.  Without one, the honest nested evaluator
@@ -1094,7 +1121,9 @@ def build_parser() -> argparse.ArgumentParser:
     context = data_sub.add_parser(
         "context", help="Refresh, backfill, or validate Club Context evidence."
     )
-    context.add_argument("action", choices=("refresh", "backfill", "validate"))
+    context.add_argument(
+        "action", choices=("refresh", "backfill", "validate", "attention")
+    )
     _add_years(context)
     context.add_argument("--input")
     context.add_argument("--report-path")
@@ -1102,6 +1131,11 @@ def build_parser() -> argparse.ArgumentParser:
     context.add_argument("--lookback-days", type=int)
     context.add_argument("--max-items", type=int)
     context.add_argument("--strict", action="store_true")
+    context.add_argument(
+        "--rate-limit-seconds",
+        type=float,
+        help="Attention backfill request spacing (GDELT asks for at least 5).",
+    )
 
     model = advanced_sub.add_parser("model", help="Technical model operations.")
     model_sub = model.add_subparsers(dest="action", required=True, parser_class=FriendlyParser)
@@ -1143,6 +1177,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--context-report",
         type=pathlib.Path,
         help="Club Context JSON report path (default reports/club-context-materiality-latest.json).",
+    )
+    model_eval.add_argument(
+        "--context-offset",
+        action="store_true",
+        help=(
+            "Score the cohort-restricted offset against a fixed production "
+            "baseline. Reads existing paired rows and needs no retrain."
+        ),
     )
     model_eval.add_argument(
         "--context-bootstrap-reps",

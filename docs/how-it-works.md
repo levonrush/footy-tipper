@@ -15,7 +15,7 @@ Footy Tipper is a small production system wearing a tipping-comp scarf. Python o
 | Source ingestion | `pipeline/common/nrl_data/` and `pipeline/common/odds/` | Refresh nrl.com match data and market snapshots into compatible SQLite caches |
 | Provider preparation | [`pipeline/data-prep.R`](../pipeline/data-prep.R) and `pipeline/common/data-prep/` | Read cached inputs and write prepared match tables |
 | Lineup ingestion | [`pipeline/lineups.py`](../pipeline/lineups.py) and `pipeline/common/lineups/` | Discover, parse, version, normalize, and repair official team-list snapshots |
-| Club Context | `pipeline/common/club_context/` | Discover candidates, enforce evidence/rights/time gates, build sign-neutral shadow features, and freeze immutable prediction context |
+| Club Context | `pipeline/common/club_context/` | Discover candidates, enforce evidence/rights/time gates, collect club attention volume, build shadow features, and freeze immutable prediction context |
 | Training | [`pipeline/train.py`](../pipeline/train.py) | Fit score, binary, stack, calibration, dispersion, margin, and joker artifacts into a staged release |
 | Inference | [`pipeline/inference.py`](../pipeline/inference.py) | Rebuild pre-game context, load the selected release, simulate, and upsert predictions |
 | Delivery | `pipeline/common/use_predictions/` | Select tips/value, size stakes, decide joker, render copy/site, send, and record state |
@@ -116,7 +116,7 @@ Club Context records confirmed, acute psychosocial match context such as a leade
 
 Historical rows freeze every game in a round at 11:00 `Australia/Sydney` on the local date of the earliest fixture. Live runs capture one actual decision time immediately before feature construction. New refreshes create new snapshots and cannot rewrite what a previous prediction run knew.
 
-The shared transformer emits category/phase, recency, games-since-event, confirmation, confidence, salience, source-diversity, uncertainty, and home/away-difference features without assigning positive or negative emotion. Those features are excluded from the production predictor set. A separate shadow candidate and paired season-out ablation determine whether they add anything after market, lineup, opponent, venue, and form controls. See [Club Context](club-context.md).
+The shared transformer emits category/phase, recency, games-since-event, confirmation, confidence, salience, source-diversity, uncertainty, continuous exposure, regime state, club attention volume, and home/away differences. It reads no article tone. It does name which club an event happened to, because that is a fact on the record rather than a reading of mood. Those features are excluded from the production predictor set. Two evaluators test them: a paired season-out refit ablation, and a cohort-restricted offset that holds the baseline fixed so unexposed games stay byte-identical. The second found the cohort gap is selection on prior underperformance rather than an effect of the event. See [Club Context](club-context.md).
 
 ## Prediction, delivery, and state
 
@@ -159,7 +159,7 @@ The Python nrl.com/odds path cut over on `main` in PR #34. R deliberately keeps 
 
 - No pre-game rows: clean no-op; no old-round email.
 - Lineup ingestion: continue with safe defaults unless strict diagnosis was requested.
-- Club Context ingestion/classification/source failure: omit the context card and use all-zero/missing shadow features; never alter or block a production prediction or send.
+- Club Context ingestion/classification/source failure: omit the context card and use missing-flagged shadow features; never alter or block a production prediction or send. Attention coverage outside GDELT's index is flagged missing rather than zeroed.
 - Performance data enabled but unavailable: fail preparation/training clearly.
 - Optional Claude/OpenAI missing: deterministic copy or static presentation fallback.
 - Drive unavailable in a stateful cloud run: fail rather than claim unpersisted success.

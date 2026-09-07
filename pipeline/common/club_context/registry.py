@@ -27,6 +27,7 @@ from .taxonomy import (
     EntityRelationship,
     EntityType,
     EventCategory,
+    EventDisposition,
     EventPhase,
     EvidenceRole,
     IngestionMode,
@@ -58,6 +59,16 @@ _PARSE_STATUSES = frozenset({"ok", "error", "skipped"})
 
 def _clean_text(value: object | None) -> str:
     return " ".join(str(value or "").split())
+
+
+def _non_negative(value: object, field_name: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a non-negative number") from exc
+    if number < 0 or number != number:
+        raise ValueError(f"{field_name} must be a non-negative number")
+    return number
 
 
 def _stable_key(value: object, field_name: str) -> str:
@@ -179,6 +190,13 @@ class ContextEvent:
     known_at_basis: KnownAtBasis = KnownAtBasis.SOURCE_PUBLISHED_AT
     taxonomy_version: int = CONTEXT_TAXONOMY_VERSION
     extractor_version: str = "manual-v1"
+    # v2 factual attributes.  ``disposition`` records how the event came about,
+    # ``availability_impact`` whether it removes a named person from the match,
+    # and ``magnitude`` a source-stated size (competition points stripped, games
+    # suspended) on its own natural scale.
+    disposition: EventDisposition = EventDisposition.UNDETERMINED
+    availability_impact: bool = False
+    magnitude: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -357,6 +375,11 @@ def _normalise_event(event: ContextEvent) -> dict[str, Any]:
         "extractor_version": _clean_text(event.extractor_version) or "manual-v1",
         "created_at_utc": now,
         "updated_at_utc": now,
+        "disposition": enum_value(
+            EventDisposition, event.disposition, "disposition"
+        ),
+        "availability_impact": int(bool(event.availability_impact)),
+        "magnitude": _non_negative(event.magnitude, "magnitude"),
     }
 
 
@@ -796,6 +819,7 @@ def validate_registry(db_path: str | Path) -> RegistryValidationReport:
                 "context_ingestion_runs",
                 "context_prediction_runs",
                 "prediction_context",
+                "context_attention_series",
             ):
                 counts[table] = int(
                     con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -841,6 +865,8 @@ def validate_registry(db_path: str | Path) -> RegistryValidationReport:
                     ReviewStatus(event["review_status"])
                     Sensitivity(event["sensitivity"])
                     KnownAtBasis(event["known_at_basis"])
+                    EventDisposition(event["disposition"])
+                    _non_negative(event["magnitude"], "magnitude")
                     unit_interval(event["confidence"], "confidence")
                     unit_interval(event["salience"], "salience")
                     parse_datetime(event["known_at_utc"])
@@ -867,6 +893,17 @@ def validate_registry(db_path: str | Path) -> RegistryValidationReport:
                 elif event["review_status"] == ReviewStatus.APPROVED.value:
                     warnings.append(f"{prefix}: approved but fails the evidence gate")
             counts["eligible_events"] = eligible_count
+            counts["disposition_recorded_events"] = int(
+                con.execute(
+                    "SELECT COUNT(*) FROM context_events "
+                    "WHERE disposition <> 'undetermined'"
+                ).fetchone()[0]
+            )
+            counts["attention_teams"] = int(
+                con.execute(
+                    "SELECT COUNT(DISTINCT team_key) FROM context_attention_series"
+                ).fetchone()[0]
+            )
 
             source_links = con.execute("SELECT * FROM context_event_sources").fetchall()
             for link in source_links:

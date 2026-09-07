@@ -46,9 +46,11 @@ The migration research identified nrl.com draw/match-centre replacements, a deri
 
 The missing concept was not news sentiment but **psychosocial match context**: a confirmed acute leadership, serious-human, tribute/milestone, or club-crisis event with a plausible pathway to motivation, cohesion, distraction, tactics, or variance. The product name is Club Context.
 
-Research on football coach changes warns against the intuitive story. A 24-study systematic review found mixed short-term results, a 331-dismissal matched study found no detectable treatment effect, and earlier control-group work attributes much of the apparent bounce to regression to the mean. Those results do not settle the NRL question; they determine the default: sign-neutral features, matched and nested evaluation, and no production effect until prospective evidence earns one.
+Research on football coach changes warns against the intuitive story. A 24-study systematic review found mixed short-term results, a 331-dismissal matched study found no detectable treatment effect, and earlier control-group work attributes much of the apparent bounce to regression to the mean. Those results do not settle the NRL question; they determine the default: tone-free features, matched and nested evaluation, and no production effect until prospective evidence earns one.
 
-The implemented shadow boundary is a rights-aware event registry, immutable round-cutoff snapshots, a shared shadow feature transformer, materiality reporting, and a sourced Context Watch card that explicitly does not alter the probability. The first model-era ablation paired 3,180 held-out games, including 89 context-exposed games: its small event-cohort log-loss improvement was uncertain, aggregate probability quality was slightly worse, and the matched margin and dispersion checks were null. The recorded decision is therefore to remain shadow-only and collect a prospective season. See [Club Context](club-context.md) and [Source policy](source-policy.md) for effect sizes and limitations.
+The implemented shadow boundary is a rights-aware event registry, immutable round-cutoff snapshots, a shared shadow feature transformer, materiality reporting, and a sourced Context Watch card that explicitly does not alter the probability. The first model-era ablation paired 3,180 held-out games, including 89 context-exposed games: its small event-cohort log-loss improvement was uncertain, aggregate probability quality was slightly worse, and the matched margin and dispersion checks were null.
+
+A second pass rebuilt the instrument, because the first one refitted the whole model over 51 mostly-empty columns and produced 88 tip flips from 89 exposed games, of which only 5 were event-linked. Holding the baseline fixed and fitting one pre-declared offset instead, the affected side does sit 16.8 points below its stated probability, cluster interval [-24.9, -8.1]. But the same clubs already sat 20.1 points below it *before* the event: the cohort is selected on underperformance, not moved by the news. The recorded decision remains shadow-only, now for a better-understood reason. The transferable finding was about prevalence rather than news, and appears in [Club Context](club-context.md) alongside the effect sizes and limitations. See also [Source policy](source-policy.md).
 
 ## Research -> production matrix
 
@@ -83,7 +85,11 @@ The implemented shadow boundary is a rights-aware event registry, immutable roun
 | nrl.com draw/match-centre feed replacement | Shipped | Python ingestion runs before R prep; parity evidence checked in; XML retained as rollback |
 | Referee, weather, travel, and rest expansion | Exploratory | candidate sources/features; train/infer symmetry and evaluation still required |
 | Evidence-gated Club Context registry and cutoff snapshots | Shadow | reviewed facts/provenance can be frozen and surfaced; cannot change production probabilities |
-| Club Context score/winner features | Shadow candidate | sign-neutral shared transformer; requires paired nested season-out and prospective evidence |
+| Club Context score/winner features | Shadow candidate | tone-free shared transformer; requires paired nested season-out and prospective evidence |
+| Club attention volume (GDELT counts) | Shadow candidate | counts only, 2017 onward, missing outside coverage |
+| Cohort-restricted offset evaluator | Research tool | holds the baseline fixed; no activation path |
+| Club Context value-pick guard | Default off | withholds a stake, never changes a probability or tip |
+| Season form-shortfall calibration | Measured, not activated | 75% prevalence, roughly +0.5 tips a season; needs its own release decision |
 | Generic news sentiment, raw article text, or embeddings | Rejected | too noisy, hard to interpret, rights-sensitive, and unnecessary for the event hypothesis |
 
 ## Evidence discipline

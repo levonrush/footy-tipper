@@ -1065,6 +1065,384 @@ def _markdown(report: dict) -> str:
     return "\n".join(lines)
 
 
+
+
+# ---------------------------------------------------------------------------
+# Cohort-restricted offset materiality
+# ---------------------------------------------------------------------------
+
+
+def attach_orientation(
+    frame: pd.DataFrame, db_path: pathlib.Path | None = None
+) -> pd.DataFrame:
+    """Give a paired frame the signed orientation columns the offset needs.
+
+    ``affected_side`` already records which club the event happened to, so the
+    primary one-parameter specification needs nothing new.  Signed exposure is
+    merged from the registry when a database is available; without one the
+    exposure specification is simply not reported.
+    """
+
+    work = frame.copy()
+    if "club_context_affected_side" not in work.columns:
+        side = work.get("affected_side")
+        if side is None:
+            work["club_context_affected_side"] = 0.0
+        else:
+            mapped = side.map({"home": 1.0, "away": -1.0})
+            active = pd.to_numeric(
+                work.get("context_event_count", 0), errors="coerce"
+            ).fillna(0.0) > 0
+            work["club_context_affected_side"] = mapped.where(active, 0.0).fillna(0.0)
+
+    if "club_context_affected_exposure" in work.columns or db_path is None:
+        return work
+    path = pathlib.Path(db_path)
+    if not path.exists():
+        return work
+    try:
+        from pipeline.common.club_context.features import resolve_context_for_matches
+
+        with sqlite3.connect(str(path)) as con:
+            matches = work[
+                [
+                    "game_id",
+                    "competition_year",
+                    "round_id",
+                    "team_home",
+                    "team_away",
+                ]
+            ].copy()
+            fixtures = pd.read_sql_query(
+                "SELECT game_id, start_time_utc FROM footy_tipping_data", con
+            )
+            matches = matches.merge(fixtures, on="game_id", how="left")
+            features, _ = resolve_context_for_matches(con, matches)
+        keep = [
+            column
+            for column in features.columns
+            if column == "game_id" or column not in work.columns
+        ]
+        work = work.merge(features[keep], on="game_id", how="left")
+    except Exception as exc:  # pragma: no cover - diagnostics must not block
+        print(f"Club Context offset: registry features unavailable ({exc}).")
+    return work
+
+
+OFFSET_REQUIRED_COLUMNS = frozenset(
+    {"game_id", "actual_home_win", "baseline_home_win_prob"}
+)
+
+
+def _clean_offset_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Clean for the offset, which needs no candidate column.
+
+    The offset holds the production baseline fixed, so `context_home_win_prob`
+    is irrelevant to it. Demanding it would tie this evaluator to frames the
+    refit ablation happens to have produced.
+    """
+
+    missing = sorted(OFFSET_REQUIRED_COLUMNS - set(frame.columns))
+    if missing:
+        return pd.DataFrame(columns=sorted(OFFSET_REQUIRED_COLUMNS))
+    cleaned = frame.copy()
+    for column in OFFSET_REQUIRED_COLUMNS:
+        cleaned[column] = pd.to_numeric(cleaned[column], errors="coerce")
+    for column in (
+        "actual_home_score",
+        "actual_away_score",
+        "baseline_home_score",
+        "baseline_away_score",
+        "market_spread",
+        "event_relative_match",
+        "matches_since_event",
+        "context_event_count",
+    ):
+        if column in cleaned.columns:
+            cleaned[column] = pd.to_numeric(cleaned[column], errors="coerce")
+    cleaned = cleaned.dropna(subset=sorted(OFFSET_REQUIRED_COLUMNS))
+    cleaned = cleaned[cleaned["actual_home_win"].isin([0, 1])]
+    cleaned = cleaned[
+        cleaned["baseline_home_win_prob"].between(0, 1, inclusive="both")
+    ]
+    if cleaned.empty:
+        return cleaned
+    cleaned["game_id"] = cleaned["game_id"].astype(int)
+    cleaned["actual_home_win"] = cleaned["actual_home_win"].astype(int)
+    return cleaned.reset_index(drop=True)
+
+
+def evaluate_offset_frame(
+    frame: pd.DataFrame,
+    *,
+    db_path: pathlib.Path | None = None,
+    seed: int = DEFAULT_SEED,
+    bootstrap_reps: int = DEFAULT_BOOTSTRAP_REPS,
+) -> dict:
+    from pipeline.common.club_context import materiality as mat
+
+    cleaned = _clean_offset_frame(frame)
+    if cleaned.empty:
+        # An empty or unusable paired file is "not ready", never a simulated win.
+        return {
+            "status": "not_ready",
+            "reason": "no scoreable paired rows with a baseline probability",
+            "conclusion": "Offset materiality could not be scored.",
+            "shadow_only": True,
+        }
+    prepared = attach_orientation(cleaned, db_path)
+    report = mat.evaluate_context_offset(
+        prepared, seed=seed, bootstrap_reps=max(1, bootstrap_reps)
+    )
+    if report.get("status") != "ok":
+        report.setdefault("conclusion", "Offset materiality could not be scored.")
+        return report
+    report["matched_event_study"] = _matched_effect_by_horizon(prepared, seed=seed)
+    report["prevalence_comparator"] = mat.evaluate_form_shortfall(
+        prepared, seed=seed, bootstrap_reps=max(1, bootstrap_reps)
+    )
+    report["conclusion"] = _offset_conclusion(report)
+    return report
+
+
+def _matched_effect_by_horizon(frame: pd.DataFrame, *, seed: int) -> dict:
+    """Matched control effect at each post-event horizon, not just the event match.
+
+    The shipped study only compared the event match itself.  The registry keeps
+    an event live for the following fortnight, so the horizons after it carry
+    most of the exposed sample and must be tested too.
+    """
+
+    if "event_relative_match" not in frame.columns:
+        return {"available": False, "reason": "no relative-match annotation"}
+    residual = _affected_margin_residual(frame)
+    relative = pd.to_numeric(frame["event_relative_match"], errors="coerce")
+    horizons = {}
+    for horizon in sorted({int(value) for value in relative.dropna() if value >= 0}):
+        shifted = relative.where(relative.eq(horizon), other=np.nan)
+        shifted = shifted.where(shifted.isna(), 0.0)
+        result = _matched_event_effect(frame, residual, shifted, seed=seed)
+        horizons[f"relative_match_{horizon}"] = result
+    pooled = _matched_event_effect(
+        frame,
+        residual,
+        relative.where(relative.lt(0) | relative.isna(), 0.0),
+        seed=seed,
+    )
+    return {"available": True, "pooled_post_event": pooled, "by_horizon": horizons}
+
+
+def _offset_conclusion(report: dict) -> str:
+    primary = report["specifications"][report["primary_specification"]]
+    delta = primary["cohorts"]["exposed"]["delta"]
+    interval = primary["paired_log_loss_delta"]
+    calibration = report["affected_side_calibration"]
+    placebo = report.get("pre_event_placebo", {})
+    season = primary["season_impact"]
+    improved = interval.get("ci95_high", 1.0) < 0
+    biased = calibration.get("ci95_high", 1.0) < 0 or calibration.get("ci95_low", -1.0) > 0
+    parts = [
+        (
+            "The baseline is mis-calibrated on the event cohort: the affected "
+            f"side lands {calibration['mean'] * 100:.1f} points from its stated "
+            f"probability, 95% cluster interval "
+            f"[{calibration['ci95_low'] * 100:.1f}, {calibration['ci95_high'] * 100:.1f}]."
+            if biased
+            else "The affected-side calibration interval crosses zero, so this "
+            "sample does not establish a baseline bias on the event cohort."
+        ),
+        (
+            f"A single pre-declared offset moves event-cohort log loss by "
+            f"{delta['log_loss']:+.4f} with a 95% cluster interval of "
+            f"[{interval.get('ci95_low', float('nan')):+.4f}, "
+            f"{interval.get('ci95_high', float('nan')):+.4f}]"
+            + (", entirely below zero." if improved else ", which crosses zero.")
+        ),
+        (
+            "The same clubs already sat "
+            f"{placebo['mean'] * 100:+.1f} points from their stated probability "
+            "before the event, 95% interval "
+            f"[{placebo['ci95_low'] * 100:+.1f}, {placebo['ci95_high'] * 100:+.1f}], "
+            + (
+                "so this cohort is selected on underperformance and the "
+                "post-event gap is not all event."
+                if placebo.get("ci95_high", 1.0) < 0
+                else "so the gap is not simply a cohort that was already losing."
+            )
+        )
+        if placebo.get("available")
+        else "The pre-event placebo could not be computed.",
+        (
+            "Prevalence remains the binding constraint: at "
+            f"{report['prevalence']['exposed_games_per_season']:.1f} exposed games "
+            f"a season this is worth "
+            f"{season['extra_correct_tips_per_season']:+.2f} tips a season, so the "
+            "value lies in probability quality rather than the tipping ladder."
+        ),
+    ]
+    return " ".join(parts)
+
+
+
+def _offset_markdown(report: dict) -> str:
+    if report.get("status") != "ok":
+        return (
+            "# Club Context offset materiality\n\n"
+            f"**Status:** `{report.get('status', 'not_ready')}`\n\n"
+            f"{report.get('reason', 'Not enough paired evidence to score.')}\n"
+        )
+    lines = ["# Club Context offset materiality", ""]
+    lines.append(
+        "> The production baseline is held fixed. A pre-declared offset applies "
+        "only where an event applies, so every game without one is byte-identical "
+        "to the shipped prediction. This report cannot activate anything."
+    )
+    lines.append("")
+
+    prevalence = report["prevalence"]
+    lines += [
+        "## Prevalence",
+        "",
+        f"- Paired games: {prevalence['games']} over {prevalence['seasons']} seasons",
+        f"- Event-exposed games: {prevalence['exposed_games']} "
+        f"({prevalence['exposure_rate'] * 100:.2f}%)",
+        f"- Exposed games per season: {prevalence['exposed_games_per_season']:.1f}",
+        "",
+    ]
+
+    calibration = report["affected_side_calibration"]
+    if calibration.get("available"):
+        lines += [
+            "## Affected-side calibration",
+            "",
+            "Baseline residual oriented to the club the event happened to, before "
+            "anything is fitted.",
+            "",
+            f"- Mean residual: {calibration['mean'] * 100:+.2f} percentage points",
+            f"- Event-cluster 95% interval: "
+            f"[{calibration['ci95_low'] * 100:+.2f}, {calibration['ci95_high'] * 100:+.2f}]",
+            f"- Clusters: {calibration['clusters']}",
+            f"- Reading: {calibration['direction']}",
+            "",
+        ]
+    placebo = report.get("pre_event_placebo", {})
+    if placebo.get("available"):
+        lines += [
+            "## Pre-event placebo",
+            "",
+            "The same clubs, oriented the same way, on their games before the event.",
+            "",
+            f"- Pre-event games: {placebo['games']}",
+            f"- Mean residual: {placebo['mean'] * 100:+.2f} percentage points",
+            f"- Event-cluster 95% interval: "
+            f"[{placebo['ci95_low'] * 100:+.2f}, {placebo['ci95_high'] * 100:+.2f}]",
+            f"- Reading: {placebo['reading']}",
+            "",
+        ]
+    power = report.get("power", {})
+    if power.get("available"):
+        lines += [
+            "## Power",
+            "",
+            f"- Between-cluster standard error: {power['cluster_standard_error'] * 100:.2f} points",
+            f"- Minimum detectable effect (95%/80%): "
+            f"{power['minimum_detectable_effect'] * 100:.2f} points",
+            f"- Observed effect: {power['observed_effect'] * 100:+.2f} points",
+            "",
+        ]
+
+    lines += [
+        "## Offset specifications",
+        "",
+        "| Specification | Exposed Δ log loss | 95% cluster interval | Exposed Δ accuracy "
+        "| Flips (correct/wrong) | Unexposed rows changed |",
+        "|---|---:|---|---:|---:|---:|",
+    ]
+    for name, result in report["specifications"].items():
+        delta = result["cohorts"]["exposed"]["delta"]
+        interval = result["paired_log_loss_delta"]
+        marker = " (primary)" if name == report["primary_specification"] else ""
+        bounds = (
+            f"[{interval['ci95_low']:+.4f}, {interval['ci95_high']:+.4f}]"
+            if interval.get("available")
+            else "n/a"
+        )
+        lines.append(
+            f"| {name}{marker} | {delta['log_loss']:+.4f} | {bounds} | "
+            f"{delta['accuracy']:+.4f} | {result['flips_to_correct']}/"
+            f"{result['flips_to_wrong']} | {result['unexposed_rows_changed']} |"
+        )
+    lines.append("")
+
+    primary = report["specifications"][report["primary_specification"]]
+    season = primary["season_impact"]
+    lines += [
+        "## What it is worth over a season",
+        "",
+        f"- Extra correct tips per season: {season['extra_correct_tips_per_season']:+.2f}",
+        f"- Whole-competition log-loss delta: {season['season_log_loss_delta']:+.6f}",
+        "",
+    ]
+
+    comparator = report.get("prevalence_comparator", {})
+    if comparator.get("available"):
+        slope = comparator["slope"]
+        delta = comparator["delta"]
+        lines += [
+            "## High-prevalence comparator: season form shortfall",
+            "",
+            "The same offset method, applied to a state variable defined for "
+            "every club in every round rather than for 2.8% of fixtures.",
+            "",
+            f"- Coverage: {comparator['prevalence']['measured_matches']} of "
+            f"{comparator['prevalence']['paired_matches']} matches "
+            f"({comparator['prevalence']['coverage'] * 100:.1f}%)",
+            f"- Residual-on-shortfall slope: {slope['value']:.4f}, 95% cluster "
+            f"interval [{slope['ci95_low']:.4f}, {slope['ci95_high']:.4f}] "
+            f"over {slope['clusters']} team-seasons",
+            f"- Out-of-season Δ log loss: {delta['log_loss']:+.5f}",
+            f"- Out-of-season Δ accuracy: {delta['accuracy']:+.4f} "
+            f"({comparator['tip_flips']} flips)",
+            f"- Extra correct tips per season: "
+            f"{comparator['extra_correct_tips_per_season']:+.2f}",
+            "",
+        ]
+    matched = report.get("matched_event_study", {})
+    if matched.get("available"):
+        lines += [
+            "## Matched control, by horizon",
+            "",
+            "| Horizon | Matches | Mean margin-residual difference | 95% cluster interval |",
+            "|---|---:|---:|---|",
+        ]
+        rows = [("pooled post-event", matched["pooled_post_event"])]
+        rows += list(matched["by_horizon"].items())
+        for label, result in rows:
+            if not result.get("available"):
+                lines.append(f"| {label} | n/a | n/a | {result.get('reason', 'unavailable')} |")
+                continue
+            low, high = result["cluster_bootstrap_ci95"]
+            lines.append(
+                f"| {label} | {result['event_matches']} | "
+                f"{result['mean_affected_margin_residual_difference']:+.2f} | "
+                f"[{low:+.2f}, {high:+.2f}] |"
+            )
+        lines.append("")
+
+    lines += ["## Interpretation", "", report["conclusion"], ""]
+    return "\n".join(lines)
+
+
+def write_offset_report(report: dict, json_path, markdown_path=None) -> tuple[pathlib.Path, pathlib.Path]:
+    json_path = pathlib.Path(json_path)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(report, indent=2, default=_safe_number), encoding="utf-8")
+    markdown_path = pathlib.Path(markdown_path or json_path.with_suffix(".md"))
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(_offset_markdown(report), encoding="utf-8")
+    return json_path, markdown_path
+
+
 def write_materiality_report(report: dict, json_path, markdown_path=None) -> tuple[pathlib.Path, pathlib.Path]:
     json_path = pathlib.Path(json_path)
     markdown_path = pathlib.Path(markdown_path or json_path.with_suffix(".md"))
@@ -1102,11 +1480,48 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--markdown-path", type=pathlib.Path)
     parser.add_argument("--bootstrap-reps", type=int, default=DEFAULT_BOOTSTRAP_REPS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--offset",
+        action="store_true",
+        help=(
+            "Score the cohort-restricted offset instead of the paired refit "
+            "ablation. Holds the production baseline fixed."
+        ),
+    )
     return parser
+
+
+def _run_offset(args) -> int:
+    try:
+        frame = _load_input(args.input, args.db_path)
+        report = evaluate_offset_frame(
+            frame,
+            db_path=args.db_path,
+            seed=args.seed,
+            bootstrap_reps=max(1, args.bootstrap_reps),
+        )
+        default_json = pathlib.Path("reports/club-context-offset-materiality-latest.json")
+        report_path = args.report_path
+        if report_path is None or report_path == pathlib.Path(
+            "reports/club-context-materiality-latest.json"
+        ):
+            report_path = default_json
+        json_path, markdown_path = write_offset_report(
+            report, report_path, args.markdown_path
+        )
+        print(f"Club Context offset report written to {json_path}")
+        print(f"Club Context offset summary written to {markdown_path}")
+        print(report.get("conclusion", report.get("reason", "")))
+        return 0
+    except Exception as exc:
+        print(f"Club Context offset evaluation failed: {exc}")
+        return 1
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    if args.offset:
+        return _run_offset(args)
     try:
         frame = _load_input(args.input, args.db_path)
         report = evaluate_shadow_frame(

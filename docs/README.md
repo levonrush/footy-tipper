@@ -14,7 +14,7 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 1. [Architecture](how-it-works.md) — current production path, ownership boundaries, SQLite contracts, artifacts, and feed rollback.
 2. [Models and evaluation](modeling-techniques.md) — Tier A/B/C, market separation, stacking, calibration, margin blending, simulation, and evidence.
 3. [Lineup integration](lineup-integration.md) — versioned snapshots, as-of selection, feature families, uncertainty, and repair behavior.
-4. [Club Context](club-context.md) — evidence-gated psychosocial match context, immutable round cutoffs, shadow evaluation, and the Context Watch reader card.
+4. [Club Context](club-context.md) — evidence-gated psychosocial match context, club attention volume, immutable round cutoffs, both shadow evaluators, and the Context Watch reader card.
 5. [Principled odds integration](principled-odds-integration.md) — why odds are a separate signal and how the current stack avoids double-counting them.
 6. [Explainability](explainability.md): the exact decision chain behind each tip, TreeSHAP feature attribution, the one-line why, and the distinction between observed context and measured model impact.
 

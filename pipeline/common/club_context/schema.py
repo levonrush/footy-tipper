@@ -13,7 +13,7 @@ from collections.abc import Iterable
 
 
 CONTEXT_SCHEMA_VERSION = 1
-CONTEXT_FEATURE_VERSION = 1
+CONTEXT_FEATURE_VERSION = 2
 
 
 TABLE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
@@ -59,6 +59,32 @@ TABLE_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
         ("extractor_version", "TEXT NOT NULL DEFAULT 'manual-v1'"),
         ("created_at_utc", "TEXT"),
         ("updated_at_utc", "TEXT"),
+        # v2 factual attributes.  Defaults keep every previously stored row
+        # eligible and unchanged in meaning.
+        ("disposition", "TEXT NOT NULL DEFAULT 'undetermined'"),
+        ("availability_impact", "INTEGER NOT NULL DEFAULT 0"),
+        ("magnitude", "REAL NOT NULL DEFAULT 0"),
+    ),
+    "context_attention_series": (
+        ("team_key", "TEXT"),
+        ("observed_date", "TEXT"),
+        ("source_key", "TEXT"),
+        ("article_count", "REAL NOT NULL DEFAULT 0"),
+        ("corpus_norm", "REAL NOT NULL DEFAULT 0"),
+        ("fetched_at_utc", "TEXT"),
+    ),
+    "context_attention_runs": (
+        ("run_id", "TEXT PRIMARY KEY"),
+        ("source_key", "TEXT"),
+        ("started_at_utc", "TEXT"),
+        ("completed_at_utc", "TEXT"),
+        ("status", "TEXT"),
+        ("start_year", "INTEGER NOT NULL DEFAULT 0"),
+        ("end_year", "INTEGER NOT NULL DEFAULT 0"),
+        ("team_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("observation_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("error_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("errors_json", "TEXT NOT NULL DEFAULT '[]'"),
     ),
     "context_event_sources": (
         ("event_id", "INTEGER"),
@@ -172,7 +198,34 @@ CREATE TABLE IF NOT EXISTS context_events (
     taxonomy_version INTEGER NOT NULL DEFAULT 1,
     extractor_version TEXT NOT NULL DEFAULT 'manual-v1',
     created_at_utc TEXT NOT NULL,
-    updated_at_utc TEXT NOT NULL
+    updated_at_utc TEXT NOT NULL,
+    disposition TEXT NOT NULL DEFAULT 'undetermined',
+    availability_impact INTEGER NOT NULL DEFAULT 0,
+    magnitude REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS context_attention_series (
+    team_key TEXT NOT NULL,
+    observed_date TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    article_count REAL NOT NULL DEFAULT 0,
+    corpus_norm REAL NOT NULL DEFAULT 0,
+    fetched_at_utc TEXT NOT NULL,
+    PRIMARY KEY (team_key, observed_date, source_key)
+);
+
+CREATE TABLE IF NOT EXISTS context_attention_runs (
+    run_id TEXT PRIMARY KEY,
+    source_key TEXT NOT NULL,
+    started_at_utc TEXT NOT NULL,
+    completed_at_utc TEXT,
+    status TEXT NOT NULL,
+    start_year INTEGER NOT NULL DEFAULT 0,
+    end_year INTEGER NOT NULL DEFAULT 0,
+    team_count INTEGER NOT NULL DEFAULT 0,
+    observation_count INTEGER NOT NULL DEFAULT 0,
+    error_count INTEGER NOT NULL DEFAULT 0,
+    errors_json TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS context_event_sources (
@@ -280,6 +333,8 @@ CREATE INDEX IF NOT EXISTS idx_context_prediction_runs_round
     ON context_prediction_runs (competition_year, round_id, created_at_utc);
 CREATE INDEX IF NOT EXISTS idx_prediction_context_game
     ON prediction_context (game_id, created_at_utc);
+CREATE INDEX IF NOT EXISTS idx_context_attention_team_date
+    ON context_attention_series (team_key, observed_date);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_context_run_game
     ON prediction_context (prediction_run_id, game_id);
 

@@ -32,6 +32,7 @@ from pipeline.common.club_context import (
     EntityRelationship,
     EntityType,
     EventCategory,
+    EventDisposition,
     EventEntity,
     EventPhase,
     EventSource,
@@ -79,7 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="pipeline/club_context.py",
         description="Refresh, backfill, or validate the Club Context registry.",
     )
-    parser.add_argument("action", choices=("refresh", "backfill", "validate"))
+    parser.add_argument(
+        "action", choices=("refresh", "backfill", "validate", "attention")
+    )
     parser.add_argument("--db-path", help="SQLite path override.")
     parser.add_argument(
         "--input",
@@ -92,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lookback-days", type=int, default=None)
     parser.add_argument("--max-items", type=int, default=None)
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument(
+        "--rate-limit-seconds",
+        type=float,
+        default=None,
+        help="Attention backfill request spacing (GDELT asks for at least 5).",
+    )
     return parser
 
 
@@ -240,6 +249,9 @@ def _leadership_event(item: dict[str, Any]) -> dict[str, Any]:
         "confirmation_status": ConfirmationStatus.CONFIRMED.value,
         "review_status": ReviewStatus.APPROVED.value,
         "extractor_version": "manual-leadership-census-v1",
+        "disposition": item.get("disposition", EventDisposition.UNDETERMINED.value),
+        "availability_impact": bool(item.get("availability_impact", False)),
+        "magnitude": float(item.get("magnitude", 0.0)),
         "sources": sources,
         "entities": [
             {
@@ -383,8 +395,51 @@ def _import_event(
             "review_status",
         ),
         extractor_version=str(item.get("extractor_version") or "manual-catalog-v1"),
+        disposition=_enum(
+            EventDisposition,
+            item.get("disposition", EventDisposition.UNDETERMINED.value),
+            "disposition",
+        ),
+        availability_impact=bool(item.get("availability_impact", False)),
+        magnitude=float(item.get("magnitude") or 0.0),
     )
-    return insert_context_event(con, event, sources=source_links, entities=entities)
+    event_id = insert_context_event(
+        con, event, sources=source_links, entities=entities
+    )
+    _repair_v2_attributes(con, event_id, event)
+    return event_id
+
+
+def _repair_v2_attributes(
+    con: sqlite3.Connection, event_id: int, event: ContextEvent
+) -> None:
+    """Backfill reviewed v2 research attributes onto an already-stored event.
+
+    ``insert_context_event`` is INSERT OR IGNORE on ``event_key`` so it never
+    rewrites a stored fact.  ``disposition``, ``availability_impact`` and
+    ``magnitude`` are additive review metadata rather than a restatement of what
+    happened, so a re-import may fill them in.  Everything else stays immutable,
+    and a value already recorded is left alone.
+    """
+
+    con.execute(
+        """
+        UPDATE context_events
+        SET disposition = ?, availability_impact = ?, magnitude = ?,
+            updated_at_utc = ?
+        WHERE event_id = ?
+          AND disposition = 'undetermined'
+          AND availability_impact = 0
+          AND magnitude = 0
+        """,
+        (
+            str(event.disposition),
+            int(bool(event.availability_impact)),
+            float(event.magnitude),
+            utc_iso(utc_now()),
+            int(event_id),
+        ),
+    )
 
 
 def _backfill(
@@ -469,6 +524,40 @@ def _backfill(
     }
 
 
+def _attention(
+    db_path: pathlib.Path,
+    *,
+    start_year: int | None,
+    end_year: int | None,
+    rate_limit_seconds: float | None,
+) -> dict[str, Any]:
+    """Backfill club news-volume series.
+
+    Volume only: counts of articles mentioning a club, never their text or
+    their tone. The window is bounded by GDELT's own index start, and a refused
+    request is recorded rather than stored as a zero.
+    """
+
+    from pipeline.common.club_context.attention import (
+        GDELT_COVERAGE_START_YEAR,
+        RATE_LIMIT_SECONDS,
+        backfill_attention,
+    )
+
+    first = max(int(start_year or GDELT_COVERAGE_START_YEAR), GDELT_COVERAGE_START_YEAR)
+    last = int(end_year or dt.datetime.now().year)
+    result = backfill_attention(
+        db_path,
+        start_year=first,
+        end_year=last,
+        rate_limit_seconds=(
+            RATE_LIMIT_SECONDS if rate_limit_seconds is None else float(rate_limit_seconds)
+        ),
+        log=_log,
+    )
+    return {"action": "attention", **result, "shadow_only": True}
+
+
 def _validate(db_path: pathlib.Path) -> dict[str, Any]:
     report = validate_registry(db_path)
     return {"action": "validate", **report.as_dict(), "shadow_only": True}
@@ -507,6 +596,13 @@ def main(argv: list[str] | None = None) -> int:
                 lookback_days=lookback,
                 max_items=max_items,
             )
+        elif args.action == "attention":
+            result = _attention(
+                db_path,
+                start_year=args.start_year,
+                end_year=args.end_year,
+                rate_limit_seconds=args.rate_limit_seconds,
+            )
         elif args.action == "backfill":
             result = _backfill(
                 db_path,
@@ -525,14 +621,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.report_path:
         _write_report(pathlib.Path(args.report_path), result)
-    console.emit_result(
-        "freshness",
-        source="club context",
-        detail=(
-            f"{result.get('eligible_events', result.get('counts', {}).get('eligible_events', 0))} "
-            "eligible reviewed events (shadow only)"
-        ),
-    )
+    if args.action == "attention":
+        detail = (
+            f"{result.get('observations', 0)} club attention observations "
+            f"across {result.get('teams', 0)} clubs (shadow only)"
+        )
+    else:
+        eligible = result.get(
+            "eligible_events", result.get("counts", {}).get("eligible_events", 0)
+        )
+        detail = f"{eligible} eligible reviewed events (shadow only)"
+    console.emit_result("freshness", source="club context", detail=detail)
     if result.get("errors"):
         _log(f"Club Context completed with {len(result['errors'])} validation/ingestion errors")
         return 1 if strict else 0

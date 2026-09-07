@@ -48,7 +48,7 @@ It appears in the email and on the site's tip card. Absent explanations render e
 
 ## Club Context: observation is not impact
 
-Club Context introduces a feature-family label but not a production contribution. The reader product keeps two claims separate:
+Club Context introduces a feature-family label but not a production contribution. Neither shadow evaluator changes that, and the corrected one strengthened the case for keeping it out: the cohort gap it measures is already present before the event. The reader product keeps two claims separate:
 
 - **Observed context** means a reviewed event was known before the round cutoff and is supported by linked evidence.
 - **Model impact** means a fitted feature contribution actually changed the published prediction.

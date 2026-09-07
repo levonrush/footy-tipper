@@ -29,7 +29,9 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `refresh` discovers candidates from ABC RSS and GDELT JSON using Python's standard HTTP/XML/JSON libraries. It is browser-free: Chrome, Chrome Headless Shell, Playwright, Selenium, and browser drivers are not dependencies.
   - Discovery never promotes a headline into an eligible event. Eligibility requires reviewed facts, permitted source rights, sufficient confidence, and either official NRL/club confirmation or two reputable independent sources; `backfill` imports the manually reviewed catalogue and `validate` audits the registry.
   - Model-update preparation, advanced inference, and Actions prediction idempotently import the checked-in reviewed catalogue before recent discovery so fresh runtime databases receive approved facts without auto-promoting headlines.
-  - Training, inference, and evaluation use one sign-neutral context feature transformer. Context predictors are deliberately excluded from the production predictor list and are enabled only by the shadow ablation evaluator.
+  - Training, inference, and evaluation use one shared context feature transformer. Context predictors are deliberately excluded from the production predictor list and are enabled only by the shadow evaluators.
+  - `pipeline/common/club_context/attention.py` backfills club news *volume* from GDELT DOC `timelinevolraw` (one request per club-season). Counts only: no article text, tone score, or embedding. GDELT indexes from 2017, so earlier rows are flagged missing rather than zeroed. The historical series has not been collected yet: GDELT rate-limited the first backfill, so `context_attention_series` is empty and every attention feature correctly reports missing.
+  - `pipeline/common/club_context/materiality.py` is the second evaluator. It holds the production baseline fixed and fits a pre-declared leave-one-event-cluster-out logistic offset, so unexposed rows stay byte-identical and every reported tip flip is event-linked. It also reports a pre-event placebo and the prevalence arithmetic.
   - Live inference captures one `decision_at_utc` after refresh and before feature construction, then appends immutable run/game snapshots after tips are safely persisted. Historical evaluation freezes every game in a round at 11:00 Australia/Sydney on the earliest fixture's calendar day.
   - Eligible events may produce a sourced experimental Context Watch card in email/site, but shadow mode cannot alter probabilities, tips, scorelines, value picks, stakes, or joker decisions. Sensitive-event copy has deterministic safeguards and cannot drive banner imagery.
 - Data prep:
@@ -112,6 +114,7 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `FOOTY_TIPPER_CONTEXT_ABLATION` (set by `advanced model evaluate --context-ablation`; never a production activation switch)
   - `FOOTY_TIPPER_CONTEXT_BOOTSTRAP_REPS` (default: `2000`; fixed-seed event-cluster bootstrap repetitions)
   - `FOOTY_TIPPER_CONTEXT_PAIRED_PATH` and `FOOTY_TIPPER_CONTEXT_REPORT_PATH` (optional shadow evaluation output overrides)
+  - `FOOTY_TIPPER_CONTEXT_VALUE_GUARD` (default: `false`; withholds value picks and stakes on a club inside an event window. Never a probability, tip, scoreline or joker change; with the flag unset the pick frame must be byte-identical to the unguarded output)
   - `FOOTY_TIPPER_LEGACY_NEWS_ENABLED` (default: `false`; opt-in legacy editorial colour only, never registry evidence or a model feature)
 - Feed controls:
   - `FOOTY_TIPPER_FEED_SOURCE` (`python` default; `feed` selects legacy XML rollback)
@@ -186,7 +189,9 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Club Context-safe execution:
   - Context discovery and feature/snapshot construction fail soft by default. Missing tables, source outages, rejected events, classification failures, or rights-disabled adapters must leave predictions, delivery, and the existing no-context email/site output unchanged.
   - Refresh stores discovery metadata only; it must not auto-confirm or auto-review an event. Store factual summaries, timestamps, hashes, and links, never article bodies, embeddings, or publisher imagery.
-  - The shared transformer must remain sign-neutral: no generic sentiment, raw text, embeddings, or hard-coded positive/negative effect. Context columns stay outside production predictors until a separately approved model release.
+  - The shared transformer must remain free of tone: no sentiment score, raw text, embedding, or hard-coded positive/negative effect. Direction derived from the record is a different thing and is allowed: which club an event happened to (`club_context_affected_side`) and what the source said about how it came about (`disposition`) are facts, not readings of mood. The sign of any effect is still fitted from held-out data. Context columns stay outside production predictors until a separately approved model release.
+  - Adding an `EventCategory` or `EventDisposition` member is additive and must not move `CONTEXT_TAXONOMY_VERSION`: the eligibility gate rejects any event whose stored version differs from the constant, so a bump silently blanks every stored event until the catalogue is re-imported. `CONTEXT_FEATURE_VERSION` is the one that moves.
+  - `disposition` and `magnitude` are transcription, not judgement. Leave an event `undetermined` when the source attributes no initiative, and leave `magnitude` at zero unless the source states a number. Never invent a severity score.
   - Historical features use the common 11:00 Sydney round cutoff; live features use the single captured decision time. Later news and post-match interviews may support research review but can never be moved backward into pre-match features.
   - `context_prediction_runs` and `prediction_context` are append-only at the prediction boundary. Their database triggers must continue to reject update and delete operations so a sent render retains its original provenance.
   - Reader copy must distinguish observed verified context from measured model impact. While shadow-only, Context Watch carries the experimental/no-probability-change disclosure and Reg must not make causal claims, speculate about diagnoses, joke about trauma, or frame tragedy as a betting edge.
@@ -204,7 +209,8 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `context_events` (category, phase, known/effective/expiry times, confidence, salience, sensitivity, factual summary, confirmation, and review state)
   - `context_event_sources` and `context_event_entities` (source evidence and normalized team/player/coach/club relationships)
   - `context_ingestion_runs` (adapter outcomes, counts, errors, and configuration)
-  - `context_prediction_runs` and `prediction_context` (immutable round/run cutoff, version/hash provenance, eligible facts, and exact sign-neutral feature snapshots)
+  - `context_prediction_runs` and `prediction_context` (immutable round/run cutoff, version/hash provenance, eligible facts, and the exact feature snapshot)
+  - `context_attention_series` and `context_attention_runs` (daily club article counts with the indexing corpus size, plus backfill provenance; no article text)
 
 ## Common Commands
 - Human/operator CLI:
@@ -216,7 +222,7 @@ This file is for coding/automation agents working on `footy-tipper`.
 - Exact advanced tree:
   - `footy-tipper advanced data prepare all|training|tips`
   - `footy-tipper advanced data lineups refresh|backfill`
-  - `footy-tipper advanced data context refresh|backfill|validate`
+  - `footy-tipper advanced data context refresh|backfill|validate|attention`
   - `footy-tipper advanced data nrl refresh|backfill|validate`
   - `footy-tipper advanced data odds refresh|backfill`
   - `footy-tipper advanced model train|infer|evaluate|verify|list|activate|rollback`
@@ -248,6 +254,7 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `footy-tipper advanced model evaluate` (nested season-out metrics)
   - `footy-tipper advanced model evaluate --context-ablation` (identically seeded/folded baseline-versus-context shadow comparison; generates paired out-of-fold rows when no `--context-input` is supplied)
   - `footy-tipper advanced model evaluate --context-ablation --context-input PATH` (score an existing paired CSV/JSON without changing production)
+  - `footy-tipper advanced model evaluate --context-offset` (cohort-restricted offset against the fixed production baseline; reads existing paired rows, needs no retrain, and reports the prevalence arithmetic alongside a high-prevalence comparator)
 - Static site:
   - `footy-tipper advanced site build|publish`
 - Data prep only:

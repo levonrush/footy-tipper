@@ -1,0 +1,462 @@
+{
+  "status": "ok",
+  "primary_specification": "side",
+  "estimation": {
+    "method": "leave-one-event-cluster-out ridge logistic offset",
+    "ridge": 1.0,
+    "intercept": false,
+    "seed": 20100308,
+    "bootstrap_reps": 5000
+  },
+  "prevalence": {
+    "games": 3180,
+    "exposed_games": 89,
+    "exposure_rate": 0.0279874213836478,
+    "seasons": 16,
+    "games_per_season": 198.75,
+    "exposed_games_per_season": 5.5625
+  },
+  "baseline": {
+    "all_games": {
+      "games": 3180,
+      "log_loss": 0.6357680038436456,
+      "brier": 0.2224539356748973,
+      "accuracy": 0.6411949685534591
+    },
+    "exposed": {
+      "games": 89,
+      "log_loss": 0.6197776258509121,
+      "brier": 0.21426179226745187,
+      "accuracy": 0.7528089887640449
+    }
+  },
+  "affected_side_calibration": {
+    "available": true,
+    "clusters": 36,
+    "mean": -0.1678143618997865,
+    "ci95_low": -0.2491144114686261,
+    "ci95_high": -0.08055910603222284,
+    "probability_of_improvement": 0.9998,
+    "direction": "affected side underperforms the baseline probability"
+  },
+  "pre_event_placebo": {
+    "available": true,
+    "clusters": 35,
+    "mean": -0.20127766053932,
+    "ci95_low": -0.28291445874997173,
+    "ci95_high": -0.11724416244724344,
+    "probability_of_improvement": 1.0,
+    "games": 100,
+    "reading": "the same bias is present before the event, so this cohort is selected on underperformance"
+  },
+  "power": {
+    "available": true,
+    "clusters": 36,
+    "cluster_standard_error": 0.043740099258855684,
+    "minimum_detectable_effect": 0.12247227792479591,
+    "observed_effect": -0.1748175638775046
+  },
+  "specifications": {
+    "side": {
+      "columns": [
+        "club_context_affected_side"
+      ],
+      "fit": {
+        "clusters": 36,
+        "full_sample_coefficients": [
+          -0.7739144928172805
+        ],
+        "fold_coefficient_mean": [
+          -0.7729151135126198
+        ]
+      },
+      "cohorts": {
+        "all_games": {
+          "baseline": {
+            "games": 3180,
+            "log_loss": 0.6357680038436456,
+            "brier": 0.2224539356748973,
+            "accuracy": 0.6411949685534591
+          },
+          "candidate": {
+            "games": 3180,
+            "log_loss": 0.6341891751369427,
+            "brier": 0.22165171603160103,
+            "accuracy": 0.6411949685534591
+          },
+          "delta": {
+            "log_loss": -0.001578828706702895,
+            "brier": -0.0008022196432962703,
+            "accuracy": 0.0
+          }
+        },
+        "exposed": {
+          "baseline": {
+            "games": 89,
+            "log_loss": 0.6197776258509121,
+            "brier": 0.21426179226745187,
+            "accuracy": 0.7528089887640449
+          },
+          "candidate": {
+            "games": 89,
+            "log_loss": 0.5633655439709717,
+            "brier": 0.18559821400136053,
+            "accuracy": 0.7528089887640449
+          },
+          "delta": {
+            "log_loss": -0.0564120818799404,
+            "brier": -0.02866357826609134,
+            "accuracy": 0.0
+          }
+        }
+      },
+      "unexposed_rows_changed": 0,
+      "tip_flips": 20,
+      "tip_flips_outside_event_cohort": 0,
+      "flips_to_correct": 10,
+      "flips_to_wrong": 10,
+      "paired_log_loss_delta": {
+        "available": true,
+        "clusters": 36,
+        "mean": -0.05641208187994032,
+        "ci95_low": -0.1209992976235081,
+        "ci95_high": 0.016007074976794943,
+        "probability_of_improvement": 0.9434
+      },
+      "season_impact": {
+        "exposed_games_per_season": 5.5625,
+        "extra_correct_tips_per_season": 0.0,
+        "seasons_per_extra_tip": null,
+        "season_log_loss_delta": -0.0015788287067027343
+      }
+    },
+    "exposure": {
+      "columns": [
+        "club_context_affected_exposure"
+      ],
+      "fit": {
+        "clusters": 36,
+        "full_sample_coefficients": [
+          -1.0721166268784073
+        ],
+        "fold_coefficient_mean": [
+          -1.0638314849946164
+        ]
+      },
+      "cohorts": {
+        "all_games": {
+          "baseline": {
+            "games": 3180,
+            "log_loss": 0.6357680038436456,
+            "brier": 0.2224539356748973,
+            "accuracy": 0.6411949685534591
+          },
+          "candidate": {
+            "games": 3180,
+            "log_loss": 0.6351500825353843,
+            "brier": 0.22211734949781228,
+            "accuracy": 0.640251572327044
+          },
+          "delta": {
+            "log_loss": -0.0006179213082613266,
+            "brier": -0.00033658617708501315,
+            "accuracy": -0.0009433962264151496
+          }
+        },
+        "exposed": {
+          "baseline": {
+            "games": 89,
+            "log_loss": 0.6197776258509121,
+            "brier": 0.21426179226745187,
+            "accuracy": 0.7528089887640449
+          },
+          "candidate": {
+            "games": 89,
+            "log_loss": 0.5976990892186561,
+            "brier": 0.20223545470418833,
+            "accuracy": 0.7191011235955056
+          },
+          "delta": {
+            "log_loss": -0.022078536632256007,
+            "brier": -0.012026337563263545,
+            "accuracy": -0.0337078651685393
+          }
+        }
+      },
+      "unexposed_rows_changed": 0,
+      "tip_flips": 13,
+      "tip_flips_outside_event_cohort": 0,
+      "flips_to_correct": 5,
+      "flips_to_wrong": 8,
+      "paired_log_loss_delta": {
+        "available": true,
+        "clusters": 36,
+        "mean": -0.022078536632255973,
+        "ci95_low": -0.054955250135244875,
+        "ci95_high": 0.013983640140110725,
+        "probability_of_improvement": 0.8882
+      },
+      "season_impact": {
+        "exposed_games_per_season": 5.5625,
+        "extra_correct_tips_per_season": -0.18749999999999983,
+        "seasons_per_extra_tip": -5.333333333333338,
+        "season_log_loss_delta": -0.000617921308261253
+      }
+    },
+    "side_and_exposure": {
+      "columns": [
+        "club_context_affected_side",
+        "club_context_affected_exposure"
+      ],
+      "fit": {
+        "clusters": 36,
+        "full_sample_coefficients": [
+          -0.8756231530238695,
+          0.34021427256222814
+        ],
+        "fold_coefficient_mean": [
+          -0.8715929580567768,
+          0.3305192055430695
+        ]
+      },
+      "cohorts": {
+        "all_games": {
+          "baseline": {
+            "games": 3180,
+            "log_loss": 0.6357680038436456,
+            "brier": 0.2224539356748973,
+            "accuracy": 0.6411949685534591
+          },
+          "candidate": {
+            "games": 3180,
+            "log_loss": 0.6342178292748166,
+            "brier": 0.22166389126331873,
+            "accuracy": 0.6408805031446541
+          },
+          "delta": {
+            "log_loss": -0.0015501745688289992,
+            "brier": -0.0007900444115785665,
+            "accuracy": -0.0003144654088050869
+          }
+        },
+        "exposed": {
+          "baseline": {
+            "games": 89,
+            "log_loss": 0.6197776258509121,
+            "brier": 0.21426179226745187,
+            "accuracy": 0.7528089887640449
+          },
+          "candidate": {
+            "games": 89,
+            "log_loss": 0.5643893659759012,
+            "brier": 0.18603323913464517,
+            "accuracy": 0.7415730337078652
+          },
+          "delta": {
+            "log_loss": -0.05538825987501095,
+            "brier": -0.0282285531328067,
+            "accuracy": -0.011235955056179692
+          }
+        }
+      },
+      "unexposed_rows_changed": 0,
+      "tip_flips": 19,
+      "tip_flips_outside_event_cohort": 0,
+      "flips_to_correct": 9,
+      "flips_to_wrong": 10,
+      "paired_log_loss_delta": {
+        "available": true,
+        "clusters": 36,
+        "mean": -0.05538825987501089,
+        "ci95_low": -0.11902693195324987,
+        "ci95_high": 0.01700835634452324,
+        "probability_of_improvement": 0.9398
+      },
+      "season_impact": {
+        "exposed_games_per_season": 5.5625,
+        "extra_correct_tips_per_season": -0.062499999999999535,
+        "seasons_per_extra_tip": -16.00000000000012,
+        "season_log_loss_delta": -0.0015501745688289228
+      }
+    }
+  },
+  "shadow_only": true,
+  "matched_event_study": {
+    "available": true,
+    "pooled_post_event": {
+      "available": true,
+      "event_matches": 140,
+      "event_clusters": 37,
+      "controls_per_event_match": 3,
+      "mean_affected_margin_residual_difference": -1.145287990372143,
+      "cluster_bootstrap_ci95": [
+        -4.668342257258096,
+        1.6800203794249375
+      ],
+      "matching": {
+        "primary_balance": "nested baseline predicted probability and margin",
+        "refinements": [
+          "market_spread",
+          "form_delta",
+          "rest_delta",
+          "elo_diff",
+          "lineup_avg_named_margin_rating_delta",
+          "lineup_selection_uncertainty_delta"
+        ],
+        "exact": [
+          "competition_year",
+          "market availability"
+        ],
+        "venue_mismatch_penalty": "applied when venue_name is available"
+      }
+    },
+    "by_horizon": {
+      "relative_match_0": {
+        "available": true,
+        "event_matches": 37,
+        "event_clusters": 37,
+        "controls_per_event_match": 3,
+        "mean_affected_margin_residual_difference": -0.7734426976351351,
+        "cluster_bootstrap_ci95": [
+          -6.380213101993559,
+          5.141033638564954
+        ],
+        "matching": {
+          "primary_balance": "nested baseline predicted probability and margin",
+          "refinements": [
+            "market_spread",
+            "form_delta",
+            "rest_delta",
+            "elo_diff",
+            "lineup_avg_named_margin_rating_delta",
+            "lineup_selection_uncertainty_delta"
+          ],
+          "exact": [
+            "competition_year",
+            "market availability"
+          ],
+          "venue_mismatch_penalty": "applied when venue_name is available"
+        }
+      },
+      "relative_match_1": {
+        "available": true,
+        "event_matches": 36,
+        "event_clusters": 36,
+        "controls_per_event_match": 3,
+        "mean_affected_margin_residual_difference": -4.759410132102778,
+        "cluster_bootstrap_ci95": [
+          -10.818278705862616,
+          1.6246560845795828
+        ],
+        "matching": {
+          "primary_balance": "nested baseline predicted probability and margin",
+          "refinements": [
+            "market_spread",
+            "form_delta",
+            "rest_delta",
+            "elo_diff",
+            "lineup_avg_named_margin_rating_delta",
+            "lineup_selection_uncertainty_delta"
+          ],
+          "exact": [
+            "competition_year",
+            "market availability"
+          ],
+          "venue_mismatch_penalty": "applied when venue_name is available"
+        }
+      },
+      "relative_match_2": {
+        "available": true,
+        "event_matches": 34,
+        "event_clusters": 34,
+        "controls_per_event_match": 3,
+        "mean_affected_margin_residual_difference": -4.016581640806862,
+        "cluster_bootstrap_ci95": [
+          -10.114481910664361,
+          2.0799185311688193
+        ],
+        "matching": {
+          "primary_balance": "nested baseline predicted probability and margin",
+          "refinements": [
+            "market_spread",
+            "form_delta",
+            "rest_delta",
+            "elo_diff",
+            "lineup_avg_named_margin_rating_delta",
+            "lineup_selection_uncertainty_delta"
+          ],
+          "exact": [
+            "competition_year",
+            "market availability"
+          ],
+          "venue_mismatch_penalty": "applied when venue_name is available"
+        }
+      },
+      "relative_match_3": {
+        "available": true,
+        "event_matches": 33,
+        "event_clusters": 33,
+        "controls_per_event_match": 3,
+        "mean_affected_margin_residual_difference": 5.338775809197979,
+        "cluster_bootstrap_ci95": [
+          -0.45011163261984893,
+          11.167808411567146
+        ],
+        "matching": {
+          "primary_balance": "nested baseline predicted probability and margin",
+          "refinements": [
+            "market_spread",
+            "form_delta",
+            "rest_delta",
+            "elo_diff",
+            "lineup_avg_named_margin_rating_delta",
+            "lineup_selection_uncertainty_delta"
+          ],
+          "exact": [
+            "competition_year",
+            "market availability"
+          ],
+          "venue_mismatch_penalty": "applied when venue_name is available"
+        }
+      }
+    }
+  },
+  "prevalence_comparator": {
+    "available": true,
+    "prevalence": {
+      "measured_matches": 2388,
+      "paired_matches": 3180,
+      "coverage": 0.7509433962264151,
+      "minimum_prior_games": 6
+    },
+    "slope": {
+      "value": 0.19821170402447041,
+      "ci95_low": 0.09062561695884873,
+      "ci95_high": 0.28986420011921,
+      "clusters": 260,
+      "team_games": 4800
+    },
+    "baseline": {
+      "games": 2388,
+      "log_loss": 0.6239620324015493,
+      "brier": 0.21685981916242225,
+      "accuracy": 0.6595477386934674
+    },
+    "candidate": {
+      "games": 2388,
+      "log_loss": 0.6215429165381593,
+      "brier": 0.21576839477962975,
+      "accuracy": 0.6628978224455612
+    },
+    "delta": {
+      "log_loss": -0.0024191158633900534,
+      "brier": -0.0010914243827924996,
+      "accuracy": 0.00335008375209378
+    },
+    "tip_flips": 134,
+    "extra_correct_tips_per_season": 0.49999999999999667,
+    "estimation": "leave-one-season-out ridge logistic offset, no intercept",
+    "shadow_only": true
+  },
+  "conclusion": "The baseline is mis-calibrated on the event cohort: the affected side lands -16.8 points from its stated probability, 95% cluster interval [-24.9, -8.1]. A single pre-declared offset moves event-cohort log loss by -0.0564 with a 95% cluster interval of [-0.1210, +0.0160], which crosses zero. The same clubs already sat -20.1 points from their stated probability before the event, 95% interval [-28.3, -11.7], so this cohort is selected on underperformance and the post-event gap is not all event. Prevalence remains the binding constraint: at 5.6 exposed games a season this is worth +0.00 tips a season, so the value lies in probability quality rather than the tipping ladder."
+}

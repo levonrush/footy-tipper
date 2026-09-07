@@ -1,7 +1,9 @@
+import os
 import unittest
 
 import pandas as pd
 
+from pipeline.common.use_predictions import staking
 from pipeline.common.use_predictions.staking import MARKET_PICK_COLUMNS, get_market_picks
 
 
@@ -102,3 +104,62 @@ class MarketPickTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContextValueGuardTests(unittest.TestCase):
+    """The guard exists, is off, and stays out of the way while it is off."""
+
+    def setUp(self):
+        self._previous = os.environ.pop("FOOTY_TIPPER_CONTEXT_VALUE_GUARD", None)
+
+    def tearDown(self):
+        os.environ.pop("FOOTY_TIPPER_CONTEXT_VALUE_GUARD", None)
+        if self._previous is not None:
+            os.environ["FOOTY_TIPPER_CONTEXT_VALUE_GUARD"] = self._previous
+
+    def test_the_guard_is_off_by_default(self):
+        self.assertFalse(staking.context_value_guard_enabled())
+
+    def test_no_teams_are_guarded_while_it_is_off(self):
+        self.assertEqual(
+            staking.load_context_guarded_teams(predictions=_predictions()), set()
+        )
+
+    def test_picks_are_identical_with_the_guard_off(self):
+        # update-model and the next live send must be untouched by this work, so
+        # the unset flag has to reproduce the shipped frame exactly.
+        picks = get_market_picks(
+            _predictions(), _distributions(p_home_covers_line=0.70)
+        )
+        expected = pd.DataFrame(
+            [
+                {
+                    "game_id": 1,
+                    "fixture": "Storm v Broncos",
+                    "market": "Line",
+                    "selection": "Storm -6.5",
+                }
+            ]
+        )
+        self.assertEqual(len(picks), 1)
+        for column, value in expected.iloc[0].items():
+            self.assertEqual(picks.iloc[0][column], value)
+
+    def test_an_enabled_guard_withholds_the_affected_fixture(self):
+        os.environ["FOOTY_TIPPER_CONTEXT_VALUE_GUARD"] = "true"
+        original = staking.load_context_guarded_teams
+        staking.load_context_guarded_teams = lambda **_kwargs: {"storm"}
+        try:
+            picks = get_market_picks(
+                _predictions(), _distributions(p_home_covers_line=0.70)
+            )
+        finally:
+            staking.load_context_guarded_teams = original
+        self.assertTrue(picks.empty)
+
+    def test_an_unreadable_registry_leaves_picks_alone(self):
+        os.environ["FOOTY_TIPPER_CONTEXT_VALUE_GUARD"] = "true"
+        guarded = staking.load_context_guarded_teams(
+            db_path="/nonexistent/path/to.sqlite", predictions=_predictions()
+        )
+        self.assertEqual(guarded, set())

@@ -47,7 +47,10 @@ def _paired_frame() -> pd.DataFrame:
             "context_away_score": np.full(games, 18.5),
             "market_available": index % 3 != 0,
             "market_spread": np.where(index % 3 != 0, 2.5, np.nan),
-            "event_id": np.where(annotated, "event-" + (index // 7).astype(str), None),
+            # np.char.add, because NumPy 2 no longer broadcasts str + int-array.
+            "event_id": np.where(
+                annotated, np.char.add("event-", (index // 7).astype(str)), None
+            ),
             "category": np.where(annotated, "leadership_change", None),
             "event_relative_match": np.where(annotated, relative, np.nan),
             "affected_side": np.where(index % 4 == 0, "away", "home"),

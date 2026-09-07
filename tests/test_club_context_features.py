@@ -395,3 +395,128 @@ class ClubContextSnapshotTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContextFeatureV2Tests(unittest.TestCase):
+    """The v2 block: continuous shape, dense regime state, signed orientation."""
+
+    def _database(self):
+        folder = tempfile.mkdtemp()
+        path = Path(folder) / "context.sqlite"
+        with closing(sqlite3.connect(str(path))) as con:
+            ensure_context_tables(con)
+            con.commit()
+        return path
+
+    def test_v1_columns_are_all_preserved(self):
+        from pipeline.common.club_context.features import (
+            CONTEXT_FEATURE_COLUMNS,
+            V1_SIDE_METRICS,
+        )
+
+        # The shipped 7 September materiality report must stay reproducible
+        # against an unchanged v1 column contract.
+        for metric in V1_SIDE_METRICS:
+            for side in ("home", "away", "delta"):
+                self.assertIn(f"club_context_{metric}_{side}", CONTEXT_FEATURE_COLUMNS)
+
+    def test_orientation_columns_exist_and_are_signed(self):
+        from pipeline.common.club_context.features import _orientation
+
+        self.assertEqual(
+            _orientation(home_exposure=0.8, away_exposure=0.0)[
+                "club_context_affected_side"
+            ],
+            1.0,
+        )
+        self.assertEqual(
+            _orientation(home_exposure=0.0, away_exposure=0.8)[
+                "club_context_affected_side"
+            ],
+            -1.0,
+        )
+        # Equal exposure on both sides carries no orientation at all.
+        self.assertEqual(
+            _orientation(home_exposure=0.4, away_exposure=0.4)[
+                "club_context_affected_side"
+            ],
+            0.0,
+        )
+
+    def test_no_registry_reports_missing_rather_than_quiet_zeroes(self):
+        from pipeline.common.club_context.features import build_context_match_features
+
+        features = build_context_match_features(
+            Path(tempfile.mkdtemp()) / "absent.sqlite", FIXTURES
+        )
+        self.assertTrue((features["club_context_features_missing"] == 1.0).all())
+        self.assertTrue((features["club_context_attention_missing_home"] == 1.0).all())
+        self.assertTrue((features["club_context_data_available"] == 0.0).all())
+
+    def test_attention_missing_defaults_to_one_after_a_merge(self):
+        from pipeline.common.club_context.features import fill_context_feature_columns
+
+        frame = pd.DataFrame(
+            {
+                "game_id": [1],
+                "club_context_attention_missing_home": [None],
+                "club_context_exposure_index_home": [None],
+            }
+        )
+        filled = fill_context_feature_columns(frame)
+        self.assertEqual(filled["club_context_attention_missing_home"].iloc[0], 1.0)
+        self.assertEqual(filled["club_context_exposure_index_home"].iloc[0], 0.0)
+
+    def test_regime_state_is_censored_without_an_in_season_handover(self):
+        import datetime as dt
+
+        from pipeline.common.club_context.features import _regime_matches
+
+        match_at = dt.datetime(2024, 6, 1, tzinfo=dt.timezone.utc)
+        kickoffs = {
+            "eels": [
+                dt.datetime(2024, 3, 10, tzinfo=dt.timezone.utc),
+                dt.datetime(2024, 4, 10, tzinfo=dt.timezone.utc),
+                dt.datetime(2024, 5, 10, tzinfo=dt.timezone.utc),
+            ]
+        }
+        matches, censored = _regime_matches(
+            {}, kickoffs, team_key="eels", match_at=match_at
+        )
+        self.assertEqual(censored, 1.0)
+        self.assertEqual(matches, 3.0)
+
+        handovers = {"eels": [dt.datetime(2024, 4, 1, tzinfo=dt.timezone.utc)]}
+        matches, censored = _regime_matches(
+            handovers, kickoffs, team_key="eels", match_at=match_at
+        )
+        self.assertEqual(censored, 0.0)
+        self.assertEqual(matches, 2.0)
+
+    def test_a_previous_season_handover_does_not_leak_into_this_one(self):
+        import datetime as dt
+
+        from pipeline.common.club_context.features import _regime_matches
+
+        # The census records in-season handovers only, so a 2019 change says
+        # nothing about who is coaching in 2024.
+        handovers = {"eels": [dt.datetime(2019, 5, 1, tzinfo=dt.timezone.utc)]}
+        kickoffs = {"eels": [dt.datetime(2024, 3, 10, tzinfo=dt.timezone.utc)]}
+        _, censored = _regime_matches(
+            handovers,
+            kickoffs,
+            team_key="eels",
+            match_at=dt.datetime(2024, 6, 1, tzinfo=dt.timezone.utc),
+        )
+        self.assertEqual(censored, 1.0)
+
+    def test_context_columns_stay_out_of_production_predictors(self):
+        from pipeline.common.model_training import training_config as tc
+
+        offenders = [
+            name
+            for name in tc.predictors
+            if "club_context" in str(name) or "attention" in str(name)
+        ]
+        self.assertEqual(offenders, [])
+        self.assertTrue(tc.shadow_context_predictors)

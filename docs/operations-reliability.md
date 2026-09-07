@@ -282,7 +282,7 @@ Do not install or troubleshoot a browser for this path. Club Context discovery u
 | --- | --- |
 | No pre-game rows | Clean no-op; do not invent fixtures or send old tips. |
 | Missing/sparse lineups | Fill safe defaults unless explicit strict diagnosis is requested. |
-| Missing/invalid Club Context registry | Omit Context Watch and keep sign-neutral shadow defaults; production probability and delivery remain unchanged. |
+| Missing/invalid Club Context registry | Omit Context Watch and keep missing-flagged shadow defaults; production probability and delivery remain unchanged. The value guard is off by default and fails soft when on. |
 | Unsafe or invalid context prose | Use deterministic factual copy; sensitive events never prompt banner imagery. |
 | Missing performance data while enabled | Fail model preparation clearly. |
 | Missing Claude/Anthropic | Use deterministic copy when generation cannot run. |

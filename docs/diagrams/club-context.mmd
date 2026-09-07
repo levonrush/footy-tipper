@@ -2,26 +2,32 @@
 flowchart TB
   ABC[/ABC RSS and GDELT<br/>candidate discovery/]
   CONFIRM[/Official NRL or club<br/>or two independent sources/]
+  VOLUME[/GDELT timelinevolraw<br/>daily article counts only/]
   FIXTURES[/Round fixtures<br/>true UTC kickoff/]
 
   DISCOVER([Rights-aware discovery<br/>links and timestamps only])
   ARTICLES[(context_article_snapshots<br/>no article bodies)]
   REVIEW{Evidence · rights · entity<br/>and confidence gate}
   QUEUE[(Pending review<br/>ineligible)]
-  EVENTS[(context_events<br/>sources · entities · phases)]
+  EVENTS[(context_events<br/>+ disposition · availability)]
+  ATTENTION[(context_attention_series<br/>counts · no text · 2017 on)]
   CUTOFF([One round cutoff<br/>historical 11:00 Sydney · live captured once])
-  FEATURES([Shared sign-neutral features<br/>home · away · delta])
+  FEATURES([Shared features<br/>home · away · delta · orientation])
 
   PROD[[Production model<br/>unchanged probabilities]]
-  CANDIDATE[[Shadow score and binary candidate<br/>same folds and seed]]
-  ABLATION([Paired nested season-out ablation<br/>market and no-market])
-  REPORT[(Materiality report<br/>effect sizes · uncertainty · tip flips)]
+  CANDIDATE[[Shadow refit candidate<br/>same folds and seed]]
+  ABLATION([Paired nested season-out ablation<br/>asks: does the family help the model?])
+  OFFSET([Cohort-restricted offset<br/>asks: does the cohort carry signal?])
+  PLACEBO{Pre-event placebo<br/>same clubs · before the event}
+  REPORT[(Materiality reports<br/>effect · uncertainty · prevalence)]
 
   FACTS([Eligible observed facts<br/>summary + source link])
   SAFETY{Deterministic safety layer<br/>copy policy passes?}
   FALLBACK([Factual fallback<br/>no causal claim])
   REG([Reg copy<br/>locked facts only])
   READER[/Context Watch<br/>email and site/]
+  GUARD{Value guard flag<br/>default off}
+  PICKS[/Value picks and stakes/]
 
   RUN[(context_prediction_runs<br/>immutable decision + hash)]
   SNAPSHOT[(prediction_context<br/>immutable game/event/features)]
@@ -31,17 +37,29 @@ flowchart TB
   ARTICLES --> REVIEW
   REVIEW -->|pending or rejected| QUEUE
   REVIEW -->|eligible| EVENTS
+  VOLUME --> ATTENTION
   EVENTS --> CUTOFF
+  ATTENTION --> CUTOFF
   FIXTURES --> CUTOFF
   CUTOFF --> FEATURES
+
   FEATURES -.->|candidate only| CANDIDATE
   PROD -.->|baseline OOF rows| ABLATION
   CANDIDATE -.->|paired OOF rows| ABLATION
+  PROD -->|baseline held fixed| OFFSET
+  FEATURES -->|signed exposure| OFFSET
+  OFFSET --> PLACEBO
+  PLACEBO -->|gap absent before| REPORT
+  PLACEBO -->|gap already present<br/>selection not effect| REPORT
   ABLATION --> REPORT
 
   EVENTS --> FACTS --> SAFETY
   SAFETY -->|pass| REG --> READER
   SAFETY -->|fail| FALLBACK --> READER
+
+  FEATURES -.->|affected side| GUARD
+  GUARD -.->|off: unchanged| PICKS
+  GUARD -.->|on: stake withheld| PICKS
 
   CUTOFF --> RUN
   FEATURES --> SNAPSHOT
@@ -55,8 +73,8 @@ flowchart TB
   classDef model fill:#FEF3C7,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
   classDef decision fill:#FEE2E2,stroke:#DC2626,color:#0F172A,stroke-width:2px;
 
-  class ABC,CONFIRM,FIXTURES,READER source;
-  class DISCOVER,CUTOFF,FEATURES,ABLATION,FACTS,FALLBACK,REG process;
-  class ARTICLES,QUEUE,EVENTS,REPORT,RUN,SNAPSHOT data;
+  class ABC,CONFIRM,VOLUME,FIXTURES,READER,PICKS source;
+  class DISCOVER,CUTOFF,FEATURES,ABLATION,OFFSET,FACTS,FALLBACK,REG process;
+  class ARTICLES,QUEUE,EVENTS,ATTENTION,REPORT,RUN,SNAPSHOT data;
   class PROD,CANDIDATE model;
-  class REVIEW,SAFETY decision;
+  class REVIEW,SAFETY,PLACEBO,GUARD decision;

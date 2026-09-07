@@ -39,7 +39,7 @@ That separation makes the ensemble interpretable and avoids feeding the bookmake
 
 ## Club Context stays shadow-only
 
-[Club Context](club-context.md) captures confirmed, acute off-field events as sign-neutral measurements: category and phase, recency, games since event, official confirmation, confidence, salience, source diversity, uncertainty, and home-versus-away differences. It does not use generic sentiment, raw article text, embeddings, or an assumed “lift.”
+[Club Context](club-context.md) captures confirmed, acute off-field events as measurements rather than opinions: category and phase, recency, games since event, official confirmation, confidence, salience, source diversity, uncertainty, continuous exposure, regime state, club attention volume, and home-versus-away differences. It uses no article tone, raw text, embedding, or assumed “lift.” It does name the affected side, because which club an event happened to is on the record.
 
 The feature family is excluded from the production predictor list. The research candidate appends the same shared transformer to the existing Tier-B score and Tier-C binary models; it is not another stacking expert. A separate experiment may test whether defined leadership/tribute cohorts change residual variance enough to justify a bounded dispersion adjustment, but no such adjustment ships today.
 
@@ -343,7 +343,7 @@ See [Competition strategy](comp-strategy.md) and [Joker strategy](joker-strategy
   They measure as honest, and the match-centre floor of 2012 means they cannot be
   re-derived, but they are produced by a different path from 2012 onward.
 - Historical odds and line coverage are incomplete and time-varying.
-- Club Context event counts are small, selectively reported, and sensitive to historical source coverage. Its candidate signal has not established material predictive value and remains outside production probabilities.
+- Club Context event counts are small, selectively reported, and sensitive to historical source coverage. Its candidate signal has not established material predictive value and remains outside production probabilities. A corrected cohort-restricted test showed the affected-side gap is already present *before* the event, so the cohort is selected on underperformance rather than moved by it; at 2.8% prevalence it could not move tipping accuracy either way.
 - H2H, spread, and totals freshness are tracked per market family; stale
   families are masked rather than silently reused.
 - Player identities and old team-list layouts are noisier than match-level IDs.

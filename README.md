@@ -78,7 +78,7 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - Training rows are explicitly `game_state_name == "Final"`; inference rows are `game_state_name == "Pre Game"`.
 - Beginner commands never trigger a surprise local training run.
 - Missing lineup data fails soft unless strict mode is requested.
-- Club Context is sign-neutral and shadow-only: an observed event cannot change a production tip, probability, scoreline, value pick, or stake.
+- Club Context is shadow-only: an observed event cannot change a production tip, probability, scoreline, value pick, or stake. It mines no article tone. It does record which club an event happened to, which is a fact rather than a sentiment.
 - Actions prediction consumes a named active release and fails clearly if it is missing or invalid.
 - A pending live-delivery marker is deliberately treated as uncertain and blocks automatic resend until it is reconciled.
 - Finals rounds run as special editions: the joker and competition strategy switch off, and a premiership simulation takes their place.

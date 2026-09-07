@@ -30,6 +30,95 @@ MARKET_PICK_COLUMNS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Club Context value guard (default off)
+# ---------------------------------------------------------------------------
+#
+# The corrected materiality study found that the clubs inside a Club Context
+# event window sit well below their stated win probability, but that the same
+# gap is already there before the event: the cohort is selected on
+# underperformance rather than moved by the news. Either way, those are games
+# where the model's probability has been unreliable, and a value pick is exactly
+# the place where an unreliable probability costs money rather than a tip.
+#
+# The guard therefore withholds stakes on the affected side. It is off by
+# default and changes no probability, tip, scoreline or joker decision; with the
+# flag unset every pick frame is byte-identical to the unguarded output.
+
+
+def context_value_guard_enabled():
+    return os.getenv("FOOTY_TIPPER_CONTEXT_VALUE_GUARD", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }
+
+
+def _default_db_path():
+    """The runtime database, resolved from the package rather than the cwd."""
+
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    return root / "data" / "footy-tipper-db.sqlite"
+
+
+def load_context_guarded_teams(db_path=None, predictions=None):
+    """Normalized team keys inside a live Club Context event window.
+
+    Fails soft to an empty set: a missing registry, an unreadable database or an
+    import error must leave value picks exactly as they were.
+    """
+
+    if not context_value_guard_enabled():
+        return set()
+    if predictions is None or getattr(predictions, "empty", True):
+        return set()
+    path = db_path or _default_db_path()
+    try:
+        import sqlite3
+        from contextlib import closing
+
+        from pipeline.common.club_context.features import resolve_context_for_matches
+        from pipeline.common.lineups.normalization import normalize_team_name
+
+        columns = {"game_id", "competition_year", "round_id", "team_home", "team_away"}
+        if not columns.issubset(set(predictions.columns)):
+            return set()
+        frame = predictions[sorted(columns)].copy()
+        if "start_time_utc" in predictions.columns:
+            frame["start_time_utc"] = predictions["start_time_utc"]
+        with closing(sqlite3.connect(str(path))) as con:
+            features, _ = resolve_context_for_matches(con, frame)
+        guarded = set()
+        merged = predictions.merge(features, on="game_id", how="left")
+        for _, row in merged.iterrows():
+            side = row.get("club_context_affected_side")
+            if pd.isna(side) or not side:
+                continue
+            team = row.get("team_home") if side > 0 else row.get("team_away")
+            key = normalize_team_name(team)
+            if key:
+                guarded.add(key)
+        return guarded
+    except Exception as exc:
+        print(f"Club Context value guard unavailable ({exc}). Picks unchanged.")
+        return set()
+
+
+def _guarded(team, guarded_teams):
+    if not guarded_teams:
+        return False
+    try:
+        from pipeline.common.lineups.normalization import normalize_team_name
+
+        return normalize_team_name(team) in guarded_teams
+    except Exception:
+        return False
+
+
 def _staking_config(prod_run=False):
     """Resolve the shared value/staking knobs once."""
     min_edge_default = 0.03 if prod_run else 0.02
@@ -115,7 +204,7 @@ def _numeric(value):
     return pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
 
 
-def get_market_picks(predictions, distributions=None, prod_run=False):
+def get_market_picks(predictions, distributions=None, prod_run=False, db_path=None):
     """Line and totals value picks, priced off the simulated distribution.
 
     Returns an empty frame whenever the distribution summaries are missing, which
@@ -131,6 +220,7 @@ def get_market_picks(predictions, distributions=None, prod_run=False):
         return pd.DataFrame(columns=MARKET_PICK_COLUMNS)
 
     config = _staking_config(prod_run)
+    guarded_teams = load_context_guarded_teams(db_path=db_path, predictions=predictions)
     by_game = {
         int(row["game_id"]): row
         for _, row in distributions.iterrows()
@@ -143,6 +233,12 @@ def get_market_picks(predictions, distributions=None, prod_run=False):
         if pd.isna(game_id) or int(game_id) not in by_game:
             continue
         summary = by_game[int(game_id)]
+        if _guarded(row.get("team_home"), guarded_teams) or _guarded(
+            row.get("team_away"), guarded_teams
+        ):
+            # Line and totals both price the same simulated distribution, so a
+            # side whose probability is suspect taints the whole fixture.
+            continue
         fixture = f"{row.get('team_home')} v {row.get('team_away')}"
         for candidate in _line_candidates(row, summary) + _total_candidates(row, summary):
             priced = _kelly(candidate["probability"], candidate["odds"], config)
@@ -206,7 +302,7 @@ def _total_candidates(row, summary):
 
 
 # The 'get_tipper_picks' function calculates the odds thresholds and returns a DataFrame of tipper picks.
-def get_tipper_picks(predictions, prod_run=False):
+def get_tipper_picks(predictions, prod_run=False, db_path=None):
     output_columns = [
         "game_id",
         "team",
@@ -227,6 +323,7 @@ def get_tipper_picks(predictions, prod_run=False):
 
     config = _staking_config(prod_run)
     min_edge = config["min_edge"]
+    guarded_teams = load_context_guarded_teams(db_path=db_path, predictions=predictions)
 
     predictions = predictions.copy()
 
@@ -257,6 +354,9 @@ def get_tipper_picks(predictions, prod_run=False):
             if side == "home" and predicted_result != "Win":
                 continue
             if side == "away" and predicted_result != "Loss":
+                continue
+
+            if _guarded(team, guarded_teams):
                 continue
 
             priced = _kelly(prob, odds, config)

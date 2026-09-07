@@ -1,10 +1,22 @@
 """Club Context: evidence-gated psychosocial match context in shadow mode."""
 
+from .attention import (
+    GDELT_COVERAGE_START_YEAR,
+    AttentionIndex,
+    backfill_attention,
+    load_attention_index,
+)
 from .features import (
     CONTEXT_FEATURE_COLUMNS,
+    ORIENTATION_COLUMNS,
     build_context_match_features,
     fill_context_feature_columns,
     resolve_context_for_matches,
+)
+from .materiality import (
+    OFFSET_SPECIFICATIONS,
+    evaluate_context_offset,
+    evaluate_form_shortfall,
 )
 from .registry import (
     ArticleSnapshot,
@@ -40,12 +52,14 @@ from .sources import (
 )
 from .taxonomy import (
     CONTEXT_TAXONOMY_VERSION,
+    DISRUPTIVE_CATEGORIES,
     MIN_ELIGIBLE_CONFIDENCE,
     AcquisitionMethod,
     ConfirmationStatus,
     EntityRelationship,
     EntityType,
     EventCategory,
+    EventDisposition,
     EventPhase,
     EvidenceRole,
     IngestionMode,
@@ -70,6 +84,10 @@ build_club_context_match_features = build_context_match_features
 
 __all__ = [
     "CONTEXT_FEATURE_COLUMNS",
+    "GDELT_COVERAGE_START_YEAR",
+    "OFFSET_SPECIFICATIONS",
+    "ORIENTATION_COLUMNS",
+    "AttentionIndex",
     "CONTEXT_FEATURE_VERSION",
     "CONTEXT_SCHEMA_VERSION",
     "CONTEXT_TAXONOMY_VERSION",
@@ -82,7 +100,9 @@ __all__ = [
     "DiscoveryCandidate",
     "EntityRelationship",
     "EntityType",
+    "DISRUPTIVE_CATEGORIES",
     "EventCategory",
+    "EventDisposition",
     "EventEntity",
     "EventPhase",
     "EventSource",
@@ -98,6 +118,7 @@ __all__ = [
     "SourceClass",
     "SourcePolicy",
     "adapter_can_run",
+    "backfill_attention",
     "build_club_context_match_features",
     "build_context_match_features",
     "canonicalize_url",
@@ -106,10 +127,13 @@ __all__ = [
     "context_schema_current",
     "create_prediction_context_snapshot",
     "ensure_context_tables",
+    "evaluate_context_offset",
+    "evaluate_form_shortfall",
     "event_is_eligible",
     "fill_context_feature_columns",
     "finish_ingestion_run",
     "insert_context_event",
+    "load_attention_index",
     "load_eligible_events",
     "load_prediction_context",
     "parse_datetime",

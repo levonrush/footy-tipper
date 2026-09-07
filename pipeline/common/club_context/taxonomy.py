@@ -14,12 +14,46 @@ from enum import StrEnum
 CONTEXT_TAXONOMY_VERSION = 1
 MIN_ELIGIBLE_CONFIDENCE = 0.70
 
+# Categories whose events describe an acute disruption to the affected club, as
+# opposed to a commemorative occasion.  Used only for reporting cohorts.
+DISRUPTIVE_CATEGORIES = frozenset(
+    {
+        "leadership_change",
+        "serious_human_event",
+        "club_crisis",
+        "judiciary_sanction",
+        "contract_exit",
+        "ownership_governance",
+    }
+)
+
 
 class EventCategory(StrEnum):
     LEADERSHIP_CHANGE = "leadership_change"
     SERIOUS_HUMAN_EVENT = "serious_human_event"
     TRIBUTE_MILESTONE = "tribute_milestone"
     CLUB_CRISIS = "club_crisis"
+    # Added in the v2 expansion.  Adding members is additive: the eligibility
+    # gate compares ``taxonomy_version`` to the constant below, so the version
+    # must not move or every already-stored event becomes ineligible until the
+    # catalogue is re-imported.
+    JUDICIARY_SANCTION = "judiciary_sanction"
+    CONTRACT_EXIT = "contract_exit"
+    OWNERSHIP_GOVERNANCE = "ownership_governance"
+
+
+class EventDisposition(StrEnum):
+    """How the event came about, as a recorded fact rather than a tone reading.
+
+    This is the one attribute that carries direction, and it carries it because
+    a dismissal and a planned succession are different events on the public
+    record, not because anyone judged the mood of the coverage.
+    """
+
+    INVOLUNTARY = "involuntary"
+    VOLUNTARY = "voluntary"
+    COMMEMORATIVE = "commemorative"
+    UNDETERMINED = "undetermined"
 
 
 class EventPhase(StrEnum):

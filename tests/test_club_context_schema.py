@@ -358,3 +358,112 @@ class ClubContextSchemaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContextSchemaV2MigrationTests(unittest.TestCase):
+    """The v2 columns are additive: an existing registry must survive them."""
+
+    V1_EVENT_COLUMNS = (
+        "event_id INTEGER PRIMARY KEY AUTOINCREMENT",
+        "event_key TEXT NOT NULL UNIQUE",
+        "category TEXT NOT NULL",
+        "phase TEXT NOT NULL",
+        "known_at_utc TEXT NOT NULL",
+        "known_at_basis TEXT NOT NULL DEFAULT 'source_published_at'",
+        "effective_from_utc TEXT NOT NULL",
+        "expires_at_utc TEXT",
+        "confidence REAL NOT NULL DEFAULT 0",
+        "salience REAL NOT NULL DEFAULT 0",
+        "sensitivity TEXT NOT NULL DEFAULT 'standard'",
+        "factual_summary TEXT NOT NULL",
+        "confirmation_status TEXT NOT NULL DEFAULT 'unconfirmed'",
+        "review_status TEXT NOT NULL DEFAULT 'pending'",
+        "taxonomy_version INTEGER NOT NULL DEFAULT 1",
+        "extractor_version TEXT NOT NULL DEFAULT 'manual-v1'",
+        "created_at_utc TEXT NOT NULL",
+        "updated_at_utc TEXT NOT NULL",
+    )
+
+    def _v1_database(self):
+        con = sqlite3.connect(":memory:")
+        con.execute(
+            "CREATE TABLE context_events (" + ", ".join(self.V1_EVENT_COLUMNS) + ")"
+        )
+        con.execute(
+            """
+            INSERT INTO context_events (
+                event_key, category, phase, known_at_utc, effective_from_utc,
+                confidence, salience, factual_summary, confirmation_status,
+                review_status, created_at_utc, updated_at_utc
+            ) VALUES (
+                'legacy', 'leadership_change', 'effective',
+                '2024-05-01T00:00:00+00:00', '2024-05-01T00:00:00+00:00',
+                0.95, 0.75, 'A stored v1 event.', 'confirmed', 'approved',
+                '2024-05-01T00:00:00+00:00', '2024-05-01T00:00:00+00:00'
+            )
+            """
+        )
+        con.commit()
+        return con
+
+    def test_migration_adds_columns_without_touching_stored_rows(self):
+        con = self._v1_database()
+        ensure_context_tables(con)
+        row = con.execute(
+            "SELECT disposition, availability_impact, magnitude, factual_summary "
+            "FROM context_events WHERE event_key = 'legacy'"
+        ).fetchone()
+        self.assertEqual(row[0], "undetermined")
+        self.assertEqual(row[1], 0)
+        self.assertEqual(row[2], 0.0)
+        self.assertEqual(row[3], "A stored v1 event.")
+
+    def test_the_taxonomy_version_does_not_move(self):
+        # The eligibility gate rejects any event whose taxonomy_version differs
+        # from the constant, so bumping it would silently blank every stored
+        # event in a runtime database until the catalogue was re-imported.
+        from pipeline.common.club_context.taxonomy import CONTEXT_TAXONOMY_VERSION
+
+        self.assertEqual(CONTEXT_TAXONOMY_VERSION, 1)
+
+    def test_a_stored_v1_event_stays_eligible_after_migration(self):
+        from pipeline.common.club_context.registry import _event_row_eligible
+
+        con = self._v1_database()
+        ensure_context_tables(con)
+        con.row_factory = sqlite3.Row
+        row = dict(
+            con.execute(
+                "SELECT * FROM context_events WHERE event_key = 'legacy'"
+            ).fetchone()
+        )
+        sources = [
+            {
+                "parse_status": "ok",
+                "evidence_role": "confirmation",
+                "rights_status": "facts_and_links",
+                "is_official": 1,
+                "is_reputable": 1,
+                "independence_key": "nrl",
+            }
+        ]
+        self.assertTrue(
+            _event_row_eligible(
+                row, sources, decision_at_utc=None, match_at_utc=None
+            )
+        )
+
+    def test_the_feature_version_moves_instead(self):
+        from pipeline.common.club_context.schema import CONTEXT_FEATURE_VERSION
+
+        self.assertEqual(CONTEXT_FEATURE_VERSION, 2)
+
+    def test_attention_tables_are_created(self):
+        con = sqlite3.connect(":memory:")
+        ensure_context_tables(con)
+        names = {
+            row[0]
+            for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        self.assertIn("context_attention_series", names)
+        self.assertIn("context_attention_runs", names)
