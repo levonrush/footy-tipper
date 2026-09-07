@@ -291,9 +291,19 @@ def build_season_ladder(
     tallies = {team: _TeamTally(team) for team in sorted(teams)}
     ladder_rows: list[dict] = []
     frozen_snapshot: list[dict] | None = None
+    finals_started = False
 
     for round_id in range(1, max_round + 1):
+        # A season goes into the finals once and does not come back out. Without
+        # this, a single finals round whose `roundTitle` the draw failed to supply
+        # would arrive named "Round 28" (draw.py synthesises that default), read
+        # as regular, and keep accumulating the ladder. Every eliminated team
+        # would then collect bye points for the rest of the series.
         regular = is_regular_round(round_names.get(round_id), round_id)
+        if not regular:
+            finals_started = True
+        elif finals_started:
+            regular = False
 
         if regular:
             for fixture in fixtures_by_round.get(round_id, []):

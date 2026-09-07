@@ -321,17 +321,20 @@ except Exception as exc:
 # Both chosen on the held-out margin scorecard, not by preference: see
 # `margin_distribution.reconciliation` in reports/eval-latest.json, which scores
 # every combination of these two switches on the same per-game seeds.
-outcomes, margins, sim_diagnostics = pf.predict_match_outcome_and_scoreline_with_bayes(
-    inference_data=inference_data,
-    mu_home=blended_mu_home,
-    mu_away=blended_mu_away,
-    lambda3=lambda3,
-    calibrated_home_win_conditional=calibrated_cond,
-    dispersion_home=dispersion_home,
-    dispersion_away=dispersion_away,
-    reconcile="on_conflict",
-    display="median",
-    return_diagnostics=True,
+outcomes, margins, sim_diagnostics, sim_distributions = (
+    pf.predict_match_outcome_and_scoreline_with_bayes(
+        inference_data=inference_data,
+        mu_home=blended_mu_home,
+        mu_away=blended_mu_away,
+        lambda3=lambda3,
+        calibrated_home_win_conditional=calibrated_cond,
+        dispersion_home=dispersion_home,
+        dispersion_away=dispersion_away,
+        reconcile="on_conflict",
+        display="median",
+        return_diagnostics=True,
+        return_distributions=True,
+    )
 )
 outcome_df = pd.merge(outcomes, margins, on="game_id")
 
@@ -341,6 +344,17 @@ pf.save_predictions_to_db(
     project_root / "pipeline/common/sql/create_table.sql",
     project_root / "pipeline/common/sql/insert_into_table.sql",
 )
+
+# Margin bands and market cover probabilities, read out of the simulation that
+# already ran. Same terms as the explanations below: written after the tips are
+# safe, wrapped so a diagnostics failure can never cost a send.
+try:
+    from pipeline.common.model_prediciton import distributions as pdist
+
+    written = pdist.save_distributions(sim_distributions, db_path)
+    print(f"Distribution summaries written for {written} game(s).")
+except Exception as exc:
+    print(f"Distribution summaries skipped ({exc}).")
 
 # Per-prediction explanations. Written after the tips are safely persisted and
 # wrapped so that any failure here leaves the round exactly as it would have

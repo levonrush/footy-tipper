@@ -69,6 +69,20 @@ The points gap is operational state; update it with the real competition table b
 5. Normally let the scheduled production run deliver. Use `footy-tipper tips live` only when both the email and joker transition are intended, and confirm the exact round phrase.
 6. After delivery, verify status reports sent and inspect `joker_usage`/`email_sends` through advanced diagnostics if the call was `PLAY`.
 
+## Finals
+
+The joker is suppressed for the whole finals series. It exists to win a season-long
+comp, and that comp finishes with the regular season, so
+`get_joker_round_recommendation` returns a `finals_suppressed` status, the email and
+site drop the section, and `persist_joker_usage_if_applicable` refuses to write. See
+[Finals special edition](finals-edition.md).
+
+Its own guardrails would have reported HOLD anyway: only one priced round remains, and
+`FOOTY_TIPPER_JOKER_MIN_ROUNDS_WITH_ODDS` requires two. That is worth noting for a
+different reason. The same rule fires in the last regular round, so an unplayed joker
+expires worthless rather than being spent on the final opportunity. That is a real
+limitation and is not addressed by the finals work.
+
 ## Limits
 
 - Future-round prices are often incomplete and can move materially.

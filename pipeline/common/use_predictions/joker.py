@@ -183,6 +183,14 @@ def _round_label(round_id, round_name):
     return f"Round {int(round_id)}"
 
 
+def _is_finals_round(predictions):
+    if predictions is None or getattr(predictions, "empty", True):
+        return False
+    from pipeline.common.use_predictions.finals import finals_context
+
+    return bool(finals_context(predictions)["is_finals"])
+
+
 def _unavailable_joker_recommendation(reason, strategy_context=None):
     strategy_context = strategy_context or {}
     strategy = _resolve_joker_strategy_value(strategy_context.get("strategy", _resolve_joker_strategy()))
@@ -359,6 +367,12 @@ def persist_joker_usage_if_applicable(db_path, joker_recommendation, allow_write
         "round_name": None,
     }
     if not isinstance(joker_recommendation, dict):
+        return outcome
+    if joker_recommendation.get("status") == "finals_suppressed":
+        # Belt and braces: a suppressed recommendation carries no PLAY signal, but
+        # the joker is a once-a-season transition and must never be burned on a
+        # round the comp does not count.
+        outcome["reason"] = "finals_suppressed"
         return outcome
 
     competition_year = _coerce_competition_year(joker_recommendation.get("competition_year"))
@@ -708,6 +722,20 @@ def recommend_joker_round(
 
 def get_joker_round_recommendation(db_path, project_root, predictions=None):
     strategy_context = _resolve_joker_strategy_context(project_root)
+    if _is_finals_round(predictions):
+        # The joker belongs to a season-long comp that has already finished. Its
+        # own guardrails would report HOLD here anyway (only one priced round
+        # remains), but saying so explicitly keeps the finals email from carrying
+        # a section about a competition nobody is still playing.
+        recommendation = _unavailable_joker_recommendation(
+            "The tipping comp finished with the regular season, so there is no joker "
+            "to play in the finals.",
+            strategy_context,
+        )
+        recommendation["status"] = "finals_suppressed"
+        recommendation["headline"] = "No joker in the finals"
+        return recommendation
+
     current_round_id = None
     current_round_name = None
     if predictions is not None and not predictions.empty:

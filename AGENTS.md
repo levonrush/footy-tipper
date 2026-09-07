@@ -45,6 +45,12 @@ This file is for coding/automation agents working on `footy-tipper`.
   - Artifacts go to `reports/` and SQLite, never `models/`, because the release receipt hashes every file in that directory.
 - Inference:
   - `pipeline/inference.py` loads artifacts + manifest, rebuilds Tier-A baseline context, applies blend/stack/calibration, reconciles score means only when their tip conflicts with the calibrated tip, simulates negative-binomial/Poisson marginals with shared `lambda3`, derives the displayed scoreline from median margin/total, and upserts into `predictions_table`.
+- Finals special edition:
+  - `pipeline/common/rounds.py` is the single round-stage classifier (regular, finals weeks 1 to 3, grand final). Every consumer keys off it rather than matching round names itself.
+  - During the finals the joker and the competition-strategy layer are suppressed: both optimise a season-long comp that has finished, and the joker must never be burned on a round the comp does not count.
+  - The joker slot becomes `premiership.py`: a seeded Monte Carlo over the remaining bracket. Drawn fixtures use the calibrated model probability; undrawn matchups use Tier-A ratings, which are Platt-scaled because the raw ones are badly overconfident. It fails soft to `available: False`.
+  - `prediction_distributions` is a sibling diagnostics table written during inference from the samples the tip already came from. It powers margin bands and the line/totals value picks. Never re-simulate to build it.
+  - `FOOTY_TIPPER_FINALS_MODE=on` forces the finals path onto an ordinary round for out-of-season rehearsal.
 - Distribution:
   - `footy-tipper tips test|live` dispatches the exact Actions mode; technical local delivery is under `advanced delivery`.
   - The delivery implementation reads the prediction view, computes EV-based value picks with Kelly-derived staking, and handles upload/email via `pipeline/common/use_predictions/` modules (joker, staking, scoreboard, email_copy, email_render, distribution, site).
@@ -75,6 +81,8 @@ This file is for coding/automation agents working on `footy-tipper`.
     `nan_passthrough` in the manifest.)
 - Explainability controls:
   - `FOOTY_TIPPER_EXPLAIN` (default: `true`; `false` skips the `prediction_explanations` write)
+- Finals controls:
+  - `FOOTY_TIPPER_FINALS_MODE` (`auto` default; `on` forces the finals treatment, `off` restores the regular email)
 - Lineup controls:
   - `FOOTY_TIPPER_LINEUPS_ENABLED` (default: `true`)
   - `FOOTY_TIPPER_LINEUPS_MODE` (`recent` or `backfill`, default: `recent`)
@@ -147,6 +155,11 @@ This file is for coding/automation agents working on `footy-tipper`.
   - A watchdog dispatch is gate-only, must not include `confirmed_round`, and fails closed unless `github.actor` exactly matches `FOOTY_TIPPER_WATCHDOG_ACTOR`.
   - False/failed email results return non-zero.
   - A pending (therefore uncertain) Drive marker blocks duplicate delivery until reconciled with SMTP evidence and `email_sends`.
+- Finals-safe execution:
+  - The regular-round email and site must render byte-identically. Anything finals-only branches off `finals_context(...)["is_finals"]`.
+  - Every finals extra fails soft. A broken premiership simulation, a missing distributions table or an unavailable head-to-head costs a section, never a send.
+  - `persist_joker_usage_if_applicable` refuses to write on a finals round.
+  - The ladder freezes at the finals cutover and cannot resume: once a season has seen a finals round, every later round is finals regardless of what the draw named it.
 - Lineup-safe execution:
   - Lineup ingestion should fail soft by default.
   - Train/infer must continue if lineup tables are unavailable or sparse.
@@ -158,6 +171,8 @@ This file is for coding/automation agents working on `footy-tipper`.
   - latest `competition_year` with pre-game rows
   - minimum `round_id` within that season
 - `predictions_table` is upserted by `pipeline/common/sql/insert_into_table.sql`.
+- `prediction_table.sql` also publishes `start_time`/`game_number` (finals `game_id`s are bracket-numbered, so identifier order is not kickoff order) and the line/totals prices the finals value section reads.
+- `prediction_distributions` is a second sibling diagnostics table, written by `pipeline/common/model_prediciton/distributions.py` on the same terms as the explanations table.
 - `prediction_explanations` is a sibling diagnostics table upserted by `pipeline/common/sql/insert_into_explanations_table.sql`. Keep it out of `prediction_table.sql`: the email and site left-join its `why_line` in pandas so a missing or broken explanations table costs a sentence, not a send. Its additive column migration lives once in `pipeline/common/explain/store.py`.
 
 ## Common Commands

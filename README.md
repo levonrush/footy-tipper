@@ -66,6 +66,7 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - [Architecture](docs/how-it-works.md) — data, models, state, and delivery ownership.
 - [Models and evidence](docs/modeling-techniques.md) — Tier A/B/C, calibration, simulation, and limitations.
 - [Explainability](docs/explainability.md): the exact decision chain behind each tip, TreeSHAP attribution, and the cohort analyses.
+- [Finals special edition](docs/finals-edition.md) — what changes in September, and the premiership simulation behind it.
 - [Operations](docs/operations-reliability.md) — model releases, Actions, delivery safety, reruns, and recovery.
 - [Watchdog operations](docs/watchdog-setup.md) — the deployed Google Apps Script fallback, verification, credential replacement, incident handling, and rollback.
 - [Research and history](docs/research-and-history.md) — research-to-production status and the complete Medium series.
@@ -77,6 +78,7 @@ The repository Markdown is the technical source of truth. Notion is a curated ma
 - Missing lineup data fails soft unless strict mode is requested.
 - Actions prediction consumes a named active release and fails clearly if it is missing or invalid.
 - A pending live-delivery marker is deliberately treated as uncertain and blocks automatic resend until it is reconciled.
+- Finals rounds run as special editions: the joker and competition strategy switch off, and a premiership simulation takes their place.
 - Claude/Anthropic writes optional email copy. OpenAI is optional banner generation, not the copywriter.
 - No season end year, secret, or machine-specific path belongs in runtime code.
 

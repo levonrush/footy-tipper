@@ -21,6 +21,7 @@ Pick the door that matches the job. The repository Markdown is canonical; genera
 
 - [Joker strategy](joker-strategy.md) — recommendation inputs, state transition, and replay-safe behavior.
 - [Competition strategy](comp-strategy.md) — tipping, value, Kelly-derived stakes, and competition-win objectives.
+- [Finals special edition](finals-edition.md) — what happens once the comp is over: round stages, the premiership simulation, and the sections that replace the joker.
 
 ## I need to change or research it
 

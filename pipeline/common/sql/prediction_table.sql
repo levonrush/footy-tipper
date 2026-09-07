@@ -29,6 +29,20 @@ SELECT CAST(ft.game_id AS INTEGER) AS game_id
     , CAST(ft.round_id AS INTEGER) AS round_id
     , CAST(ft.competition_year AS INTEGER) AS competition_year
     , ft.round_name
+    -- Line and totals prices, so the finals email can value those markets too.
+    -- `_sanitize_market_freshness` already masks these by their own freshness
+    -- flags, independently of the head-to-head pair.
+    , ft.team_line_amount_home
+    , ft.team_line_odds_home
+    , ft.team_line_odds_away
+    , ft.total_line
+    , ft.total_over_odds
+    , ft.total_under_odds
+    -- Kickoff ordering. game_id encodes round and game number, which is kickoff
+    -- order in a regular round but bracket order in the finals, so the display
+    -- sort needs the real start time rather than the identifier.
+    , CAST(ft.start_time AS REAL) AS start_time
+    , CAST(ft.game_number AS REAL) AS game_number
 FROM predictions_table p
 LEFT JOIN footy_tipping_data ft ON p.game_id = ft.game_id
 WHERE ft.game_state_name = 'Pre Game'

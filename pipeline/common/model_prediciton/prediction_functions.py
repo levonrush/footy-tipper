@@ -23,6 +23,15 @@ GAME_SEED_BASE = 20100308
 GOLDEN_POINT_UNRESOLVED_SHARE = 0.10
 
 
+def _finite_or_none(value):
+    """Coerce an optional market number, treating anything unusable as absent."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if not np.isfinite(number) else number
+
+
 def rng_for_game(game_id, salt=0):
     """Deterministic per-game RNG so re-runs never flip a tip."""
     try:
@@ -377,6 +386,63 @@ def scoreline_from_samples(home_sim, away_sim, tipped_home=None, display="median
     return int(home), int(away)
 
 
+# Margin bands a reader recognises: a converted try, two converted tries, more.
+MARGIN_BANDS = ((1, 6), (7, 12), (13, None))
+
+
+def summarise_score_distribution(home_sim, away_sim, line_home=None, total_line=None):
+    """Reader-facing shape of the simulated cloud.
+
+    Read out of the samples the tip was already made from, so it costs one pass
+    over an array that exists and can never move a prediction. `line_home` is the
+    posted handicap from the home team's perspective and `total_line` the posted
+    points total; either may be absent, and the matching keys are then None.
+    """
+    home_sim = np.asarray(home_sim)
+    away_sim = np.asarray(away_sim)
+    margins = home_sim - away_sim
+    totals = home_sim + away_sim
+    count = float(margins.size)
+    if count == 0:
+        return {}
+
+    absolute = np.abs(margins)
+    summary = {
+        "p_draw_full_time": float((margins == 0).sum() / count),
+        "p_one_score_game": float((absolute <= 6).sum() / count),
+        "median_total": float(np.median(totals)),
+        "total_p10": float(np.percentile(totals, 10)),
+        "total_p90": float(np.percentile(totals, 90)),
+    }
+    for low, high in MARGIN_BANDS:
+        label = f"{low}_plus" if high is None else f"{low}_{high}"
+        within = absolute >= low if high is None else (absolute >= low) & (absolute <= high)
+        summary[f"p_home_by_{label}"] = float(((margins > 0) & within).sum() / count)
+        summary[f"p_away_by_{label}"] = float(((margins < 0) & within).sum() / count)
+
+    summary["p_home_covers_line"] = None
+    if line_home is not None and np.isfinite(line_home):
+        # A handicap is quoted as the points added to the home side, so the home
+        # team covers when the margin beats the negated line. Pushes are excluded
+        # from both sides rather than being awarded to one.
+        threshold = -float(line_home)
+        covers = float((margins > threshold).sum())
+        pushes = float((margins == threshold).sum())
+        decided = count - pushes
+        summary["p_home_covers_line"] = (covers / decided) if decided else None
+        summary["p_line_push"] = pushes / count
+
+    summary["p_total_over"] = None
+    if total_line is not None and np.isfinite(total_line):
+        line = float(total_line)
+        overs = float((totals > line).sum())
+        pushes = float((totals == line).sum())
+        decided = count - pushes
+        summary["p_total_over"] = (overs / decided) if decided else None
+        summary["p_total_push"] = pushes / count
+    return summary
+
+
 def solve_score_means_for_probability(mu_home, mu_away, target_cond, min_mean=1e-3):
     """Shift the score means so their own win probability equals the target.
 
@@ -430,6 +496,8 @@ def simulate_game(
     dispersion_away=None,
     reconcile="on_conflict",
     display="median",
+    line_home=None,
+    total_line=None,
 ):
     """Simulate outcomes and scoreline under Poisson-family score models.
 
@@ -521,6 +589,9 @@ def simulate_game(
     predicted_scoreline = scoreline_from_samples(
         home_goals_sim, away_goals_sim, tipped_home=tipped_home, display=display
     )
+    probabilities["distribution"] = summarise_score_distribution(
+        home_goals_sim, away_goals_sim, line_home=line_home, total_line=total_line
+    )
     return probabilities, predicted_scoreline
 
 
@@ -572,6 +643,7 @@ def predict_match_outcome_and_scoreline_with_bayes(
     reconcile="on_conflict",
     display="median",
     return_diagnostics=False,
+    return_distributions=False,
 ):
     """
     Predict match outcomes and scorelines.
@@ -588,6 +660,10 @@ def predict_match_outcome_and_scoreline_with_bayes(
     produced (whether reconciliation moved the score means, and the means
     actually simulated). It is opt-in and reads values out of the simulation
     that already happened: it never re-simulates, so the tip cannot move.
+
+    return_distributions appends one more frame of margin bands and market cover
+    probabilities, on the same terms: read from the samples the tip came from,
+    never re-simulated. When both flags are set the distributions frame is last.
     """
     if inference_data is None:
         raise ValueError("inference_data is required.")
@@ -607,9 +683,12 @@ def predict_match_outcome_and_scoreline_with_bayes(
         empty_margins = pd.DataFrame(
             columns=["game_id", "predicted_home_score", "predicted_away_score", "predicted_margin"]
         )
+        empty = [empty_outcomes, empty_margins]
         if return_diagnostics:
-            return empty_outcomes, empty_margins, pd.DataFrame(columns=_DIAGNOSTIC_COLUMNS)
-        return empty_outcomes, empty_margins
+            empty.append(pd.DataFrame(columns=_DIAGNOSTIC_COLUMNS))
+        if return_distributions:
+            empty.append(pd.DataFrame(columns=["game_id"]))
+        return tuple(empty)
 
     working = inference_data.copy().reset_index(drop=True)
 
@@ -627,6 +706,7 @@ def predict_match_outcome_and_scoreline_with_bayes(
     calibrated_home_win_conditional = np.asarray(calibrated_home_win_conditional, dtype=float)
 
     results = []
+    distributions = []
     for idx, row in working.iterrows():
         calibrated_cond = calibrated_home_win_conditional[idx]
         if not np.isnan(calibrated_cond):
@@ -646,6 +726,8 @@ def predict_match_outcome_and_scoreline_with_bayes(
             dispersion_away=dispersion_away,
             reconcile=reconcile,
             display=display,
+            line_home=_finite_or_none(row.get("team_line_amount_home")),
+            total_line=_finite_or_none(row.get("total_line")),
         )
 
         if not np.isnan(calibrated_cond):
@@ -685,6 +767,9 @@ def predict_match_outcome_and_scoreline_with_bayes(
                 "sim_draw_prob": float(probabilities["draw_prob"]),
             }
         )
+        distributions.append(
+            {"game_id": row["game_id"], **probabilities.get("distribution", {})}
+        )
 
     results_df = pd.DataFrame(results)
     outcome_df = results_df[
@@ -699,9 +784,12 @@ def predict_match_outcome_and_scoreline_with_bayes(
         ]
     ]
     margin_df = results_df[["game_id", "predicted_home_score", "predicted_away_score", "predicted_margin"]]
+    returned = [outcome_df, margin_df]
     if return_diagnostics:
-        return outcome_df, margin_df, results_df[_DIAGNOSTIC_COLUMNS]
-    return outcome_df, margin_df
+        returned.append(results_df[_DIAGNOSTIC_COLUMNS])
+    if return_distributions:
+        returned.append(pd.DataFrame(distributions))
+    return tuple(returned)
 
 
 def get_predictions(db_path, sql_file):

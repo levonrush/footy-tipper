@@ -658,6 +658,25 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
                 f"delivery is already {existing_marker.get('status', 'unknown')}",
             )
 
+    # Finals special edition. Assembled before the comp-aware layers below so the
+    # log reads in the same order the email does, and so a finals round is
+    # obvious in the run output rather than only in the rendered HTML.
+    finals = sf.finals_payload(db_path, predictions)
+    if finals.get("is_finals"):
+        _log(
+            f"Finals special edition: {finals.get('display_name')} "
+            f"{finals.get('competition_year')}. Joker and comp strategy suppressed."
+        )
+        race = finals.get("premiership") or {}
+        if race.get("available"):
+            leader = race["teams"][0]
+            _log(
+                f"Premiership favourite: {leader['team']} "
+                f"({leader['p_premiership']:.0%}) from {race['simulations']:,} simulations."
+            )
+        else:
+            _log(f"Premiership race unavailable: {race.get('reason', 'unknown')}")
+
     # Competition-aware tip strategy: advisory logs deviations, auto applies
     # them to the outgoing email (predictions_table itself is never changed).
     comp_strategy = sf.get_comp_strategy_recommendation(db_path, root, predictions)
@@ -711,6 +730,7 @@ def _send_predictions(test_mode, test_email, skip_drive, use_llm, dry_run, force
         openai_api_key=os.getenv("OPENAI_KEY") if use_llm else None,
         scoreboard=scoreboard,
         comp_strategy=comp_strategy,
+        finals=finals,
     )
 
     subject = email_payload["subject"]

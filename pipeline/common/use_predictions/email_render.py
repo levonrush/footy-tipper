@@ -7,16 +7,87 @@ import os
 import pandas as pd
 
 from pipeline.common.odds.validity import valid_decimal_odds
+from pipeline.common.use_predictions.finals import theme as _stage_theme
 from pipeline.common.use_predictions.joker import _round_label
 from pipeline.common.use_predictions.probabilities import (  # re-exported for site/email_copy
     tip_probability,
     two_way_home_probability,
 )
 
+# Every finals extra arrives in one `finals` payload rather than as a dozen new
+# arguments. When it is absent or says this is a regular round, the renderers
+# take exactly the paths they took before finals support existed.
 
-def _default_subject(predictions):
+
+def _finals_on(finals):
+    return bool(isinstance(finals, dict) and finals.get("is_finals"))
+
+
+def _theme(finals):
+    if _finals_on(finals) and isinstance(finals.get("theme"), dict):
+        return finals["theme"]
+    return _stage_theme(None)
+
+
+def _finals_field(finals, key, default=None):
+    if not _finals_on(finals):
+        return default
+    value = finals.get(key)
+    return default if value is None else value
+
+
+def _stakes_for(finals, row):
+    return (_finals_field(finals, "stakes", {}) or {}).get(_game_key(row))
+
+
+def _head_to_head_for(finals, row):
+    return (_finals_field(finals, "head_to_head", {}) or {}).get(_game_key(row))
+
+
+def _distribution_for(finals, row):
+    return (_finals_field(finals, "distributions", {}) or {}).get(_game_key(row))
+
+
+def _game_key(row):
+    value = row.get("game_id")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _margin_band_text(distribution):
+    """One line on how close the model expects the game to be."""
+    if not isinstance(distribution, dict):
+        return None
+    one_score = distribution.get("p_one_score_game")
+    blowout = None
+    home_big = distribution.get("p_home_by_13_plus")
+    away_big = distribution.get("p_away_by_13_plus")
+    if home_big is not None and away_big is not None:
+        blowout = float(home_big) + float(away_big)
+    parts = []
+    if one_score is not None:
+        parts.append(f"{_format_probability(float(one_score))} it is a one-score game")
+    if blowout is not None:
+        parts.append(f"{_format_probability(blowout)} it is 13 or more")
+    total = distribution.get("median_total")
+    if total is not None:
+        parts.append(f"median total {int(round(float(total)))}")
+    return "; ".join(parts) if parts else None
+
+
+def _default_subject(predictions, finals=None):
     if predictions.empty:
         return "Footy Tipper Predictions Update"
+    if _finals_on(finals):
+        from pipeline.common.use_predictions.finals import finals_subject
+
+        branded = finals_subject(
+            finals.get("stage"), predictions['competition_year'].iloc[0]
+        )
+        if branded:
+            return branded
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
     return f"Footy Tipper Predictions for {round_name} {competition_year}"
@@ -290,9 +361,45 @@ def _why_text(row) -> str:
     return "" if text.lower() in {"", "nan", "none"} else text
 
 
-def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None, scoreboard=None):
+def _market_picks_lines(finals):
+    picks = _finals_field(finals, "market_picks")
+    if picks is None or getattr(picks, "empty", True):
+        return []
+    lines = ["", "Line and totals:"]
+    for _, pick in picks.iterrows():
+        stake_suffix = ""
+        if not pd.isna(pick.get("stake_amount", pd.NA)):
+            stake_suffix = f", stake {_format_price(pick['stake_amount'])}"
+        lines.append(
+            f"- {pick['market']}: {pick['selection']} at {_format_price(pick['price'])} "
+            f"(fair {_format_price(pick['price_min'])}, edge {_format_percent(pick['edge'])}, "
+            f"stake share {_format_percent(pick['stake_fraction'])}{stake_suffix})"
+        )
+    return lines
+
+
+def _premiership_lines(finals):
+    race = _finals_field(finals, "premiership")
+    lines = ["", "Road to the big dance:"]
+    if not isinstance(race, dict) or not race.get("available"):
+        lines.append("- Premiership probabilities are unavailable this week.")
+        return lines
+    for team in race["teams"]:
+        if not team["alive"]:
+            continue
+        lines.append(
+            f"- {team['seed']}. {team['team']}: "
+            f"premiership {_format_probability(team['p_premiership'])}, "
+            f"grand final {_format_probability(team['p_grand_final'])}"
+        )
+    lines.append(f"  {race.get('method', '')}".rstrip())
+    return lines
+
+
+def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening, closing, joker_recommendation=None, news_hit=None, scoreboard=None, finals=None):
     first_game = _first_game_callout(predictions)
     market_notice = _market_coverage_notice(predictions)
+    is_finals = _finals_on(finals)
     lines = [subject, ""]
     scoreboard_line = _scoreboard_text_line(scoreboard)
     if scoreboard_line:
@@ -327,6 +434,14 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
         why = _why_text(row)
         if why:
             lines.append(f"  why: {why}")
+        if is_finals:
+            for extra in (
+                _stakes_for(finals, row),
+                _margin_band_text(_distribution_for(finals, row)),
+                _head_to_head_for(finals, row),
+            ):
+                if extra:
+                    lines.append(f"  {extra}")
 
     lines.append("")
     if tipper_picks.empty:
@@ -343,12 +458,18 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
                 f"stake share {_format_percent(row['stake_fraction'])}{stake_suffix})"
             )
 
+    if is_finals:
+        lines.extend(_market_picks_lines(finals))
+
     if folder_url:
         lines.extend(["", f"Tips folder: {folder_url}"])
 
-    lines.extend(["", "Joker round call:"])
-    for line in _joker_summary_lines(joker_recommendation):
-        lines.append(f"- {line}")
+    if is_finals:
+        lines.extend(_premiership_lines(finals))
+    else:
+        lines.extend(["", "Joker round call:"])
+        for line in _joker_summary_lines(joker_recommendation):
+            lines.append(f"- {line}")
 
     lines.extend(["", closing])
     lines.extend(["", "Reply 'unsubscribe' to stop getting these."])
@@ -393,6 +514,162 @@ def _scoreboard_section_html(scoreboard):
     )
 
 
+def _ribbon_html(theme):
+    """The SPECIAL EDITION strip that marks a finals week."""
+    label = theme.get("ribbon_label")
+    if not label:
+        return ""
+    return (
+        "<tr><td style=\"padding:0;\">"
+        f"<div style=\"background:{theme['ribbon_background']}; padding:9px 24px;\">"
+        f"<p style=\"margin:0; color:{theme['ribbon_text']}; font-family:'Trebuchet MS', Arial, sans-serif; "
+        "font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase;\">"
+        f"{html.escape(str(label))}"
+        "</p></div></td></tr>"
+    )
+
+
+def _fixture_detail_html(finals, row, row_bg, theme):
+    """A full-width row under a finals fixture: stakes, shape, history.
+
+    Spans the existing four columns so the table widths a regular round renders
+    with are untouched.
+    """
+    stakes = _stakes_for(finals, row)
+    bands = _margin_band_text(_distribution_for(finals, row))
+    history = _head_to_head_for(finals, row)
+    if not any((stakes, bands, history)):
+        return ""
+
+    blocks = []
+    if stakes:
+        blocks.append(
+            f"<div style=\"color:{theme['accent']}; font-weight:700; font-size:12px; "
+            "letter-spacing:0.4px; text-transform:uppercase; margin-bottom:4px;\">"
+            f"{html.escape(str(stakes))}</div>"
+        )
+    for text in (bands, history):
+        if text:
+            blocks.append(
+                "<div style=\"color:#4b5563; font-size:12px; line-height:1.5;\">"
+                f"{html.escape(str(text))}</div>"
+            )
+    return (
+        f"<tr style=\"background:{row_bg};\">"
+        "<td colspan=\"4\" style=\"padding:0 10px 12px; border-bottom:1px solid #e5e7eb; "
+        "font-family:Arial, sans-serif;\">"
+        + "".join(blocks)
+        + "</td></tr>"
+    )
+
+
+def _market_picks_html(finals, theme):
+    """Line and totals picks. Finals only, and only when the model found an edge."""
+    picks = _finals_field(finals, "market_picks")
+    if picks is None or getattr(picks, "empty", True):
+        return ""
+    rows = []
+    for _, pick in picks.iterrows():
+        stake_text = _format_percent(pick["stake_fraction"])
+        if not pd.isna(pick.get("stake_amount", pd.NA)):
+            stake_text = f"{stake_text} ({_format_price(pick['stake_amount'])})"
+        cells = (
+            str(pick["market"]),
+            str(pick["selection"]),
+            _format_price(pick["price"]),
+            _format_price(pick["price_min"]),
+            _format_percent(pick["edge"]),
+            stake_text,
+        )
+        rows.append(
+            "<tr>"
+            + "".join(
+                "<td style=\"padding:10px; border-bottom:1px solid #f3f4f6; color:#111827; "
+                f"font-family:Arial, sans-serif; font-size:14px;\">{html.escape(cell)}</td>"
+                for cell in cells
+            )
+            + "</tr>"
+        )
+    headers = ("Market", "Selection", "Price", "Fair", "Edge", "Stake Share")
+    return (
+        "<tr><td style=\"padding:14px 24px 8px;\">"
+        "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid "
+        f"{theme['value_accent']}; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; "
+        "font-size:18px;\">Line and totals</h3>"
+        "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" "
+        "style=\"border-collapse:collapse; border:1px solid #bbf7d0; border-radius:8px; overflow:hidden;\">"
+        "<thead><tr style=\"background:#dcfce7;\">"
+        + "".join(
+            "<th align=\"left\" style=\"padding:10px; color:#15803d; "
+            f"font-family:Arial, sans-serif; font-size:12px;\">{header}</th>"
+            for header in headers
+        )
+        + "</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></td></tr>"
+    )
+
+
+def _premiership_html(finals, theme):
+    """The premiership race table, or an honest note when it is unavailable."""
+    race = _finals_field(finals, "premiership")
+    heading = (
+        "<tr><td style=\"padding:14px 24px 8px;\">"
+        "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid "
+        f"{theme['feature_accent']}; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; "
+        "font-size:18px;\">Road to the big dance</h3>"
+    )
+    if not isinstance(race, dict) or not race.get("available"):
+        return (
+            heading
+            + "<p style=\"margin:0; color:#4b5563; font-family:Arial, sans-serif; "
+            "font-size:14px; line-height:1.5;\">"
+            "Premiership probabilities are unavailable this week."
+            "</p></td></tr>"
+        )
+
+    rows = []
+    for team in race["teams"]:
+        if not team["alive"]:
+            continue
+        emphasis = "font-weight:700;" if team["p_premiership"] >= 0.25 else ""
+        cells = (
+            str(team["seed"]),
+            str(team["team"]),
+            _format_probability(team["p_grand_final"]),
+            _format_probability(team["p_premiership"]),
+        )
+        rows.append(
+            "<tr>"
+            + "".join(
+                "<td style=\"padding:10px; border-bottom:1px solid #f3f4f6; color:#111827; "
+                f"font-family:Arial, sans-serif; font-size:14px; {emphasis}\">{html.escape(cell)}</td>"
+                for cell in cells
+            )
+            + "</tr>"
+        )
+    headers = ("Seed", "Team", "Grand Final", "Premiership")
+    return (
+        heading
+        + "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" "
+        f"style=\"border-collapse:collapse; border:1px solid {theme['feature_accent']}; "
+        "border-radius:8px; overflow:hidden;\">"
+        "<thead><tr style=\"background:#f1f5f9;\">"
+        + "".join(
+            "<th align=\"left\" style=\"padding:10px; color:#334155; "
+            f"font-family:Arial, sans-serif; font-size:12px;\">{header}</th>"
+            for header in headers
+        )
+        + "</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+        + "<p style=\"margin:8px 0 0; color:#9ca3af; font-family:Arial, sans-serif; font-size:11px;\">"
+        + html.escape(str(race.get("method", "")))
+        + f" Based on {race['simulations']:,} simulated finals series."
+        + "</p></td></tr>"
+    )
+
+
 def _render_html_email(
     predictions,
     tipper_picks,
@@ -403,11 +680,19 @@ def _render_html_email(
     joker_recommendation=None,
     news_hit=None,
     scoreboard=None,
+    finals=None,
 ):
     round_name = predictions['round_name'].iloc[0]
     competition_year = predictions['competition_year'].iloc[0]
     first_game = _first_game_callout(predictions)
     market_notice = _market_coverage_notice(predictions)
+    is_finals = _finals_on(finals)
+    theme = _theme(finals)
+    heading = (
+        f"{_finals_field(finals, 'display_name') or round_name} {competition_year}"
+        if is_finals
+        else f"{round_name} {competition_year} Tips"
+    )
 
     match_rows = []
     for i, (_, row) in enumerate(predictions.iterrows()):
@@ -456,6 +741,10 @@ def _render_html_email(
             "</td>"
             "</tr>"
         )
+        if is_finals:
+            detail = _fixture_detail_html(finals, row, row_bg, theme)
+            if detail:
+                match_rows.append(detail)
 
     pick_rows = []
     for _, row in tipper_picks.iterrows():
@@ -585,6 +874,20 @@ def _render_html_email(
         "</div>"
     )
 
+    if is_finals:
+        # The comp the joker belongs to has finished. The slot goes to the only
+        # question left in September.
+        feature_section = _premiership_html(finals, theme)
+    else:
+        feature_section = (
+            "<tr><td style=\"padding:14px 24px 8px;\">"
+            "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid "
+            f"{theme['feature_accent']}; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; "
+            "font-size:18px;\">Joker round call</h3>"
+            f"{joker_section}"
+            "</td></tr>"
+        )
+
     banner_html = ""
     if banner_available:
         banner_html = (
@@ -593,7 +896,7 @@ def _render_html_email(
         )
     else:
         banner_html = (
-            "<div style=\"padding:26px 24px; background:linear-gradient(135deg, #115e59 0%, #0369a1 100%); border-radius:12px 12px 0 0;\">"
+            f"<div style=\"padding:26px 24px; background:{theme['header_gradient']}; border-radius:12px 12px 0 0;\">"
             "<h1 style=\"margin:0; color:#ffffff; font-family:'Trebuchet MS', Arial, sans-serif; font-size:30px; letter-spacing:0.5px;\">"
             "Footy Tipper"
             "</h1>"
@@ -636,9 +939,10 @@ def _render_html_email(
         "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"680\" "
         "style=\"max-width:680px; width:100%; border-collapse:collapse; background:#ffffff; border-radius:12px;\">"
         f"<tr><td>{banner_html}</td></tr>"
+        f"{_ribbon_html(theme)}"
         "<tr><td style=\"padding:24px 24px 10px;\">"
         "<h2 style=\"margin:0; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:26px;\">"
-        f"{html.escape(str(round_name))} {html.escape(str(competition_year))} Tips"
+        f"{html.escape(str(heading))}"
         "</h2>"
         "</td></tr>"
         f"{_scoreboard_section_html(scoreboard)}"
@@ -661,7 +965,7 @@ def _render_html_email(
         f"{market_notice_section}"
         f"{first_game_section}"
         "<tr><td style=\"padding:10px 24px 8px;\">"
-        "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid #0f766e; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Predicted winners</h3>"
+        f"<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid {theme['accent']}; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Predicted winners</h3>"
         "<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" "
         "style=\"border-collapse:collapse; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;\">"
         "<thead><tr style=\"background:#f9fafb;\">"
@@ -675,13 +979,11 @@ def _render_html_email(
         "</tbody></table>"
         "</td></tr>"
         "<tr><td style=\"padding:14px 24px 8px;\">"
-        "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid #16a34a; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Value picks</h3>"
+        f"<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid {theme['value_accent']}; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Value picks</h3>"
         f"{value_section}"
         "</td></tr>"
-        "<tr><td style=\"padding:14px 24px 8px;\">"
-        "<h3 style=\"margin:0 0 10px; padding-left:10px; border-left:4px solid #f59e0b; color:#0f172a; font-family:'Trebuchet MS', Arial, sans-serif; font-size:18px;\">Joker round call</h3>"
-        f"{joker_section}"
-        "</td></tr>"
+        f"{_market_picks_html(finals, theme)}"
+        f"{feature_section}"
         f"{folder_button}"
         "<tr><td style=\"padding:6px 24px 22px;\">"
         f"{_to_html_paragraphs(closing)}"

@@ -94,6 +94,19 @@ from pipeline.common.use_predictions.comp_strategy import (  # noqa: F401
     get_comp_strategy_recommendation,
     persist_comp_strategy_decision,
 )
+from pipeline.common.use_predictions.finals import (  # noqa: F401
+    finals_context,
+    finals_payload,
+    finals_subject,
+    head_to_head,
+    head_to_head_line,
+    knockout_stakes,
+    resolve_finals_mode,
+    stage_ledger,
+)
+from pipeline.common.use_predictions.premiership import (  # noqa: F401
+    premiership_race,
+)
 from pipeline.common.use_predictions.news import (  # noqa: F401
     _fetch_nrl_news_context,
     _fetch_rss_headlines,
@@ -101,5 +114,9 @@ from pipeline.common.use_predictions.news import (  # noqa: F401
 from pipeline.common.use_predictions.scoreboard import (  # noqa: F401
     get_season_scoreboard,
     scoreboard_summary_line,
+    settled_predictions,
 )
-from pipeline.common.use_predictions.staking import get_tipper_picks  # noqa: F401
+from pipeline.common.use_predictions.staking import (  # noqa: F401
+    get_market_picks,
+    get_tipper_picks,
+)

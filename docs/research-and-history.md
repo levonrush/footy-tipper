@@ -30,6 +30,14 @@ to nudge pre-simulation score means.
 
 The joker work reframed “best round” as a sequential, stateful decision. Production scores round opportunity, applies coverage/separation guardrails, backtests scenario policies, and writes joker use only after a successful live send. The competition layer separately simulates limited deviations that maximize estimated competition-win probability while preserving canonical model tips.
 
+Both layers are scoped to a competition that runs for the regular season only, so both switch off for the finals. That boundary was implicit until the finals work made it explicit; see below.
+
+### Finals
+
+The comps stop in September and the football does not, so the finals run as special editions. The reframe is that the two competition-aware layers have nothing left to optimise, and the slot they occupy is better spent on the question a knockout series can actually answer: who wins the premiership.
+
+Production simulates the remaining bracket from the ladder seeds, pricing drawn fixtures with the calibrated model and undrawn ones from Tier-A ratings. The ratings needed calibrating first: raw Tier-A probabilities are severely overconfident, so a bracket simulated on them would have reported a minor premier as an overwhelming favourite. The bracket rules are pinned against three real seasons rather than asserted. See [Finals special edition](finals-edition.md).
+
 ### Feed migration
 
 The migration research identified nrl.com draw/match-centre replacements, a derivable ladder/performance path, and historical/live odds sources. That work shipped on `main` in PR #34: Python refreshes the sources into the existing cache schemas before R preparation, with `FOOTY_TIPPER_FEED_SOURCE=feed` retaining the XML rollback. Richer player identity features and totals-based score offsets remain separate follow-on work.
@@ -54,8 +62,14 @@ The migration research identified nrl.com draw/match-centre replacements, a deri
 | Role/continuity/cohesion/churn features | Shipped | shared lineup feature builder |
 | Lineup uncertainty marginalization | Shipped | deterministic per-game Monte Carlo |
 | Player match-performance ratings | Partial | match-centre ingestion is production; identity-linked rating features are not |
-| Joker opportunity, guardrails, and single-use ledger | Shipped | `joker_policy.json`, `joker_usage` |
-| Competition-win deviation search | Shipped | advisory default; audit table; model predictions unchanged |
+| Joker opportunity, guardrails, and single-use ledger | Shipped | `joker_policy.json`, `joker_usage`; suppressed for the finals |
+| Competition-win deviation search | Shipped | advisory default; audit table; model predictions unchanged; suppressed for the finals |
+| Finals round-stage classification | Shipped | `rounds.py`; shared by ingestion, prediction, and delivery |
+| Premiership bracket simulation | Shipped | `premiership.py`; bracket rules pinned against 2023-2025; fails soft to no section |
+| Calibrated Tier-A ratings for undrawn matchups | Shipped | Platt scaling fitted from the ratings walk; Brier 0.274 to 0.225 on 2015 onward |
+| Simulated-distribution summaries | Shipped | `prediction_distributions`; margin bands and line/totals cover probabilities, read from the existing simulation |
+| Joker playable in the final priced round | Not implemented | `min_rounds_with_odds` forces HOLD, so an unused joker expires worthless |
+| Finals-aware ladder rate features | Not implemented | `wins / round_id` deflates rate features in finals; consistent train/serve, needs a retrain |
 | Dynamic hierarchical Bayesian attack/defence | Exploratory | formal research only; current Tier A is simpler |
 | Full bookmaker-offset residual score model | Not implemented | current valid-market blends only nudge prediction-time means |
 | nrl.com draw/match-centre feed replacement | Shipped | Python ingestion runs before R prep; parity evidence checked in; XML retained as rollback |

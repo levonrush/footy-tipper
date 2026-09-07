@@ -116,3 +116,60 @@ class LadderBuilderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FinalsCutoverTests(unittest.TestCase):
+    """Once a season reaches the finals it must not fall back to accumulating."""
+
+    def _fixtures(self, week_two_name):
+        rounds = [(1, "Round 1"), (2, "Round 2"), (3, "Finals Week 1"), (4, week_two_name)]
+        fixtures = []
+        for round_id, round_name in rounds:
+            fixtures.append(
+                {
+                    "game_id": round_id * 10,
+                    "round_id": float(round_id),
+                    "round_name": round_name,
+                    "game_state_name": "Final",
+                    "start_time": 0,
+                    "team_home": "A",
+                    "team_away": "B",
+                    "team_final_score_home": 30.0,
+                    "team_final_score_away": 10.0,
+                }
+            )
+        return fixtures
+
+    def _points(self, rows, round_id, team):
+        for row in rows:
+            if int(row["round_id"]) == round_id and row["team"] == team:
+                return row["competition_points"]
+        raise AssertionError(f"no ladder row for {team} in round {round_id}")
+
+    def test_a_correctly_named_finals_round_freezes_the_ladder(self):
+        rows = build_season_ladder(self._fixtures("Finals Week 2"), [], 2026)
+        self.assertEqual(self._points(rows, 2, "A"), self._points(rows, 4, "A"))
+
+    def test_a_finals_round_the_feed_failed_to_name_still_freezes(self):
+        """`draw.py` synthesises `Round N` when `roundTitle` is missing."""
+        rows = build_season_ladder(self._fixtures("Round 4"), [], 2026)
+        self.assertEqual(self._points(rows, 2, "A"), self._points(rows, 4, "A"))
+
+    def test_eliminated_teams_collect_no_bye_points_after_the_cutover(self):
+        byes = [{"round_id": 4.0, "team": "C"}]
+        fixtures = self._fixtures("Round 4")
+        fixtures.append(
+            {
+                "game_id": 999,
+                "round_id": 1.0,
+                "round_name": "Round 1",
+                "game_state_name": "Final",
+                "start_time": 0,
+                "team_home": "C",
+                "team_away": "D",
+                "team_final_score_home": 20.0,
+                "team_final_score_away": 12.0,
+            }
+        )
+        rows = build_season_ladder(fixtures, byes, 2026)
+        self.assertEqual(self._points(rows, 2, "C"), self._points(rows, 4, "C"))

@@ -151,6 +151,14 @@ def score_tip_candidate(tips, outcomes, rival_totals, user_future, points_gap):
     return float(np.mean(wins + 0.5 * ties))
 
 
+def _is_finals_round(predictions):
+    if predictions is None or getattr(predictions, "empty", True):
+        return False
+    from pipeline.common.use_predictions.finals import finals_context
+
+    return bool(finals_context(predictions)["is_finals"])
+
+
 def _unavailable(reason, mode):
     return {
         "available": False,
@@ -174,6 +182,18 @@ def get_comp_strategy_recommendation(db_path, project_root, predictions):
     mode = resolve_comp_strategy_mode()
     if mode == "off":
         return {**_unavailable("Comp strategy disabled (FOOTY_TIPPER_COMP_STRATEGY=off).", mode), "status": "off"}
+    if _is_finals_round(predictions):
+        # Every number this layer produces (points gap, field size, rounds left,
+        # P(win comp)) describes a season-long competition that has finished.
+        # Deviating from the model tip to chase it would be nonsense.
+        return {
+            **_unavailable(
+                "The tipping comp finished with the regular season, so there is no "
+                "competition position left to optimise.",
+                mode,
+            ),
+            "status": "off",
+        }
 
     try:
         return _recommend(db_path, project_root, predictions, mode)

@@ -54,6 +54,16 @@ Update the points gap and field size from the actual competition. Defaults make 
 
 Simulations are seeded from round/game state, so an unchanged rerun produces the same comparison. Production runs record decision rows, but do not mutate model predictions. Email idempotency is shared by the Drive delivery marker and `email_sends`; confirming a manual live dispatch does not authorize a different simulation input and should not be used to fish for a better result.
 
+## Finals
+
+The layer is off for the whole finals series. Every quantity it reasons about (the
+points gap, the field, the rounds still to be played, `P(win comp)`) describes a
+competition that has finished, and the future-round approximation assumes full-size
+rounds rather than the four, two, two and one of a finals series. Deviating from the
+model tip to chase a comp position that no longer exists would be nonsense, so
+`get_comp_strategy_recommendation` returns `status: off` and the outgoing tips are the
+model's own. See [Finals special edition](finals-edition.md).
+
 ## Relationship to betting decisions
 
 Competition strategy optimizes relative tipping score. Value picks use expected monetary value, and staking uses a bounded Kelly fraction. A contrarian comp tip is not automatically a value bet, and a value bet is not automatically the right tipping-comp deviation. See [Principled odds integration](principled-odds-integration.md).

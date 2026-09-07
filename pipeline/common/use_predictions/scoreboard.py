@@ -41,13 +41,14 @@ WHERE ft.game_state_name = 'Final'
 """
 
 
-def get_season_scoreboard(db_path):
-    """Return season-to-date tipping results, or None when nothing is settled.
+def settled_predictions(db_path):
+    """Decided games this season with the tip, the result, and whether it landed.
 
-    Result dict keys:
-        competition_year, season_games, season_correct, season_accuracy,
-        market_games, market_correct, market_accuracy (None without odds),
-        last_round_id, last_round_name, last_round_games, last_round_correct.
+    Shared by the season scoreboard and the finals ledger so both agree on what
+    counts as a correct tip. Returns an empty frame when nothing is settled.
+
+    Adds: `model_tipped_home`, `model_correct`, `has_odds`, `market_correct`,
+    `tipped_team`, `tip_probability`, `market_probability_for_tip`.
     """
     try:
         con = sqlite3.connect(str(db_path))
@@ -57,16 +58,16 @@ def get_season_scoreboard(db_path):
             con.close()
     except Exception as exc:
         print(f"Scoreboard query failed ({exc}).")
-        return None
+        return pd.DataFrame()
 
     if settled.empty:
-        return None
+        return settled
 
     settled = settled.dropna(subset=["home_team_win_prob", "team_final_score_home", "team_final_score_away"])
     # Draws can't be tipped correctly or incorrectly in a two-way comp; skip them.
     settled = settled[settled["team_final_score_home"] != settled["team_final_score_away"]]
     if settled.empty:
-        return None
+        return settled
 
     home_won = settled["team_final_score_home"] > settled["team_final_score_away"]
     # Use the stored tip (home_team_result) — it's what was actually emailed.
@@ -80,11 +81,41 @@ def get_season_scoreboard(db_path):
             settled["home_team_win_prob"], settled["home_team_lose_prob"]
         )
         model_tipped_home = model_tipped_home.where(~no_result, fallback)
-    settled = settled.assign(model_correct=(model_tipped_home == home_won))
 
     has_odds = (settled["odds_home"] > 1.0) & (settled["odds_away"] > 1.0)
     market_tipped_home = settled["odds_home"] < settled["odds_away"]
-    market_correct = (market_tipped_home == home_won) & has_odds
+    home_probability = two_way_home_probability(
+        settled["home_team_win_prob"], settled["home_team_lose_prob"]
+    )
+    tipped_odds = settled["odds_home"].where(model_tipped_home, settled["odds_away"])
+
+    return settled.assign(
+        model_tipped_home=model_tipped_home,
+        model_correct=(model_tipped_home == home_won),
+        has_odds=has_odds,
+        market_correct=(market_tipped_home == home_won) & has_odds,
+        tipped_team=settled["team_home"].where(model_tipped_home, settled["team_away"]),
+        tip_probability=home_probability.where(model_tipped_home, 1.0 - home_probability),
+        # Bookmaker overround left in: this is a rough "how surprising was it",
+        # not a price, and normalising it would need the paired side anyway.
+        market_probability_for_tip=(1.0 / tipped_odds).where(has_odds),
+    )
+
+
+def get_season_scoreboard(db_path):
+    """Return season-to-date tipping results, or None when nothing is settled.
+
+    Result dict keys:
+        competition_year, season_games, season_correct, season_accuracy,
+        market_games, market_correct, market_accuracy (None without odds),
+        last_round_id, last_round_name, last_round_games, last_round_correct.
+    """
+    settled = settled_predictions(db_path)
+    if settled.empty:
+        return None
+
+    has_odds = settled["has_odds"]
+    market_correct = settled["market_correct"]
 
     season_games = int(len(settled))
     season_correct = int(settled["model_correct"].sum())

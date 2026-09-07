@@ -58,6 +58,8 @@ The Final/Pre Game split is a leakage boundary. The broad local training DB is p
 
 Lineup ingestion owns `lineup_article_snapshots`, `lineup_entries`, and `lineup_ingestion_runs`. Prediction/delivery add `predictions_table`, `email_sends`, and `joker_usage`. [`prediction_table.sql`](../pipeline/common/sql/prediction_table.sql) selects the latest season with pre-game context and its minimum round.
 
+`prediction_explanations` and `prediction_distributions` are sibling diagnostics tables rather than extra columns on `predictions_table`, which is the published tips contract. Both are written after the tips are safely persisted and inside a try/except, so a diagnostics failure costs the email a sentence or a section rather than a send.
+
 ## Model flow and artifacts
 
 ![Tier A, B, C, market, calibration, margin, and simulation flow](diagrams/model-stack.svg)
@@ -109,9 +111,10 @@ Inference combines the active model release with current prepared rows and upser
 - primary tip and calibrated probability;
 - expected-value opportunities from offered odds;
 - Kelly-derived stake fractions;
-- joker recommendation and competition strategy advice;
+- joker recommendation and competition strategy advice, except during the finals, when both are suppressed because the comp they optimise has finished;
 - Claude-generated or deterministic copy;
-- an optional OpenAI-generated banner.
+- an optional OpenAI-generated banner;
+- during the finals, premiership probabilities, knockout stakes, margin shape, head-to-head history, and line/totals picks. See [Finals special edition](finals-edition.md).
 
 Scheduled and human-triggered live sends share one serialized GitHub Actions workflow. It first validates the sender credentials, token, Google Sheet access, and frozen recipient envelope, then claims a season/round marker in Drive immediately before SMTP. This external marker protects the gap between successful email delivery and a later DB/runtime push. A pending marker is deliberately treated as uncertain and blocks automatic resend; an ambiguous or partially refused SMTP result leaves it pending. Full success reconciles the marker with `email_sends` and applies an eligible joker transition. Test mode sends one recipient but mutates none of those production stores.
 

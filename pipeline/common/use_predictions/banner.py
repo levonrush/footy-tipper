@@ -36,7 +36,29 @@ def _resolve_banner_path():
     return None
 
 
-def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, news_hit=None):
+# The artwork escalates with the series. Week one is the shift into knockout
+# footy; the decider gets the full occasion.
+_FINALS_BANNER_BRIEFS = {
+    "finals_week_1": (
+        "It is week one of the NRL finals. The scene should feel like the season "
+        "just changed gear: high stakes, sudden death, no more second chances."
+    ),
+    "finals_week_2": (
+        "It is semi-final weekend, pure sudden death. The scene should feel "
+        "desperate and frantic, everything on the line."
+    ),
+    "preliminary_final": (
+        "It is preliminary final weekend, one win from the Grand Final. The scene "
+        "should feel like the cruellest, most nervous weekend of the year."
+    ),
+    "grand_final": (
+        "It is NRL GRAND FINAL day, the biggest occasion of the year. Go all out: "
+        "confetti, a packed stadium, the trophy, full spectacle."
+    ),
+}
+
+
+def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, news_hit=None, finals=None):
     """Ask Claude for a fun, topical scenario for the two banner characters this week."""
     subject = copy.get("subject", "")
     opening = copy.get("opening", "")[:300]
@@ -47,6 +69,16 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
         inspiration = f"NRL news this week:\n{news_context}"
     else:
         inspiration = f"Email subject: {subject}\nEmail opening: {opening}"
+
+    occasion = ""
+    if isinstance(finals, dict) and finals.get("is_finals"):
+        brief = _FINALS_BANNER_BRIEFS.get(finals.get("stage"))
+        if brief:
+            occasion = (
+                f"\n\nOCCASION (this must drive the scene): {brief} "
+                "Work the week's story in only if it fits the occasion."
+            )
+
     response = anthropic_client.messages.create(
         model=resolve_claude_model(),
         system="You write short, vivid image editing instructions for a fun weekly sports email banner.",
@@ -55,7 +87,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
             f"Come up with a funny or energetic scenario for this week's banner inspired by the content below. "
             f"Put Reg and the dingo in a situation that directly references the story or themes — they can be doing anything: celebrating, arguing, cowering, riding something, holding a sign, dressed up, etc. "
             f"Be creative and specific.\n\n"
-            f"{inspiration}\n\n"
+            f"{inspiration}{occasion}\n\n"
             "Return 2-3 sentences describing the scene. Be visual and specific. No preamble."
         )}],
         max_tokens=150,
@@ -75,7 +107,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
 
 
 
-def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None, news_hit=None):
+def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None, news_hit=None, finals=None):
     """Edit the existing email banner with topical elements via Claude + gpt-image-1."""
     if not anthropic_api_key or not openai_api_key:
         return None
@@ -98,7 +130,9 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_conte
             return None
 
         anthropic_client = Anthropic(api_key=anthropic_api_key)
-        edit_instruction = _build_banner_edit_instruction(copy, anthropic_client, news_context=news_context, news_hit=news_hit)
+        edit_instruction = _build_banner_edit_instruction(
+            copy, anthropic_client, news_context=news_context, news_hit=news_hit, finals=finals
+        )
         print(f"Banner edit: {edit_instruction[:120]}...")
 
         img = Image.open(banner_path).convert("RGBA")

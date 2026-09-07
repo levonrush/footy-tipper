@@ -83,22 +83,179 @@ BASELINE_FEATURE_COLUMNS = [
 ]
 
 
-def compute_tier_a_baseline_features(df: pd.DataFrame, config: TierABaselineConfig | None = None) -> pd.DataFrame:
-    """Compute leak-safe dynamic team-strength baseline features for each match row."""
+REQUIRED_BASELINE_COLUMNS = {
+    "game_id",
+    "competition_year",
+    "round_id",
+    "start_time",
+    "game_number",
+    "team_home",
+    "team_away",
+    "game_state_name",
+}
+
+
+_LOGIT_CLIP = 1e-4
+# Two parameters fitted on thousands of games; a season's worth is not enough to
+# trust the slope, so below this the ratings stay raw and say so.
+_MIN_CALIBRATION_GAMES = 200
+
+
+def _logit(p):
+    p = np.clip(np.asarray(p, dtype=float), _LOGIT_CLIP, 1.0 - _LOGIT_CLIP)
+    return np.log(p / (1.0 - p))
+
+
+def _sigmoid(z):
+    # exp overflows to +inf for strongly negative z, which is the correct answer
+    # here (the sigmoid goes to zero), so the warning is noise.
+    with np.errstate(over="ignore"):
+        return 1.0 / (1.0 + np.exp(-np.asarray(z, dtype=float)))
+
+
+def fit_logit_calibration(raw_probabilities, outcomes, max_iter: int = 100, tol: float = 1e-10):
+    """Platt scaling of Tier-A probabilities: `sigmoid(a + b * logit(p))`.
+
+    The ratings rank matchups well (about 63% tipping accuracy on 2015 onward) but
+    their probabilities are severely overconfident: the raw 0.9-1.0 bucket wins
+    about 72% of the time, and nearly half of all games are pushed outside
+    [0.1, 0.9]. Simulating a finals bracket on the raw numbers would report a
+    minor premier as an 85% premiership chance. Two parameters fitted by Newton's
+    method on completed matches fix the spread without touching the ordering.
+
+    Returns `(a, b)`, or None when there is not enough history to fit.
+    """
+    x = _logit(raw_probabilities)
+    y = np.asarray(outcomes, dtype=float)
+    keep = np.isfinite(x) & np.isfinite(y)
+    x, y = x[keep], y[keep]
+    if x.size < _MIN_CALIBRATION_GAMES or len(np.unique(y)) < 2:
+        return None
+
+    design = np.column_stack([np.ones_like(x), x])
+    beta = np.zeros(2, dtype=float)
+    # `matmul` reports whatever floating-point flags are already set on the
+    # thread, and the ratings walk that produced these probabilities makes
+    # thousands of Skellam calls that legitimately underflow. Silencing the
+    # inherited flags here keeps a clean fit from printing alarming warnings;
+    # the finiteness and slope checks below remain the real guard.
+    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+        for _ in range(max_iter):
+            probabilities = _sigmoid(design @ beta)
+            weights = np.clip(probabilities * (1.0 - probabilities), 1e-9, None)
+            gradient = design.T @ (y - probabilities)
+            hessian = design.T @ (design * weights[:, None])
+            # Ridge term keeps the solve well conditioned on near-separable inputs.
+            hessian[np.diag_indices_from(hessian)] += 1e-8
+            try:
+                step = np.linalg.solve(hessian, gradient)
+            except np.linalg.LinAlgError:
+                return None
+            beta = beta + step
+            if not np.all(np.isfinite(beta)):
+                return None
+            if np.max(np.abs(step)) < tol:
+                break
+    if beta[1] <= 0.0:
+        # A non-positive slope would invert the ratings. Refuse rather than lie.
+        return None
+    return float(beta[0]), float(beta[1])
+
+
+def apply_logit_calibration(probability, calibration, include_intercept: bool = True):
+    """Apply a fitted Platt scaling.
+
+    The fit is done on home teams, so its intercept absorbs whatever home bias the
+    base rates did not. At a neutral venue there is no home side, so only the slope
+    (the confidence shrinkage) applies. Dropping the intercept there also makes the
+    transform exactly antisymmetric, which is what keeps the two sides of a Grand
+    Final summing to one.
+    """
+    if calibration is None:
+        return float(probability)
+    intercept, slope = calibration
+    offset = intercept if include_intercept else 0.0
+    return float(_sigmoid(offset + slope * _logit(probability)))
+
+
+@dataclass(frozen=True)
+class TierARatings:
+    """Team attack/defence multipliers after the last observed completed match.
+
+    The same numbers the baseline features are read from, exposed as end state so
+    a caller can price a matchup that is not in the fixture list (a finals bracket
+    that has not been drawn yet, for example).
+    """
+
+    attack: dict[str, float]
+    defence: dict[str, float]
+    base_home: float
+    base_away: float
+    calibration: tuple[float, float] | None = None
+
+    @property
+    def calibrated(self) -> bool:
+        return self.calibration is not None
+
+    def expected_scores(self, home_team: str, away_team: str, neutral: bool = False) -> tuple[float, float]:
+        base_home = self.base_home
+        base_away = self.base_away
+        if neutral:
+            # No home ground: split the difference rather than pretending one side
+            # of a decider at a neutral venue holds the advantage.
+            base_home = base_away = 0.5 * (self.base_home + self.base_away)
+        attack_home = self.attack.get(str(home_team), 1.0)
+        defence_home = self.defence.get(str(home_team), 1.0)
+        attack_away = self.attack.get(str(away_team), 1.0)
+        defence_away = self.defence.get(str(away_team), 1.0)
+        return (
+            base_home * attack_home * defence_away,
+            base_away * attack_away * defence_home,
+        )
+
+    def home_win_probability(self, home_team: str, away_team: str, neutral: bool = False) -> float:
+        """Draw-excluded, calibrated probability that `home_team` wins.
+
+        Matches the draw-excluded convention every published number uses. A neutral
+        decider is priced from both orientations and averaged, so the two sides of
+        the same fixture always sum to one.
+        """
+        raw = self._raw_home_win_probability(home_team, away_team, neutral=neutral)
+        return apply_logit_calibration(
+            raw, self.calibration, include_intercept=not neutral
+        )
+
+    def _raw_home_win_probability(self, home_team: str, away_team: str, neutral: bool = False) -> float:
+        mu_home, mu_away = self.expected_scores(home_team, away_team, neutral=neutral)
+        _, _, _, home_win_conditional = _match_probabilities(mu_home, mu_away)
+        return home_win_conditional
+
+    def knows(self, team: str) -> bool:
+        return str(team) in self.attack and str(team) in self.defence
+
+
+def _prepare(df: pd.DataFrame, config: TierABaselineConfig | None):
     if config is None:
         config = default_baseline_config_from_env()
 
-    required = {"game_id", "competition_year", "round_id", "start_time", "game_number", "team_home", "team_away", "game_state_name"}
-    missing = sorted(required.difference(df.columns))
+    missing = sorted(REQUIRED_BASELINE_COLUMNS.difference(df.columns))
     if missing:
         raise ValueError("Tier-A baseline requires columns: " + ", ".join(missing))
 
     if df.empty:
-        return pd.DataFrame(columns=BASELINE_FEATURE_COLUMNS)
+        return config, None, None, None
 
     ordered = df.sort_values(SORT_COLS).reset_index(drop=True)
     base_home, base_away = _resolve_base_rates(ordered, config)
+    return config, ordered, base_home, base_away
 
+
+def _accumulate(ordered: pd.DataFrame, config: TierABaselineConfig, base_home: float, base_away: float):
+    """Walk the fixtures once, returning per-row features and the end ratings.
+
+    Both public entry points share this loop so the feature output cannot drift
+    from the ratings the premiership simulation prices hypothetical matchups with.
+    """
     attack: dict[str, float] = {}
     defence: dict[str, float] = {}
 
@@ -166,7 +323,63 @@ def compute_tier_a_baseline_features(df: pd.DataFrame, config: TierABaselineConf
         attack[away_team] = (1.0 - config.alpha) * attack_away + config.alpha * float(np.clip(obs_attack_away, 0.25, 4.0))
         defence[home_team] = (1.0 - config.alpha) * defence_home + config.alpha * float(np.clip(obs_defence_home, 0.25, 4.0))
 
+    return rows, attack, defence
+
+
+def compute_tier_a_baseline_features(df: pd.DataFrame, config: TierABaselineConfig | None = None) -> pd.DataFrame:
+    """Compute leak-safe dynamic team-strength baseline features for each match row."""
+    config, ordered, base_home, base_away = _prepare(df, config)
+    if ordered is None:
+        return pd.DataFrame(columns=BASELINE_FEATURE_COLUMNS)
+    rows, _attack, _defence = _accumulate(ordered, config, base_home, base_away)
     return pd.DataFrame(rows)
+
+
+def compute_tier_a_ratings(df: pd.DataFrame, config: TierABaselineConfig | None = None) -> TierARatings:
+    """Team ratings after the last completed match in `df`.
+
+    Runs the identical accumulation as `compute_tier_a_baseline_features` and keeps
+    the end state instead of the per-row features.
+    """
+    config, ordered, base_home, base_away = _prepare(df, config)
+    if ordered is None:
+        return TierARatings({}, {}, 22.0, 20.0)
+    rows, attack, defence = _accumulate(ordered, config, base_home, base_away)
+    return TierARatings(
+        dict(attack),
+        dict(defence),
+        float(base_home),
+        float(base_away),
+        _fit_ratings_calibration(ordered, rows),
+    )
+
+
+def _fit_ratings_calibration(ordered: pd.DataFrame, rows: list) -> tuple[float, float] | None:
+    """Fit Platt scaling from the same walk that produced the ratings.
+
+    Every row was scored before its own result was folded in, so the fit is
+    leak-safe by construction. Draws carry no two-way outcome and are dropped.
+    """
+    if not rows:
+        return None
+    try:
+        baseline = pd.DataFrame(rows)[["game_id", "baseline_home_win_prob_conditional"]]
+        results = ordered.loc[
+            ordered["game_state_name"] == "Final",
+            ["game_id", "team_final_score_home", "team_final_score_away"],
+        ]
+        merged = results.merge(baseline, on="game_id", how="inner").dropna()
+        home = pd.to_numeric(merged["team_final_score_home"], errors="coerce")
+        away = pd.to_numeric(merged["team_final_score_away"], errors="coerce")
+        decided = home != away
+        return fit_logit_calibration(
+            merged.loc[decided, "baseline_home_win_prob_conditional"],
+            (home > away)[decided],
+        )
+    except Exception:
+        # Ratings without a calibration are still usable; a failed fit must not
+        # take the baseline features down with it.
+        return None
 
 
 DEFAULT_TUNE_ALPHAS = (0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40)

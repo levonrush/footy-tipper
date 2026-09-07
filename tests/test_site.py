@@ -35,6 +35,12 @@ def _build_db(db_path, with_pregame=True, pregame_prediction=None):
             team_away TEXT,
             position_away_ladder INTEGER,
             team_head_to_head_odds_away REAL,
+            team_line_amount_home REAL,
+            team_line_odds_home REAL,
+            team_line_odds_away REAL,
+            total_line REAL,
+            total_over_odds REAL,
+            total_under_odds REAL,
             team_final_score_home REAL,
             team_final_score_away REAL,
             start_time REAL,
@@ -68,8 +74,15 @@ def _build_db(db_path, with_pregame=True, pregame_prediction=None):
             pregame_prediction
             or (2, "Win", 0.81, 0.17, 0.02, 4.8, "Moderate evidence", 28, 12, 15)
         )
+    # Named columns so the fixture rows do not have to track every price column
+    # the published view grew; the unnamed ones stay NULL.
     con.executemany(
-        "INSERT INTO footy_tipping_data VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO footy_tipping_data ("
+        "game_id, game_state_name, competition_year, round_id, round_name, "
+        "team_home, position_home_ladder, team_head_to_head_odds_home, "
+        "team_away, position_away_ladder, team_head_to_head_odds_away, "
+        "team_final_score_home, team_final_score_away, start_time, game_number"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     con.executemany(
