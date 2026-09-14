@@ -90,9 +90,10 @@ tr:nth-child(even) td { background: #f8fafc; }
 footer { margin-top: 26px; color: #94a3b8; font-size: 12px; text-align: center; }
 .ribbon { margin: 0 0 10px !important; font-size: 12px; font-weight: 700;
           letter-spacing: 2px; text-transform: uppercase; }
-.stakes { display: block; margin-top: 4px; font-size: 12px; font-weight: 700;
-          letter-spacing: 0.4px; text-transform: uppercase; }
-.context { display: block; margin-top: 3px; font-weight: 400; font-size: 12px; color: #64748b; }
+.stakes { display: block; margin-top: 8px; font-size: 12px; font-weight: 700;
+          letter-spacing: 0.4px; line-height: 1.4; text-transform: uppercase; }
+.context { display: block; margin-top: 4px; font-weight: 400; font-size: 12px;
+           line-height: 1.5; color: #64748b; }
 """
 
 

@@ -609,9 +609,12 @@ def _fixture_detail_html(finals, row, row_bg, theme):
 
     blocks = []
     if stakes:
+        # A stakes line wraps to two or three lines on a phone, so it needs a
+        # line-height of its own rather than the browser default.
         blocks.append(
             f"<div style=\"color:{theme['accent']}; font-weight:700; font-size:12px; "
-            "letter-spacing:0.4px; text-transform:uppercase; margin-bottom:4px;\">"
+            "letter-spacing:0.4px; line-height:1.4; text-transform:uppercase; "
+            "margin-bottom:5px;\">"
             f"{html.escape(str(stakes))}</div>"
         )
     for text in (bands, history):
@@ -622,7 +625,7 @@ def _fixture_detail_html(finals, row, row_bg, theme):
             )
     return (
         f"<tr style=\"background:{row_bg};\">"
-        "<td colspan=\"4\" style=\"padding:0 10px 12px; border-bottom:1px solid #e5e7eb; "
+        "<td colspan=\"4\" style=\"padding:4px 10px 14px; border-bottom:1px solid #e5e7eb; "
         "font-family:Arial, sans-serif;\">"
         + "".join(blocks)
         + "</td></tr>"
@@ -786,32 +789,34 @@ def _render_html_email(
             if why
             else ""
         )
+        # A fixture that carries a stakes block below it is one unit: the rule
+        # belongs under the block, not through the middle of it.
+        detail = _fixture_detail_html(finals, row, row_bg, theme) if is_finals else ""
+        cell_border = "" if detail else "border-bottom:1px solid #e5e7eb; "
         match_rows.append(
             f"<tr style=\"background:{row_bg};\">"
-            "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#111827; "
+            f"<td style=\"padding:12px 10px; {cell_border}color:#111827; "
             "font-family:Arial, sans-serif; font-size:14px; width:36%;\">"
             f"{html.escape(str(row['team_home']))} vs {html.escape(str(row['team_away']))}"
             "</td>"
-            "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#0f766e; "
+            f"<td style=\"padding:12px 10px; {cell_border}color:#0f766e; "
             "font-family:Arial, sans-serif; font-size:15px; font-weight:700; width:32%;\">"
             f"<div>{html.escape(str(winner))}</div>{why_html}"
             "</td>"
-            "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; width:16%;\">"
+            f"<td style=\"padding:12px 10px; {cell_border}width:16%;\">"
             f"<span style=\"display:inline-block; padding:3px 7px; border-radius:12px; "
             f"background:{badge_bg}; color:{badge_color}; font-family:Arial, sans-serif; font-size:12px; font-weight:700;\">"
             f"{_format_probability(tip_prob)}</span>"
             "</td>"
-            "<td style=\"padding:12px 10px; border-bottom:1px solid #e5e7eb; color:#374151; "
+            f"<td style=\"padding:12px 10px; {cell_border}color:#374151; "
             "font-family:Arial, sans-serif; font-size:13px; width:16%;\">"
             f"H {_format_market_price(row['team_head_to_head_odds_home'], row.get('market_odds_fresh', True))}"
             f"<br>A {_format_market_price(row['team_head_to_head_odds_away'], row.get('market_odds_fresh', True))}"
             "</td>"
             "</tr>"
         )
-        if is_finals:
-            detail = _fixture_detail_html(finals, row, row_bg, theme)
-            if detail:
-                match_rows.append(detail)
+        if detail:
+            match_rows.append(detail)
 
     pick_rows = []
     for _, row in tipper_picks.iterrows():

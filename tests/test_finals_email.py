@@ -192,6 +192,23 @@ class FinalsRenderTests(unittest.TestCase):
         html, _ = _render(finals=payload)
         self.assertNotIn('colspan="4"', html)
 
+    def test_a_fixture_and_its_stakes_block_read_as_one_unit(self):
+        """No rule through the middle of a finals fixture, and no flush heading."""
+        html, _ = _render(finals=_finals_payload())
+        self.assertIn("padding:12px 10px; color:#111827", html)
+        self.assertNotIn("padding:12px 10px; border-bottom", html)
+        self.assertNotIn("padding:0 10px 12px", html)
+        self.assertIn("padding:4px 10px 14px", html)
+
+    def test_a_finals_fixture_without_extras_keeps_its_rule(self):
+        payload = _finals_payload(stakes={}, head_to_head={}, distributions={})
+        html, _ = _render(finals=payload)
+        self.assertIn("padding:12px 10px; border-bottom:1px solid #e5e7eb", html)
+
+    def test_the_stakes_heading_sets_its_own_line_height(self):
+        html, _ = _render(finals=_finals_payload())
+        self.assertIn("letter-spacing:0.4px; line-height:1.4; text-transform:uppercase", html)
+
     def test_the_finals_theme_replaces_the_regular_accents(self):
         html, _ = _render(finals=_finals_payload(rounds.GRAND_FINAL))
         self.assertIn("border-left:4px solid #b45309", html)
