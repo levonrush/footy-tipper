@@ -94,7 +94,8 @@ def _finals_prompt_block(finals):
         for _, pick in market_picks.iterrows():
             lines.append(
                 f"- Additional {pick['market']} value pick: {pick['selection']} "
-                f"at {_format_price(pick['price'])}, edge {_format_percent(pick['edge'])}."
+                f"at {_format_price(pick['price'])}, edge {_format_percent(pick['edge'])}, "
+                f"for {pick.get('fixture', 'fixture not supplied')}."
             )
     return "\n".join(lines) if lines else None
 

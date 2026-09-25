@@ -120,6 +120,7 @@ class FinalsNewsCopyTests(unittest.TestCase):
         client.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(text=json.dumps(payload))])
         finals = dict(FINALS, market_picks=pd.DataFrame([{
             "market": "Total", "selection": "Under 45.5", "price": 1.9, "edge": 0.04,
+            "fixture": "Newcastle Knights vs Penrith Panthers",
         }]))
         with mock.patch.object(email_copy, "Anthropic", return_value=client):
             result = email_copy._generate_claude_copy(predictions(), pd.DataFrame(), "key", None, 0.9,
@@ -130,6 +131,7 @@ class FinalsNewsCopyTests(unittest.TestCase):
         self.assertIn('"news_hit": null', prompt)
         self.assertNotIn("you MUST write news_hit", prompt)
         self.assertIn("Additional Total value pick: Under 45.5", prompt)
+        self.assertIn("for Newcastle Knights vs Penrith Panthers", prompt)
         self.assertIsNone(result["news_hit"])
 
     def test_payload_routes_finals_briefs_separately_without_legacy_fetch(self):
