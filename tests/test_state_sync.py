@@ -459,6 +459,35 @@ class StatePublicationTests(unittest.TestCase):
 
 
 class ComputeScheduleTests(unittest.TestCase):
+    def _finals_schedule(self, *, name="Finals Week 2", state="Final", year=2026):
+        now = _epoch(2026, 9, 21, 11, tz=SYDNEY)
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "db.sqlite"
+            _make_db(db, [(1, year, 29, state, now - DAY)])
+            with sqlite3.connect(db) as con:
+                con.execute("ALTER TABLE footy_tipping_data ADD COLUMN round_name TEXT")
+                con.execute("UPDATE footy_tipping_data SET round_name = ?", (name,))
+            return state_sync.compute_schedule(db, now=now), now
+
+    def test_settled_finals_with_unnamed_next_round_refresh_daily(self):
+        schedule, now = self._finals_schedule()
+        self.assertEqual(schedule["upcoming_rounds"], [])
+        self.assertEqual(schedule["refresh_after_utc"], now + DAY)
+        self.assertEqual(state_sync.gate_decision(schedule, now=now + DAY)[0], "refresh")
+        # Repeated empty draw refreshes must retain the daily policy.
+        self.assertEqual(state_sync.gate_decision(schedule, now=now + 2 * DAY)[0], "refresh")
+
+    def test_grand_final_pregame_still_refreshes_daily(self):
+        schedule, now = self._finals_schedule(name="Grand Final", state="Pre Game")
+        self.assertEqual(schedule["refresh_after_utc"], now + DAY)
+
+    def test_completed_grand_final_regular_and_old_season_keep_eight_days(self):
+        for kwargs in ({"name": "Grand Final"}, {"name": "Round 20"}, {"year": 2025}):
+            with self.subTest(kwargs=kwargs):
+                schedule, now = self._finals_schedule(**kwargs)
+                self.assertEqual(schedule["refresh_after_utc"], now + 8 * DAY)
+                self.assertEqual(state_sync.gate_decision(schedule, now=now + DAY)[0], "skip")
+
     def test_upcoming_rounds_with_sent_flags(self):
         now = 1_000_000
         with tempfile.TemporaryDirectory() as tmp:
@@ -519,6 +548,49 @@ class GateDecisionTests(unittest.TestCase):
         self.assertEqual(mode, "refresh")
         self.assertIn("rebuilding", reason)
 
+    def test_september_25_exhausted_legacy_schedule_discovers_preliminary_finals(self):
+        schedule = {
+            "generated_at_utc": 1789781500,
+            "competition_year": 2026,
+            "upcoming_rounds": [{"round_id": 29, "first_kickoff_utc": 1789811400, "sent": True}],
+        }
+        now = _epoch(2026, 9, 25, 11, tz=SYDNEY)
+        mode, reason = state_sync.gate_decision(schedule, now=now)
+        self.assertEqual(mode, "refresh")
+        self.assertIn("next unsent round: none", reason)
+        self.assertIn("schedule age", reason)
+        # A refreshed draw now contains tonight's prelim: the next poll sends.
+        schedule = self._schedule([
+            {"round_id": 30, "first_kickoff_utc": _epoch(2026, 9, 25, 19, 50, tz=SYDNEY), "sent": False},
+        ], now=now)
+        schedule["refresh_after_utc"] = now + DAY
+        self.assertEqual(state_sync.gate_decision(schedule, now=now)[0], "live")
+
+    def test_final_refresh_deadline_precedes_too_early_skip(self):
+        now = _epoch(2026, 9, 23, 11, tz=SYDNEY)
+        schedule = self._schedule([
+            {"round_id": 30, "first_kickoff_utc": now + 2 * DAY, "sent": False},
+        ], generated_at=now - DAY, now=now)
+        schedule["refresh_after_utc"] = now
+        self.assertEqual(state_sync.gate_decision(schedule, now=now)[0], "refresh")
+
+    def test_due_send_takes_precedence_over_refresh_deadline(self):
+        now = _epoch(2026, 9, 25, 11, tz=SYDNEY)
+        schedule = self._schedule([
+            {"round_id": 30, "first_kickoff_utc": now + 8 * HOUR, "sent": False},
+        ], generated_at=now - DAY, now=now)
+        schedule["refresh_after_utc"] = now
+        self.assertEqual(state_sync.gate_decision(schedule, now=now)[0], "live")
+
+    def test_exhausted_legacy_schedule_refreshes_once_per_day(self):
+        now = _epoch(2026, 9, 23, 11, tz=SYDNEY)
+        for sent in (True, False):
+            schedule = self._schedule([
+                {"round_id": 29, "first_kickoff_utc": now - 2 * DAY, "sent": sent},
+            ], generated_at=now, now=now)
+            self.assertEqual(state_sync.gate_decision(schedule, now=now + DAY - 1)[0], "skip")
+            self.assertEqual(state_sync.gate_decision(schedule, now=now + DAY)[0], "refresh")
+
     def test_aest_target_is_11am_sydney(self):
         kickoff = _epoch(2026, 7, 16, 19, 30, tz=SYDNEY)
         target = state_sync.sydney_send_target_utc(kickoff)
@@ -535,7 +607,7 @@ class GateDecisionTests(unittest.TestCase):
         kickoff = _epoch(2026, 7, 16, 19, 30, tz=SYDNEY)
         now = _epoch(2026, 7, 16, 10, 59, tz=SYDNEY)
         schedule = self._schedule(
-            [{"round_id": 18, "first_kickoff_utc": kickoff, "sent": False}]
+            [{"round_id": 18, "first_kickoff_utc": kickoff, "sent": False}], now=now
         )
         mode, reason = state_sync.gate_decision(schedule, now=now)
         self.assertEqual(mode, "skip")
@@ -565,7 +637,7 @@ class GateDecisionTests(unittest.TestCase):
             [
                 {"round_id": 18, "first_kickoff_utc": now + 7 * HOUR, "sent": True},
                 {"round_id": 19, "first_kickoff_utc": now + 7 * DAY + 7 * HOUR, "sent": False},
-            ]
+            ], now=now
         )
         mode, reason = state_sync.gate_decision(schedule, now=now)
         self.assertEqual(mode, "skip")

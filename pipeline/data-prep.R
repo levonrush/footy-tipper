@@ -11,6 +11,9 @@ if (length(script_arg) > 0) {
 }
 
 library(here)
+# A staged checkout may sit inside another Git repository. Pin here() to this
+# script's checkout instead of letting its parent .git select the live DB.
+here::i_am("pipeline/data-prep.R")
 
 print("Loading environment variables...")
 suppressMessages(library(dotenv))

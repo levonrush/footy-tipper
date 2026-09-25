@@ -93,6 +93,7 @@ This file is for coding/automation agents working on `footy-tipper`.
   - `FOOTY_TIPPER_EXPLAIN` (default: `true`; `false` skips the `prediction_explanations` write)
 - Finals controls:
   - `FOOTY_TIPPER_FINALS_MODE` (`auto` default; `on` forces the finals treatment, `off` restores the regular email)
+  - `FOOTY_TIPPER_FINALS_NEWS_ENABLED` (default: `true`; finalist-first RSS reporting for finals prose and separately filtered banner inspiration; editorial only, never model/registry evidence)
 - Lineup controls:
   - `FOOTY_TIPPER_LINEUPS_ENABLED` (default: `true`)
   - `FOOTY_TIPPER_LINEUPS_MODE` (`recent` or `backfill`, default: `recent`)
@@ -181,6 +182,8 @@ This file is for coding/automation agents working on `footy-tipper`.
   - Every finals extra fails soft. A broken premiership simulation, a missing distributions table or an unavailable head-to-head costs a section, never a send.
   - `persist_joker_usage_if_applicable` refuses to write on a finals round.
   - The ladder freezes at the finals cutover and cannot resume: once a season has seen a finals round, every later round is finals regardless of what the draw named it.
+  - Finals news is woven into the opening/closing, never the separate `news_hit` highlight. Serious human events stay with reviewed Context Watch; injury reporting may enter prose but not banner imagery. Finals banners cannot fall back to news-bearing subject/opening text.
+  - Published schedules include `refresh_after_utc`: 24 hours during an unfinished current-season finals series, otherwise eight days. Settled fixtures determine finals state even while next-round teams are unnamed. Due unsent rounds take precedence over refresh; exhausted legacy schedules bootstrap a refresh after 24 hours.
 - Lineup-safe execution:
   - Lineup ingestion should fail soft by default.
   - Train/infer must continue if lineup tables are unavailable or sparse.

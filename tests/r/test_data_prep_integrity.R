@@ -156,4 +156,27 @@ assert_true(
   "A performance observation at the same kickoff is not strictly prior."
 )
 
+# Exercise the real entrypoint's root selection in a nested checkout. A parent
+# Git marker must never redirect the staged script to the operator's database.
+local({
+  parent <- tempfile("footy-parent-")
+  dir.create(parent)
+  on.exit(unlink(parent, recursive = TRUE), add = TRUE)
+  dir.create(file.path(parent, ".git"))
+  child <- file.path(parent, "staged")
+  dir.create(file.path(child, "pipeline"), recursive = TRUE)
+  entrypoint <- readLines("pipeline/data-prep.R")
+  boundary <- grep('^print\\("Loading environment variables', entrypoint)[1]
+  script <- c(
+    entrypoint[seq_len(boundary - 1L)],
+    'stopifnot(normalizePath(here::here()) == normalizePath(project_root))',
+    'cat("isolated-root-ok\\n")'
+  )
+  path <- file.path(child, "pipeline", "data-prep.R")
+  writeLines(script, path)
+  output <- system2(file.path(R.home("bin"), "Rscript"), shQuote(path), stdout = TRUE, stderr = TRUE)
+  assert_true(is.null(attr(output, "status")) && any(output == "isolated-root-ok"),
+              paste("Staged R prep selected the wrong project root:", paste(output, collapse = "\n")))
+})
+
 message("data-prep integrity tests passed")

@@ -29,6 +29,8 @@ import tempfile
 import time
 from zoneinfo import ZoneInfo
 
+from pipeline.common import rounds as round_stages
+
 try:
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
@@ -59,6 +61,7 @@ SYDNEY_TIMEZONE = ZoneInfo("Australia/Sydney")
 SEND_HOUR_LOCAL = 11
 GRACE_HOURS = 12
 STALE_DAYS = 8
+FINALS_REFRESH_HOURS = 24
 SCHEDULE_ROUND_LIMIT = 8
 
 
@@ -451,6 +454,23 @@ def _existing_state_folder(service, root) -> str:
     return state_id
 
 
+def _finals_in_progress(con, now) -> bool:
+    """Read settled fixtures too: unnamed next-round teams can leave no pre-games."""
+    year = dt.datetime.fromtimestamp(now, SYDNEY_TIMEZONE).year
+    columns = {row[1] for row in con.execute("PRAGMA table_info(footy_tipping_data)")}
+    if "round_name" not in columns:
+        return False  # Compatibility with older, minimal runtime schemas.
+    fixtures = con.execute(
+        "SELECT round_id, round_name, game_state_name FROM footy_tipping_data "
+        "WHERE CAST(competition_year AS INTEGER) = ?", (year,),
+    ).fetchall()
+    stages = [round_stages.round_stage(name, round_id) for round_id, name, _ in fixtures]
+    return any(stage != round_stages.REGULAR for stage in stages) and not any(
+        stage == round_stages.GRAND_FINAL and state == "Final"
+        for stage, (_, _, state) in zip(stages, fixtures)
+    )
+
+
 def compute_schedule(db_path, now=None) -> dict:
     """Upcoming-round kickoffs (true UTC epoch) plus per-round sent status.
 
@@ -463,9 +483,12 @@ def compute_schedule(db_path, now=None) -> dict:
         "generated_at_utc": int(now),
         "competition_year": None,
         "upcoming_rounds": [],
+        "refresh_after_utc": int(now + STALE_DAYS * 86400),
     }
     con = sqlite3.connect(str(db_path))
     try:
+        if _finals_in_progress(con, now):
+            schedule["refresh_after_utc"] = int(now + FINALS_REFRESH_HOURS * 3600)
         year_row = con.execute(
             "SELECT MAX(CAST(competition_year AS INTEGER)) FROM footy_tipping_data "
             "WHERE game_state_name = 'Pre Game'"
@@ -530,7 +553,7 @@ def gate_decision(schedule, now=None, grace_hours=GRACE_HOURS,
 
     mode is one of:
       live    - from 11am Sydney on first-game day through kickoff + grace
-      refresh - nothing actionable and schedule.json is stale; run predict
+      refresh - nothing actionable and the fixture refresh deadline is due; run predict
                 --skip-send just to refresh fixtures (offseason-safe)
       skip    - nothing to do
     """
@@ -539,7 +562,11 @@ def gate_decision(schedule, now=None, grace_hours=GRACE_HOURS,
         return "refresh", "runtime schedule is missing; rebuilding fixtures and schedule"
 
     grace = grace_hours * 3600
-    for entry in schedule.get("upcoming_rounds", []):
+    entries = schedule.get("upcoming_rounds", [])
+    generated = schedule.get("generated_at_utc") or 0
+    age_hours = max(0.0, (now - generated) / 3600)
+    next_entry = None
+    for entry in entries:
         if entry.get("sent"):
             continue
         kickoff = entry.get("first_kickoff_utc")
@@ -547,24 +574,36 @@ def gate_decision(schedule, now=None, grace_hours=GRACE_HOURS,
             continue
         target = sydney_send_target_utc(kickoff)
         if now < target:
-            hours_away = (target - now) / 3600
-            return "skip", (
-                f"too early: round {entry.get('round_id')} Sydney 11am target "
-                f"opens in {hours_away:.1f}h"
-            )
+            if next_entry is None or kickoff < next_entry["first_kickoff_utc"]:
+                next_entry = entry
+            continue
         if now < kickoff + grace:
             return "live", (
                 f"round {entry.get('round_id')} reached Sydney 11am send target "
-                f"(target {int(target)}, kickoff {int(kickoff)}, now {int(now)})"
+                f"(target {int(target)}, kickoff {int(kickoff)}, now {int(now)}; "
+                f"schedule age {age_hours:.1f}h)"
             )
         # Past the grace window without a send: fall through to the next round.
 
-    generated = schedule.get("generated_at_utc") or 0
-    if now - generated > stale_days * 86400:
+    deadline = schedule.get("refresh_after_utc")
+    if not isinstance(deadline, (int, float)) or isinstance(deadline, bool) or not math.isfinite(deadline):
+        # Bootstrap old schedules like September 2026's sent-round-only file.
+        # The subsequent refresh writes a deadline based on actual finals state.
+        interval = FINALS_REFRESH_HOURS * 3600 if entries and next_entry is None else stale_days * 86400
+        deadline = generated + interval
+    next_label = f"round {next_entry.get('round_id')}" if next_entry else "none"
+    details = f"schedule age {age_hours:.1f}h, next unsent round: {next_label}, {len(entries)} known rounds"
+    if now >= deadline:
         return "refresh", (
-            f"schedule.json is {int((now - generated) / 86400)} days old; refreshing fixtures"
+            f"fixture refresh due at {int(deadline)} ({details}); refreshing fixtures"
         )
-    return "skip", "no unsent round in window and schedule is fresh"
+    if next_entry:
+        hours_away = (sydney_send_target_utc(next_entry["first_kickoff_utc"]) - now) / 3600
+        return "skip", (
+            f"too early: round {next_entry.get('round_id')} Sydney 11am target "
+            f"opens in {hours_away:.1f}h ({details})"
+        )
+    return "skip", f"no unsent round in window; fixture refresh not yet due ({details})"
 
 
 def _snapshot_sqlite(source_path, destination) -> None:

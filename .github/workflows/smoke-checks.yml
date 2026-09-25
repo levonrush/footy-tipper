@@ -48,7 +48,7 @@ jobs:
 
       - name: Install R integrity-test dependencies
         run: |
-          Rscript -e 'install.packages(c("dplyr", "tibble", "tidyr", "stringr", "DBI", "RSQLite"), repos = "https://cloud.r-project.org")'
+          Rscript -e 'install.packages(c("dplyr", "tibble", "tidyr", "stringr", "DBI", "RSQLite", "here"), repos = "https://cloud.r-project.org")'
 
       - name: Run R data integrity regressions
         run: Rscript tests/r/test_data_prep_integrity.R

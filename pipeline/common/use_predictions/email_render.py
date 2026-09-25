@@ -469,7 +469,7 @@ def _render_plain_email(predictions, tipper_picks, folder_url, subject, opening,
     scoreboard_line = _scoreboard_text_line(scoreboard)
     if scoreboard_line:
         lines.extend([scoreboard_line, ""])
-    if news_hit:
+    if news_hit and not is_finals:
         lines.extend(["--- THIS WEEK IN LEAGUE ---", news_hit, "---------------------------", ""])
     lines.extend(_context_watch_plain_lines(context_cards))
     lines.append(opening)
@@ -758,6 +758,8 @@ def _render_html_email(
     market_notice = _market_coverage_notice(predictions)
     is_finals = _finals_on(finals)
     theme = _theme(finals)
+    if is_finals:
+        news_hit = None
     heading = (
         f"{_finals_field(finals, 'display_name') or round_name} {competition_year}"
         if is_finals

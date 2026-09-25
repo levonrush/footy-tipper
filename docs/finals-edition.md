@@ -15,7 +15,8 @@ premiership.
 | --- | --- | --- |
 | Subject | `Footy Tipper Predictions for Round N` | Stage-branded, for example `GRAND FINAL: the big dance` |
 | Heading | `Finals Week 3 2026` | `Preliminary Finals 2026` |
-| Banner | topical scene from the week's news | the news, plus an occasion brief that escalates to the decider |
+| News | optional legacy highlight | recent finalist-first reporting woven into the opening and closing |
+| Banner | topical scene when legacy news is enabled | suitable football news, plus an occasion brief that escalates to the decider |
 | Theme | teal, green and amber | a per-stage accent and a SPECIAL EDITION ribbon, gold for the Grand Final |
 | Joker call | joker box | replaced by **Road to the big dance** |
 | Comp strategy | `P(win comp)` note in the closing | suppressed |
@@ -46,6 +47,41 @@ regular round.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `FOOTY_TIPPER_FINALS_MODE` | `auto` | `auto` classifies from the round name; `on` forces the finals treatment so it can be rehearsed out of season; `off` restores the regular email |
+| `FOOTY_TIPPER_FINALS_NEWS_ENABLED` | `true` | recent finalist-first news informs finals prose and suitable banner ideas; `false` keeps the occasion-based edition without news |
+
+## News in the finals edition
+
+The finals brief reads Google News RSS metadata from the previous seven days,
+deduplicates stories, and prioritises this week's teams, then surviving finalists,
+then wider league news. Publisher names, dates and source links accompany the
+headlines and short snippets supplied to Reg. No article bodies are scraped or
+stored, and the news never enters the model or the reviewed Club Context registry.
+
+Reg weaves supported details into the existing opening and closing, attributing
+reporting and preserving uncertainty. The separate top-of-email news highlight is
+suppressed in finals. Serious human events remain with reviewed Context Watch;
+ordinary injuries can inform prose, but neither can inspire cartoon imagery.
+The banner receives a separately filtered football brief and otherwise uses the
+finals occasion, never a fallback to the news-bearing opening. Missing feeds or
+providers leave the existing fallback edition available.
+
+Regular rounds retain `FOOTY_TIPPER_LEGACY_NEWS_ENABLED=false` by default. The
+finals switch does not enable that older highlight or alter regular-round output.
+
+## Discovering the next finals draw
+
+Finals matchups may only acquire named teams after the previous week's games.
+The published schedule therefore includes `refresh_after_utc`: 24 hours after
+generation while the current season's finals are unfinished, otherwise eight
+days. The classification includes completed fixtures, so an empty upcoming draw
+between finals weeks still refreshes daily. A completed Grand Final ends this
+policy. This does not depend on the presentation-only finals rehearsal switch.
+
+The gate sends a known, due, unsent round first; otherwise it refreshes when the
+deadline arrives, even if another known fixture is still in the future. Older
+nonempty schedules containing only sent or expired rounds bootstrap a refresh
+after 24 hours. Gate logs report schedule age and the next unsent round. Delivery
+markers and the Sydney 11am send target are unchanged.
 
 ## Road to the big dance
 
