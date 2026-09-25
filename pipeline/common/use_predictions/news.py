@@ -143,6 +143,11 @@ def _fetch_finals_news_context(predictions, finals, *, now=None, max_items=20):
                     # Google appends the publisher to the title; removing it
                     # also deduplicates the same story across our two queries.
                     title = title.removesuffix(f" - {publisher}")
+                    # Combined team-list headlines often omit which club owns
+                    # each update. Without article text, do not ask the writer
+                    # to infer those player/team associations.
+                    if ";" in title:
+                        continue
                     key = re.sub(r"\W+", " ", title).strip().lower()
                     if link in seen_urls or key in seen_titles:
                         continue

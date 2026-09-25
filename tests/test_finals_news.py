@@ -78,6 +78,7 @@ class FinalsNewsTests(unittest.TestCase):
         stories = [item("Knights finals injury update"), item("Panthers captain wins milestone"),
                    item("Club mourns tragic death before finals"),
                    item("Doing it for a friend: Knights fighting spirit"),
+                   item("Knights v Panthers: Smith recalled; Jones returns"),
                    item("Knights finals betting tips"),
                    item("Panthers Grand Final preview", publisher="NSWRL")]
         with mock.patch.object(news.urllib.request, "urlopen", side_effect=[rss(*stories), rss()]):
@@ -89,6 +90,7 @@ class FinalsNewsTests(unittest.TestCase):
         self.assertNotIn("fighting spirit", result.editorial)
         self.assertNotIn("betting tips", result.editorial)
         self.assertNotIn("NSWRL", result.editorial)
+        self.assertNotIn("Smith recalled", result.editorial)
 
     def test_one_failed_feed_preserves_other_feed_and_total_failure_is_empty(self):
         with mock.patch.object(news.urllib.request, "urlopen", side_effect=[TimeoutError(), rss(item("Knights finals training"))]):
@@ -116,14 +118,18 @@ class FinalsNewsCopyTests(unittest.TestCase):
                    "closing": "Bring back the biff.", "news_hit": "Unwanted highlight"}
         client = mock.Mock()
         client.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(text=json.dumps(payload))])
+        finals = dict(FINALS, market_picks=pd.DataFrame([{
+            "market": "Total", "selection": "Under 45.5", "price": 1.9, "edge": 0.04,
+        }]))
         with mock.patch.object(email_copy, "Anthropic", return_value=client):
             result = email_copy._generate_claude_copy(predictions(), pd.DataFrame(), "key", None, 0.9,
-                                                     news_context="Sourced training story", finals=FINALS)
+                                                     news_context="Sourced training story", finals=finals)
         prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
         self.assertIn("Sourced training story", prompt)
         self.assertIn("Weave 2-4", prompt)
         self.assertIn('"news_hit": null', prompt)
         self.assertNotIn("you MUST write news_hit", prompt)
+        self.assertIn("Additional Total value pick: Under 45.5", prompt)
         self.assertIsNone(result["news_hit"])
 
     def test_payload_routes_finals_briefs_separately_without_legacy_fetch(self):
