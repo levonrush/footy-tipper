@@ -65,6 +65,15 @@ The banner receives a separately filtered football brief and otherwise uses the
 finals occasion, never a fallback to the news-bearing opening. Missing feeds or
 providers leave the existing fallback edition available.
 
+When Newcastle Knights play in the current finals round, the generated banner
+defaults to Reg and Ernie the dingo backing Newcastle with playful red-and-blue
+scarves, flags or signs. This supporter direction reaches both the scene writer
+and image generator, alongside the finals occasion and suitable news, and still
+applies when no news is available. It is based on the current fixtures, not news
+mentions or past bracket appearances. The model's tips remain independent of
+the characters' fandom. Sensitive-context safeguards and the static fallback
+for unavailable image generation still apply.
+
 Regular rounds retain `FOOTY_TIPPER_LEGACY_NEWS_ENABLED=false` by default. The
 finals switch does not enable that older highlight or alter regular-round output.
 

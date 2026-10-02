@@ -58,7 +58,26 @@ _FINALS_BANNER_BRIEFS = {
 }
 
 
-def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, news_hit=None, finals=None, finals_news_context=None):
+def _finals_supporter_brief(finals, round_teams):
+    """Use current fixture membership, never news mentions or bracket history."""
+    if not isinstance(finals, dict) or not finals.get("is_finals"):
+        return ""
+    teams = {str(team).strip().casefold() for team in round_teams}
+    if not teams.intersection({"newcastle knights", "knights"}):
+        return ""
+    return (
+        "\n\nSUPPORTER DIRECTION: Newcastle Knights are playing in this finals round. "
+        "Reg Reagan and Ernie the dingo must both be enthusiastically backing the Knights. "
+        "Give them fun red-and-blue supporter accessories such as scarves, flags, "
+        "foam fingers or a homemade 'Go Knights!' sign, while preserving Reg's "
+        "'Bring Back the Biff' shirt and green-and-gold shorts. Make their fandom "
+        "cheeky, hopeful and unmistakable. Keep this support visible when working in "
+        "suitable football news and the finals occasion, including when no news is available. "
+        "This is supporter enthusiasm, not a model tip or a claim the Knights have already won. "
+    )
+
+
+def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, news_hit=None, finals=None, finals_news_context=None, round_teams=()):
     """Ask Claude for a fun, topical scenario for the two banner characters this week."""
     subject = copy.get("subject", "")
     opening = copy.get("opening", "")[:300]
@@ -87,6 +106,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
                 "Work the week's story in only if it fits the occasion."
             )
 
+    supporter_brief = _finals_supporter_brief(finals, round_teams)
     response = anthropic_client.messages.create(
         model=resolve_claude_model(),
         system="You write short, vivid image editing instructions for a fun weekly sports email banner.",
@@ -95,7 +115,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
             f"Come up with a funny or energetic scenario for this week's banner inspired by the content below. "
             f"Put Reg and the dingo in a situation that directly references the story or themes — they can be doing anything: celebrating, arguing, cowering, riding something, holding a sign, dressed up, etc. "
             f"Be creative and specific.\n\n"
-            f"{inspiration}{occasion}\n\n"
+            f"{inspiration}{occasion}{supporter_brief}\n\n"
             "Return 2-3 sentences describing the scene. Be visual and specific. No preamble."
         )}],
         max_tokens=150,
@@ -109,13 +129,14 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
         f"Maintain the original composition: one character on the far left with room to breathe, the logo badge prominently in the centre, the other character on the far right with room to breathe. "
         f"The two characters are Reg Reagan (a bloke whose shirt reads 'Bring Back the Biff' wearing green and gold Australian rugby league footy shorts) and a dingo — both must be shown in full from head to toe, fully inside the canvas. "
         f"Maintain the same overall visual style, colour palette, and brand aesthetic as the original: bright blue background with circuit-board pattern. "
+        f"{supporter_brief}"
         f"Scene: {topical} "
         f"Fun, punchy sports editorial illustration style."
     )
 
 
 
-def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None, news_hit=None, finals=None, finals_news_context=None):
+def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None, news_hit=None, finals=None, finals_news_context=None, round_teams=()):
     """Edit the existing email banner with topical elements via Claude + gpt-image-1."""
     if not anthropic_api_key or not openai_api_key:
         return None
@@ -141,6 +162,7 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_conte
         edit_instruction = _build_banner_edit_instruction(
             copy, anthropic_client, news_context=news_context, news_hit=news_hit, finals=finals,
             finals_news_context=finals_news_context,
+            round_teams=round_teams,
         )
         print(f"Banner edit: {edit_instruction[:120]}...")
 

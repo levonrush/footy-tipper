@@ -573,6 +573,11 @@ def generate_reg_regan_email_payload(
             news_hit=news_hit,
             finals=finals,
             finals_news_context=finals_banner_context,
+            round_teams=tuple(sorted({
+                str(team) for column in ("team_home", "team_away")
+                if column in predictions
+                for team in predictions[column].dropna()
+            })) if is_finals else (),
         )
     banner_path = generated_banner or _resolve_banner_path()
     plain_email = _render_plain_email(
