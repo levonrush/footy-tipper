@@ -17,7 +17,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 from pipeline.common.nrl_data.teams import NICKNAME_TO_NAME
-from pipeline.common.use_predictions.llm import resolve_claude_model
+from pipeline.common.use_predictions.llm import claude_generation_options, claude_response_text
 
 
 _NRL_NEWS_FEEDS = [
@@ -210,7 +210,7 @@ def _fetch_nrl_news_context(anthropic_client):
             return None
 
         response = anthropic_client.messages.create(
-            model=resolve_claude_model(),
+            **claude_generation_options(max_tokens=300),
             system=(
                 "You are a news editor. Given a list of NRL rugby league headlines, "
                 "pick the single most interesting, scandalous, or dramatic story from the past 7 days and summarise it in 2-3 sentences. "
@@ -219,13 +219,12 @@ def _fetch_nrl_news_context(anthropic_client):
                 "Return only the summary. No preamble."
             ),
             messages=[{"role": "user", "content": f"Headlines:\n{headlines}"}],
-            max_tokens=300,
         )
-        text = response.content[0].text.strip() if response.content else None
+        text = claude_response_text(response)
         if text:
             print(f"NRL news: {text[:100]}...")
             return text
         return None
     except Exception as exc:
-        print(f"NRL news fetch failed ({exc}). Skipping.")
+        print(f"NRL news fetch failed ({type(exc).__name__}). Skipping.")
         return None

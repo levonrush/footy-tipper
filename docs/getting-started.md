@@ -40,6 +40,31 @@ Use [`secrets.env.example`](../secrets.env.example) as the field-level reference
 | Generated banner | `OPENAI_KEY` | `OPENAI_MODEL`; banner failure does not block delivery |
 | Legacy XML rollback only | `PASSWORD`, `BASE_URL`, and the relevant `NRL_*_EXTENTION` values | `FOOTY_TIPPER_FEED_SOURCE=feed` selects it |
 
+The hosted AI defaults, checked against provider documentation on 7 October 2026,
+are [Claude Fable 5.1](https://platform.claude.com/docs/en/models/fable-5-1/overview)
+(`claude-fable-5-1`) for prose, banner scene instructions and optional legacy news
+summaries, and
+[GPT Image 2.5 Sunburst](https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst)
+(`gpt-image-2.5-sunburst`) for banner edits. These are explicit model IDs, not
+automatically advancing "latest" aliases. Blank or missing `CLAUDE_MODEL` and
+`OPENAI_MODEL` settings use these defaults; a nonblank value overrides them.
+`OPENAI_MODEL` must name an image-edit model, not a text model. The OpenAI project's
+model permissions must allow the selected image model.
+
+Fable 5.1 is the highest-capability generally available Claude option and is more
+expensive than Sonnet. For a faster, cheaper writing option, set
+`CLAUDE_MODEL=claude-sonnet-5-5`. Current Claude calls use low effort for these short
+editorial tasks, omit unsupported custom temperature settings, and reserve 4,096
+tokens beyond the previous text caps for thinking. Total output caps are 6,596
+tokens for prose, 4,246 for banner instructions and 4,396 for legacy news; thinking
+tokens are billed as output. Responses are read by content-block type, and
+truncated or refused responses use the existing fallbacks. Older model overrides
+retain their previous sampling settings and text caps.
+
+The AI SDK requirement is `anthropic>=0.84.0,<1.0.0`. Rebuild the production image
+when deploying dependency changes. These hosted AI settings do not retrain or
+replace the tipping models; `footy-tipper update-model` remains their release path.
+
 The production feed is public nrl.com ingestion plus
 [The Odds API v4](https://the-odds-api.com/liveapi/guides/v4/) for live
 prices. `FOOTY_TIPPER_LIVE_ODDS_PROVIDER=betfair` is an operator fallback;

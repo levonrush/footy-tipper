@@ -3,7 +3,11 @@
 import os
 from pathlib import Path
 
-from pipeline.common.use_predictions.llm import resolve_claude_model
+from pipeline.common.use_predictions.llm import (
+    claude_generation_options,
+    claude_response_text,
+    resolve_openai_image_model,
+)
 
 # For direct Anthropic API calls
 try:
@@ -108,7 +112,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
 
     supporter_brief = _finals_supporter_brief(finals, round_teams)
     response = anthropic_client.messages.create(
-        model=resolve_claude_model(),
+        **claude_generation_options(max_tokens=150, temperature=1.0),
         system="You write short, vivid image editing instructions for a fun weekly sports email banner.",
         messages=[{"role": "user", "content": (
             f"A weekly NRL tipping email banner features two cartoon characters: Reg Reagan (a bloke in a shirt that says 'Bring Back the Biff' wearing green and gold Australian rugby league footy shorts) and a dingo. "
@@ -118,10 +122,10 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
             f"{inspiration}{occasion}{supporter_brief}\n\n"
             "Return 2-3 sentences describing the scene. Be visual and specific. No preamble."
         )}],
-        max_tokens=150,
-        temperature=1.0,
     )
-    topical = response.content[0].text.strip()
+    topical = claude_response_text(response)
+    if not topical:
+        raise ValueError("Claude returned no complete banner instruction.")
     return (
         f"Reimagine this image as a wide landscape email banner. "
         f"CRITICAL FRAMING RULE: Every character and every element must be completely within the frame — do not crop any part of any character at any edge. Use a wide establishing shot with clear margins on all sides. "
@@ -137,7 +141,7 @@ def _build_banner_edit_instruction(copy, anthropic_client, news_context=None, ne
 
 
 def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_context=None, news_hit=None, finals=None, finals_news_context=None, round_teams=()):
-    """Edit the existing email banner with topical elements via Claude + gpt-image-1."""
+    """Edit the existing email banner via Claude and the configured GPT Image model."""
     if not anthropic_api_key or not openai_api_key:
         return None
     if Anthropic is None or OpenAIClient is None:
@@ -173,7 +177,7 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_conte
 
         openai_client = OpenAIClient(api_key=openai_api_key)
         response = openai_client.images.edit(
-            model="gpt-image-1.5",
+            model=resolve_openai_image_model(),
             image=("email-banner.png", img_bytes, "image/png"),
             prompt=edit_instruction,
             size="1536x1024",
@@ -184,7 +188,6 @@ def _generate_dynamic_banner(copy, anthropic_api_key, openai_api_key, news_conte
         print(f"Dynamic banner saved: {out_path.name}")
         return str(out_path)
     except Exception as exc:
-        import traceback
-        print(f"Dynamic banner generation failed: {exc}")
-        traceback.print_exc()
+        # Provider exceptions can echo credentials; keep them out of send logs.
+        print(f"Dynamic banner generation failed ({type(exc).__name__}).")
         return None

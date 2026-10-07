@@ -2,7 +2,6 @@
 
 import html
 import json
-import os
 import re
 
 import pandas as pd
@@ -34,7 +33,7 @@ from pipeline.common.use_predictions.email_render import (
     _render_plain_email,
     two_way_home_probability,
 )
-from pipeline.common.use_predictions.llm import DEFAULT_CLAUDE_MODEL
+from pipeline.common.use_predictions.llm import claude_generation_options, claude_response_text
 from pipeline.common.use_predictions.news import _fetch_finals_news_context, _fetch_nrl_news_context
 from pipeline.common.use_predictions.scoreboard import scoreboard_summary_line
 
@@ -393,12 +392,8 @@ Rules:
 """
 
     client = Anthropic(api_key=api_key)
-    configured_model = os.getenv("CLAUDE_MODEL")
-    model_candidates = (
-        [configured_model]
-        if configured_model
-        else [DEFAULT_CLAUDE_MODEL]
-    )
+    generation_options = claude_generation_options(max_tokens=2500, temperature=temperature)
+    model_candidates = [generation_options["model"]]
     last_exception = None
 
     for model_name in model_candidates:
@@ -406,7 +401,7 @@ Rules:
             continue
         try:
             response = client.messages.create(
-                model=model_name,
+                **generation_options,
                 system=(
                     "FINALS EVIDENCE RULES: Use only supplied facts for current football reporting. "
                     "Do not fill gaps from memory: no unsupplied venues, coaches, player-to-club assignments or incident timing. "
@@ -417,15 +412,13 @@ Rules:
                     if is_finals else ""
                 ) + "You are Reg Reagan — an opinionated Australian NRL tragic who writes weekly tipping emails. You're a one-eyed Newcastle Knights and NSW fan. In your fictional backstory, you're secretly Andrew \"Joey\" Johns' brother: you love him at heart, but you also love giving him a hard time for fun with a bit of genuine needle, often calling him \"barge arse\". Joey was the 8th Immortal and is widely considered one of the best to ever play rugby league. You hate QLD and Manly with a passion. You back Australia in internationals but have genuine love for minor nations' underdog stories — and you absolutely despise England and Great Britain. You're enthusiastic and direct, use occasional Australian slang, and have genuine strong opinions on footy. You're entertaining but not over the top — think passionate pub regular, not raving lunatic.",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=2500,
-                temperature=temperature,
             )
             if getattr(response, "stop_reason", None) == "max_tokens":
                 print(
                     f"Claude email generation hit the max_tokens cap for model '{model_name}'; "
                     "JSON is likely truncated."
                 )
-            raw_text = response.content[0].text or ""
+            raw_text = claude_response_text(response)
             payload = _parse_json_object(raw_text)
             if not payload:
                 print(f"Claude email generation returned non-JSON payload for model '{model_name}'.")
@@ -454,12 +447,10 @@ Rules:
             }
         except Exception as exc:
             last_exception = exc
-            print(f"Claude email generation failed for model '{model_name}' ({exc}).")
-            if configured_model:
-                break
+            print(f"Claude email generation failed for model '{model_name}' ({type(exc).__name__}).")
 
     if last_exception is not None:
-        print(f"Claude email generation failed ({last_exception}). Using fallback email content.")
+        print(f"Claude email generation failed ({type(last_exception).__name__}). Using fallback email content.")
     return None
 
 

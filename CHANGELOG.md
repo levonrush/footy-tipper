@@ -21,6 +21,13 @@ All notable changes to this project are documented in this file.
 - `FOOTY_TIPPER_NAN_PASSTHROUGH` (default off), sending missing values to LightGBM as `NaN` instead of `0.0` so the booster can learn an explicit missing branch. Resolved when the pipeline is built and baked into the fitted transformer, so a NaN-trained model cannot silently revert to zero-fill at serve time. It targets the performance-stat era gap; team-list features are zero-filled upstream and unaffected.
 
 ### Changed
+- Updated hosted AI defaults to Claude Fable 5.1 for editorial text and GPT Image
+  2.5 Sunburst for banner edits. `OPENAI_MODEL` now selects the image-edit model;
+  both provider overrides handle blank values consistently. Claude calls allow
+  for thinking tokens, omit unsupported sampling parameters and read text blocks
+  without exposing thinking. Existing copy/static-banner fallbacks are retained,
+  and provider exception bodies are excluded from logs. The Anthropic SDK minimum
+  is now 0.84.0; trained tipping models and their dependency pins are unchanged.
 - Scheduled delivery now uses targeted off-boundary GitHub polls plus
   independent DST-aware Google recovery slots. Both clocks ask the same
   Drive-backed gate, and existing concurrency, marker, ledger, odds, and SMTP

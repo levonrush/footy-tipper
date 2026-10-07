@@ -33,6 +33,7 @@ google-auth-httplib2==0.3.0
 gspread==5.12.4
 
 # Email content (LLM copy + banner image)
-anthropic>=0.40.0,<1.0.0
+# output_config support for current Claude models; verified with 0.84.0.
+anthropic>=0.84.0,<1.0.0
 openai>=1.0.0,<2.0.0
 Pillow==12.1.1

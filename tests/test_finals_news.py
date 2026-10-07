@@ -117,7 +117,7 @@ class FinalsNewsCopyTests(unittest.TestCase):
         payload = {"subject": "Finals", "opening": "NRL.com reports training news.",
                    "closing": "Bring back the biff.", "news_hit": "Unwanted highlight"}
         client = mock.Mock()
-        client.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(text=json.dumps(payload))])
+        client.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type="text", text=json.dumps(payload))])
         finals = dict(FINALS, market_picks=pd.DataFrame([{
             "market": "Total", "selection": "Under 45.5", "price": 1.9, "edge": 0.04,
             "fixture": "Newcastle Knights vs Penrith Panthers",
@@ -161,7 +161,7 @@ class FinalsNewsCopyTests(unittest.TestCase):
     def test_banner_only_uses_safe_brief_never_news_bearing_copy(self):
         for safe in ("Knights finals training", None):
             client = mock.Mock()
-            client.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(text="Reg holds a trophy.")])
+            client.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type="text", text="Reg holds a trophy.")])
             banner._build_banner_edit_instruction(
                 {"subject": "Injury subject", "opening": "Injury opening"}, client,
                 news_context="Injury reporting", news_hit="Injury highlight", finals=FINALS,
