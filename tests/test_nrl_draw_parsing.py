@@ -73,6 +73,28 @@ class DrawParsingTests(unittest.TestCase):
         self.assertEqual(second["team_final_score_home"], 0.0)
         self.assertEqual(second["game_number"], 2.0)
 
+    def test_2027_round_one_keeps_perth_bears_fixture(self):
+        for team_id, nickname in ((500947, "Bears"), (500947, None), (None, "Bears")):
+            with self.subTest(team_id=team_id, nickname=nickname):
+                fixture = _fixture(
+                    team_id, 500002, nickname, "Sea Eagles", "Upcoming",
+                    "2027-03-07T05:05:00Z", "Optus Stadium", "Perth",
+                )
+                fixture["roundTitle"] = "Round 1"
+                fixture["matchCentreUrl"] = (
+                    "/draw/nrl-premiership/2027/round-1/bears-v-sea-eagles/"
+                )
+                payload = {"selectedRoundId": 1, "fixtures": [fixture]}
+
+                rows = draw_to_fixture_rows(payload, 2027, {})
+
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["team_home"], "Perth Bears")
+                self.assertEqual(rows[0]["team_away"], "Manly-Warringah Sea Eagles")
+                self.assertEqual(rows[0]["round_id"], 1.0)
+                self.assertEqual(rows[0]["start_time_utc"], 1804395900.0)
+                self.assertEqual(rows[0]["start_time"] - rows[0]["start_time_utc"], 8 * 3600)
+
     def test_game_number_is_kickoff_order(self):
         payload = _payload()
         payload["fixtures"].reverse()  # payload order no longer chronological
